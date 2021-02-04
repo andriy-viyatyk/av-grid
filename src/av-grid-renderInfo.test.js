@@ -168,7 +168,7 @@ expect(JSON.stringify(newRange, 0, 4))
 
 });
 
-it('initial render speed', () => {
+xit('initial render speed', () => {
     const [speed, renderInfo] = testSpeed(
         info => renderInfoInitialState,
         input => input
@@ -180,7 +180,7 @@ it('initial render speed', () => {
     expect(speed).toBeGreaterThan(4_000);
 })
 
-it('small scroll render speed', () => {
+xit('small scroll render speed', () => {
     let directionY = 1;
     const nextOffset = old => {
         if (directionY > 0 && old > maxOffsetY){
