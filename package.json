@@ -1,10 +1,10 @@
 {
   "name": "av-grid",
-  "version": "1.0.0",
-  "description": "Made with create-react-library",
+  "version": "1.0.1",
+  "description": "React Grid Component",
   "author": "viyatyk",
   "license": "MIT",
-  "repository": "",
+  "repository": "https://github.com/andriy-viyatyk/av-grid",
   "main": "dist/index.js",
   "module": "dist/index.modern.js",
   "source": "src/index.js",
