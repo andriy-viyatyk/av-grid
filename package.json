@@ -1,6 +1,6 @@
 {
   "name": "av-grid",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "React Grid Component",
   "author": "viyatyk",
   "license": "MIT",
@@ -46,6 +46,7 @@
     "react-scripts": "^3.4.1"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ]
 }
