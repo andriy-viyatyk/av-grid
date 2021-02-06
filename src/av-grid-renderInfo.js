@@ -196,7 +196,7 @@ const _renderCell = (renderData, row, col, startRow = 0, startCol = 0) => {
         )
     ) 
     {
-        cell = renderCell({
+        cell = renderCell && renderCell({
             col, 
             row, 
             style: {

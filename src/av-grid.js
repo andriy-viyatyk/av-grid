@@ -1,30 +1,12 @@
 import React from 'react';
-import { makeStyles } from '@material-ui/core/styles';
 import useResizeAware from 'react-resize-aware';
 import {renderInfoInitialState, calcRenderInfo, calcScrollOffset,
     calcScrollOffsetY, calcScrollOffsetX} from './av-grid-renderInfo';
 
-const useStyles = makeStyles({
-    root: {
-        flex: '1 1 auto',
-        border: 'solid 1px silver',
-        position: 'relative',
-        overflow: 'hidden',
-        height: 100,
-    },
-    container: {
-        overflow: 'auto',
-        // position: 'relative',
-    },
-    renderArea: {
-        position: 'relative',
-    },
-})
-
 const AvGrid = React.forwardRef(function AvGrid(props, ref){
     const {
-        rowCount,
-        columnCount,
+        rowCount = 0,
+        columnCount = 0,
         renderCell,
         rowHeight = 32, //or function (index) => height;
         columnWidth = 120, //or function (index) => width;
@@ -35,9 +17,8 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
         overscanColumn = 0,
         overscanRow = 0,
         onRender,
+        className,
     } = props;
-
-    const classes = useStyles();
 
     const [resizeListener, size] = useResizeAware();
     const containerRef = React.useRef();
@@ -136,32 +117,36 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
         scrollToCol: col => scrollToCol(col),
     }));
 
-    // console.log("RENDER");
     onRender && onRender();
 
     return (
-        <div 
-            className={classes.root}
+        <div id="av-grid-root" className={className}
+            style={{
+                flex: '1 1 auto',
+                position: 'relative',
+                overflow: 'hidden',
+                height: 100,
+            }}
         >
             {resizeListener}
-            <div 
+            <div id="av-grid-container"
                 ref={containerRef}
-                className={classes.container}
                 style={{
                     width: size.width,
                     height: size.height,
+                    overflow: 'auto',
                 }}
                 onScroll={onScroll}
             >
-                <div 
-                    className={classes.renderArea}
+                <div id="av-grid-render-area"
                     style={{
                         width: renderInfo.innerSize.width,
                         height: renderInfo.innerSize.height,
+                        position: 'relative',
                     }}
                 >
                     {Boolean(stickyTop) &&
-                        <div
+                        <div id="av-grid-sticky-top"
                             style={{
                                 top: 0,
                                 width: renderInfo.innerSize.width,
@@ -172,7 +157,7 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
                             }}
                         >
                             {Boolean(stickyLeft) &&
-                                <div
+                                <div id="av-grid-sticky-top-left"
                                     style={{
                                         display: 'inline-block',
                                         left: 0,
@@ -187,7 +172,7 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
                                 </div>
                             }
                             {Boolean(stickyRight) &&
-                                <div
+                                <div id="av-grid-sticky-top-right"
                                     style={{
                                         display: 'inline-block',
                                         left: size.width - renderInfo.innerSize.stickyRightWidth - scrollBarWidth,
@@ -205,7 +190,7 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
                         </div>
                     }
                     {Boolean(stickyBottom) &&
-                        <div
+                        <div id="av-grid-sticky-bottom"
                             style={{
                                 top: size.height - renderInfo.innerSize.stickyBottomHeight - scrollBarHeight,
                                 width: renderInfo.innerSize.width,
@@ -216,7 +201,7 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
                             }}
                         >
                             {Boolean(stickyLeft) &&
-                                <div
+                                <div id="av-grid-sticky-bottom-left"
                                     style={{
                                         display: 'inline-block',
                                         left: 0,
@@ -231,7 +216,7 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
                                 </div>
                             }
                             {Boolean(stickyRight) &&
-                                <div
+                                <div id="av-grid-sticky-bottom-right"
                                     style={{
                                         display: 'inline-block',
                                         left: size.width - renderInfo.innerSize.stickyRightWidth - scrollBarWidth,
@@ -249,7 +234,7 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
                         </div>
                     }
                     {Boolean(stickyLeft) && 
-                        <div
+                        <div id="av-grid-sticky-left"
                             style={{
                                 display: 'inline-block',
                                 left: 0,
@@ -265,7 +250,7 @@ const AvGrid = React.forwardRef(function AvGrid(props, ref){
                         </div>
                     }
                     {Boolean(stickyRight) &&
-                        <div
+                        <div id="av-grid-sticky-right"
                             id="stickyRight"
                             style={{
                                 display: 'inline-block',
