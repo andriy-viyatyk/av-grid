@@ -40,7 +40,7 @@ Two more that follow from *Who this API is for* and are worth stating explicitly
 | 2 | Geometry — `renderInfo` + `rerender-check` | Engine | ✅ Done |
 | 3 | `RenderGridModel` — scroll, resize, dirty merge | Engine | ✅ Done |
 | 4 | DOM shell — sticky bands + cell pool | Engine | ✅ Done |
-| 5 | **Benchmark page — 100k rows** ⛔ perf gate | Engine | ⬜ Not started |
+| 5 | **Benchmark — 100k rows** ⛔ perf gate | Engine | ✅ Done — **gate passed** |
 | 6 | Public entry — `AVGrid.create()` + validation | Grid | ⬜ Not started |
 | 7 | Columns, rows, sorting | Grid | ⬜ Not started |
 | 8 | Header cell — sort indicator, resize, reorder | Grid | ⬜ Not started |
@@ -167,10 +167,15 @@ The rewrite of `RenderGrid.tsx`. This is new code, not a transliteration.
 ### Task 5 — Benchmark ⛔ **Performance gate**
 
 **Build**
-- `examples/benchmark.html` — 100,000 rows × 20 columns, generated client-side, no build step,
-  opens directly in a browser. On-page readout of: FPS during a scripted scroll, time to first
-  paint, and paint time per frame at row ~99,000.
+- `test-boards/RenderGridTest/` — a **Persephone board** carrying the harness: 100,000 rows ×
+  20 columns generated client-side, with an on-page readout of FPS during a scripted scroll,
+  time to first paint, and paint time per frame at row ~99,000. Everything is also exposed on
+  `window.bench`, so it can be driven through the browser MCP tools with no clicking — which
+  makes it a debugger for every later task, not only a benchmark.
 - `tasks/benchmark-results.md` — the baseline numbers, dated, with the machine noted.
+
+> The standalone `examples/benchmark.html` (no build step, opens in any browser) is still a
+> task-20 deliverable. The board came first because it can be inspected and driven directly.
 
 **Done when**
 - Sustained 60fps scrolling through the full 100k range.
@@ -428,4 +433,7 @@ the start.
 | 2026-08-08 | 4 | **The pool is reached through a `recycle` hook threaded from the shell to `renderCell`.** `CalcRenderInfoInput` → `RenderData` → `RenderCellParams` each gained one optional field, forwarded verbatim; the geometry never calls it, so `renderInfo.ts` stays pure. **`release()` deliberately does not reset the element** — it arrives at its next occupant with the same children, classes and listeners, because reusing the inner structure is most of the saving. Cell renderers must overwrite everything they set (task 9). |
 | 2026-08-08 | 4 | **First paint is synchronous; every later paint is on `requestAnimationFrame`.** Painting the constructor's first frame inline means the grid is on screen when `create()` returns rather than a frame later, which matters for the "minimum call must work" rule. The paint early-returns when the render info is the identical object *and* scrollbar thickness is unchanged — the second half of that condition matters because a scrollbar can appear after a paint without the geometry having moved. |
 | 2026-08-08 | 4 | **`happy-dom` added as a dev dependency** for the shell tests only, via a per-file `@vitest-environment` docblock; every other test stays in the node environment. happy-dom does no layout, so the tests pin `offsetWidth`/`offsetHeight` — which is itself a useful check that the shell reads nothing else. |
+| 2026-08-08 | 5 | **⛔ Gate passed.** 100k × 20 in a real browser: first paint 5.6 ms, scroll 60.0 fps at both the top and row 99,000, zero cell allocations while scrolling, and a **flat-cost ratio of 1.02×** — a paint at row 99,000 costs 1.07 ms against 1.04 ms at row 100. That ratio is the whole thesis of the project. ~92% of each frame is still free for tasks 6–17. Full numbers in [`benchmark-results.md`](benchmark-results.md). |
+| 2026-08-08 | 5 | **`previous` added to `RenderCellParams` — the element already rendered at that coordinate.** The first benchmark run showed a full repaint costing 2.42 ms and **504 DOM mutations**, because every dirty cell was being *replaced* by a pooled element: `renderCell` had no way to reach the element already there. With the hint, renderers update in place — **0.195 ms and 2 mutations, a 12× improvement** on the path sorting, filtering and data changes all take. The correctness half matters more: swapping the element out destroys anything living on it, so task 12's in-cell editor would have lost focus whenever its cell was marked dirty. Renderers should read `p.previous ?? p.recycle?.() ?? createElement()`. |
+| 2026-08-08 | 5 | **The harness is a Persephone board, not a standalone HTML file.** `test-boards/RenderGridTest/` can be opened, screenshotted and scripted through the browser MCP tools, so it doubles as a debugger for every later task. Its `lib/` is a gitignored build artifact — `npm run build:board` regenerates it. The standalone `examples/benchmark.html` remains a task-20 deliverable. |
 | 2026-08-08 | 1 | **Scaffold fix:** `@types/node` was missing, so `vite.config.ts` did not typecheck. Added as a dev dependency with `"node"` in `tsconfig.types`. |

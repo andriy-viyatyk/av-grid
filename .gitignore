@@ -6,3 +6,7 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+
+# Board build artifacts - regenerate with: npm run build:board
+test-boards/*/lib/
+test-boards/*/ui.log

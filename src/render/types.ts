@@ -154,6 +154,19 @@ export interface RenderCellParams {
     renderInfo: RenderInputPrepared;
     /** Present when a cell pool is attached. See `RecycleFunc`. */
     recycle?: RecycleFunc;
+    /**
+     * The element already rendered at this coordinate, when there is one — i.e. the cell is
+     * being re-rendered because it went dirty, not because it just scrolled into view.
+     *
+     * **Prefer this over `recycle()`.** Updating it in place means the shell sees the same
+     * element before and after, so the paint does no DOM insertion or removal at all, and
+     * anything living on the element survives — focus, an open editor, a running transition.
+     * Swapping in a pooled element instead would destroy all three.
+     *
+     * The usual shape is:
+     * `const el = p.previous ?? p.recycle?.() ?? document.createElement("div");`
+     */
+    previous?: HTMLElement;
 }
 
 export type RenderCellFunc = (p: RenderCellParams) => RenderedCell;

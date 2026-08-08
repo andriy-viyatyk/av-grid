@@ -351,7 +351,8 @@ const _renderCell = (
     } = renderData;
 
     const key: RenderCellKey = `${row}_${col}`;
-    let cell = old.map[key];
+    const previous = old.map[key];
+    let cell = previous;
     if (
         !cell ||
         (rerender &&
@@ -380,6 +381,9 @@ const _renderCell = (
             key,
             renderInfo: newInfo,
             recycle,
+            // Only meaningful on the dirty path — when there was no previous cell this is
+            // undefined and the renderer falls through to recycle()/createElement.
+            previous,
         });
     }
     newInfo.map[key] = cell;

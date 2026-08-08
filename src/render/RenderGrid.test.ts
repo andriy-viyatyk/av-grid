@@ -29,6 +29,14 @@ function createGrid(over: Partial<RenderGridShellOptions> = {}) {
 
     const renderCell = (p: RenderCellParams): RenderedCell => {
         calls.push({ row: p.row, col: p.col });
+        // The shape a real cell renderer uses: update in place when the cell is already
+        // there, take a pooled element when it just scrolled in, allocate only as a last
+        // resort.
+        if (p.previous) {
+            p.previous.setAttribute("data-row", String(p.row));
+            p.previous.setAttribute("data-col", String(p.col));
+            return p.previous;
+        }
         const reused = p.recycle?.();
         if (reused) recycled.push(reused);
         const el = reused ?? document.createElement("div");
@@ -304,6 +312,37 @@ describe("paint scheduling", () => {
         await nextFrame();
 
         expect(grid.stats.paints).toBe(before + 1);
+    });
+
+    it("re-renders a dirty cell in place, touching no DOM structure", async () => {
+        const { grid } = track(createGrid());
+        const target = grid.area.querySelector(
+            '[data-row="4"][data-col="2"]',
+        ) as HTMLElement;
+        const before = grid.stats;
+
+        grid.model.update({ cells: [{ row: 4, col: 2 }] });
+        await nextFrame();
+
+        // Same element, still in place: no insertion, no removal, nothing pooled. This is
+        // what lets a focused cell or an open editor survive being marked dirty.
+        expect(grid.area.querySelector('[data-row="4"][data-col="2"]')).toBe(target);
+        expect(grid.stats.cellsAppended).toBe(before.cellsAppended);
+        expect(grid.stats.cellsRemoved).toBe(before.cellsRemoved);
+    });
+
+    it("re-renders every cell in place on a full repaint", async () => {
+        const { grid, created } = track(createGrid());
+        const allocatedBefore = created.length;
+        const before = grid.stats;
+
+        grid.model.update({ all: true });
+        await nextFrame();
+
+        expect(grid.stats.paints).toBe(before.paints + 1);
+        expect(grid.stats.cellsAppended).toBe(before.cellsAppended);
+        expect(grid.stats.cellsRemoved).toBe(before.cellsRemoved);
+        expect(created.length).toBe(allocatedBefore);
     });
 
     it("stops painting after destroy", async () => {

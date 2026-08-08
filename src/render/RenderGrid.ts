@@ -81,6 +81,10 @@ export interface RenderGridStats {
     paints: number;
     cellsAppended: number;
     cellsRemoved: number;
+    /** Wall time of the most recent paint, in milliseconds. */
+    lastPaintMs: number;
+    /** Cumulative paint time, so a benchmark can average over a run. */
+    totalPaintMs: number;
     pool: Readonly<import("./CellPool").CellPoolStats>;
 }
 
@@ -109,7 +113,13 @@ export class RenderGrid {
     private lastScrollBarWidth = -1;
     private lastScrollBarHeight = -1;
 
-    private _stats = { paints: 0, cellsAppended: 0, cellsRemoved: 0 };
+    private _stats = {
+        paints: 0,
+        cellsAppended: 0,
+        cellsRemoved: 0,
+        lastPaintMs: 0,
+        totalPaintMs: 0,
+    };
 
     constructor(
         private readonly host: HTMLElement,
@@ -270,6 +280,8 @@ export class RenderGrid {
         this.lastScrollBarHeight = scrollBarHeight;
         this._stats.paints++;
 
+        const startedAt = performance.now();
+
         this.applyLayout(info, scrollBarWidth, scrollBarHeight);
 
         this.syncRegion("cells", info.cells);
@@ -290,6 +302,21 @@ export class RenderGrid {
         ) {
             this.model.restoreScroll();
         }
+
+        this._stats.lastPaintMs = performance.now() - startedAt;
+        this._stats.totalPaintMs += this._stats.lastPaintMs;
+    }
+
+    /** Zero the counters, so a benchmark can measure one phase in isolation. */
+    resetStats(): void {
+        this._stats = {
+            paints: 0,
+            cellsAppended: 0,
+            cellsRemoved: 0,
+            lastPaintMs: 0,
+            totalPaintMs: 0,
+        };
+        this.pool.resetStats();
     }
 
     /**
