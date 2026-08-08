@@ -97,6 +97,9 @@ export class GridInteractions<R> {
         this.root.addEventListener("dragover", this.onDragOver);
         this.root.addEventListener("drop", this.onDrop);
         this.root.addEventListener("dragend", this.onDragEnd);
+        this.root.addEventListener("copy", this.onCopy);
+        this.root.addEventListener("cut", this.onCut);
+        this.root.addEventListener("paste", this.onPaste);
     }
 
     destroy(): void {
@@ -111,6 +114,9 @@ export class GridInteractions<R> {
         this.root.removeEventListener("dragover", this.onDragOver);
         this.root.removeEventListener("drop", this.onDrop);
         this.root.removeEventListener("dragend", this.onDragEnd);
+        this.root.removeEventListener("copy", this.onCopy);
+        this.root.removeEventListener("cut", this.onCut);
+        this.root.removeEventListener("paste", this.onPaste);
         this.endResize();
         this.endSelect();
     }
@@ -442,15 +448,55 @@ export class GridInteractions<R> {
      * in a cell, and arrow keys there belong to the caret, not to the grid.
      */
     private onKeyDown = (e: KeyboardEvent): void => {
-        const target = e.target as Element | null;
-        if (
-            target &&
-            target !== this.root &&
-            target.closest?.("input, textarea, select, [contenteditable='true']")
-        ) {
-            return;
-        }
+        if (this.fromEditableControl(e.target)) return;
         this.model.events.content.onKeyDown.send(e);
+    };
+
+    /**
+     * Did this event come from inside a control that handles its own keys and clipboard?
+     *
+     * The open cell editor is exactly that: its arrow keys belong to the caret and its ctrl+C
+     * to the text the user selected inside it, not to the grid's cell range.
+     */
+    private fromEditableControl(target: EventTarget | null): boolean {
+        const el = target as Element | null;
+        return Boolean(
+            el &&
+                el !== this.root &&
+                el.closest?.("input, textarea, select, [contenteditable='true']"),
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Clipboard
+    // -----------------------------------------------------------------------
+
+    /**
+     * The native clipboard events, which is where ctrl+C / ctrl+X / ctrl+V arrive.
+     *
+     * Riding the event rather than calling `navigator.clipboard` from a keydown is what keeps
+     * paste working without a permission prompt, and copy working outside a secure context.
+     * `preventDefault` only when something was actually written, so a ctrl+C the grid has no
+     * answer for still copies whatever the browser would have copied.
+     */
+    private onCopy = (e: ClipboardEvent): void => {
+        if (!this.model.models.copyPaste.enabled) return;
+        if (this.fromEditableControl(e.target)) return;
+        if (this.model.models.copyPaste.writeToEvent(e)) e.preventDefault();
+    };
+
+    private onCut = (e: ClipboardEvent): void => {
+        if (!this.model.models.copyPaste.enabled) return;
+        if (this.fromEditableControl(e.target)) return;
+        if (!this.model.models.copyPaste.writeToEvent(e)) return;
+        e.preventDefault();
+        if (this.model.options.editable) this.model.models.editing.deleteRange();
+    };
+
+    private onPaste = (e: ClipboardEvent): void => {
+        if (!this.model.models.copyPaste.enabled) return;
+        if (this.fromEditableControl(e.target)) return;
+        if (this.model.models.copyPaste.pasteFromEvent(e)) e.preventDefault();
     };
 
     // -----------------------------------------------------------------------

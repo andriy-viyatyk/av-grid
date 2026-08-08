@@ -52,6 +52,7 @@ import {
 } from "./validate";
 import type { CellEdit, CellFocus, Column, SortColumn } from "./types";
 import type { GridSelection } from "./model/FocusModel";
+import type { CopyMode } from "./model/CopyPasteModel";
 import type { AVGridDataChangeEvent } from "./model/AVGridData";
 import type { RowAlign } from "./render/types";
 
@@ -344,6 +345,67 @@ export class AVGrid<R = any> {
      */
     setCellValue(rowIndex: number, colIndex: number, value: any): boolean {
         return this.model.models.editing.editCellAt(rowIndex, colIndex, value);
+    }
+
+    // -----------------------------------------------------------------------
+    // Clipboard
+    // -----------------------------------------------------------------------
+
+    /**
+     * Copy the selected range to the clipboard. Resolves to whether it got there.
+     *
+     * ```js
+     * await grid.copySelection();                   // tab-separated — pastes into Excel as cells
+     * await grid.copySelection("copyWithHeaders");  // with the column names on the first line
+     * await grid.copySelection("copyAsJson");       // an array of objects
+     * await grid.copySelection("copyAsHtmlTable");  // a formatted table, plus TSV as plain text
+     * ```
+     *
+     * The user pressing **ctrl+C** does not come through here — that goes through the browser's
+     * own copy event, which needs no permission. This is the programmatic path, and it can be
+     * refused: `navigator.clipboard` requires a secure context, and a page that is neither
+     * `https:` nor `localhost` falls back to `execCommand` and may still fail.
+     */
+    copySelection(mode: CopyMode = "copy"): Promise<boolean> {
+        return this.model.models.copyPaste.copySelection(mode);
+    }
+
+    /** The selected range as text, without going near the clipboard. */
+    getSelectionText(mode: CopyMode = "copy"): string {
+        return this.model.models.copyPaste.selectionText(mode);
+    }
+
+    /**
+     * Read the clipboard and paste it into the selection.
+     *
+     * Reading the clipboard is permission-gated — Chrome prompts, Firefox refuses — so this
+     * resolves `false` more often than you would like. **ctrl+V** has no such problem, and
+     * neither does `pasteText`.
+     */
+    paste(): Promise<boolean> {
+        return this.model.models.copyPaste.paste();
+    }
+
+    /**
+     * Paste tab-separated text into the selection, with no clipboard involved. Returns whether
+     * anything changed.
+     *
+     * ```js
+     * grid.focusCell(0, 1);
+     * grid.pasteText("Ada\t36\nGrace\t45");   // one selected cell expands to fit
+     * ```
+     *
+     * A single selected cell expands to fit the text, clamped to the rows and columns that
+     * exist; a larger selection is filled by repeating the text across it. Every cell goes
+     * through the same validation and `onEdit` call that typing does.
+     */
+    pasteText(text: string): boolean {
+        return this.model.models.copyPaste.pasteText(text);
+    }
+
+    /** Copy the selection, then clear it — ctrl+X. Clears nothing unless the grid is editable. */
+    cut(): Promise<boolean> {
+        return this.model.models.copyPaste.cut();
     }
 
     // -----------------------------------------------------------------------

@@ -45,6 +45,8 @@ export type {
 } from "./model/FocusModel";
 export { SelectedModel } from "./model/SelectedModel";
 export type { SelectAllState } from "./model/SelectedModel";
+export { CopyPasteModel } from "./model/CopyPasteModel";
+export type { CopyMode } from "./model/CopyPasteModel";
 export { EditingModel } from "./model/EditingModel";
 export type { CellEditor, EditorContext } from "./model/EditingModel";
 export { createCellInput } from "./view/CellInput";

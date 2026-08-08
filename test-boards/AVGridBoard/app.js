@@ -479,6 +479,89 @@ async function measureEditing(row = 100) {
     };
 }
 
+/**
+ * The task-13 check: copy and paste over a large selection.
+ *
+ * Copy is unavoidably O(selection) — it has to produce a string containing every selected
+ * value, and 1,000 rows of it is the point. What must *not* scale with the selection is the
+ * repaint: a paste marks the viewport once, so `dirtyOnPaste` reads 1 whether two cells were
+ * pasted or two thousand, and `mutationsOnPaste` stays 0 because every visible cell is already
+ * in place and only its text changes.
+ *
+ * Both events are genuine `ClipboardEvent`s with a real `DataTransfer`, so this exercises the
+ * same path ctrl+C and ctrl+V take — not the programmatic API, which the sandbox's clipboard
+ * permissions would block anyway.
+ */
+async function measureClipboard(row = 100, rowCount = 1000) {
+    const rowHeight = grid.getState().rowHeight;
+    await scrollTo(Math.max(0, (row - 5) * rowHeight));
+
+    const editable = grid.model.data.columns
+        .map((c, i) => ({ c, i }))
+        .filter(
+            ({ c }) =>
+                !c.isStatusColumn && !c.readonly && !c.options && c.dataType !== "boolean",
+        )
+        .map(({ i }) => i);
+    const [colStart, colEnd] = [editable[0], editable[1] ?? editable[0]];
+
+    const lastRow = Math.min(row + rowCount - 1, grid.getVisibleRows().length - 1);
+    grid.selectRange(row, colStart, lastRow, colEnd);
+    await settle(3);
+
+    const copyEvent = new ClipboardEvent("copy", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: new DataTransfer(),
+    });
+    const copyStartedAt = performance.now();
+    grid.element.dispatchEvent(copyEvent);
+    const copyMs = performance.now() - copyStartedAt;
+    const text = copyEvent.clipboardData.getData("text/plain");
+
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirty = 0;
+    model.update = (info) => {
+        dirty += 1;
+        return originalUpdate.call(model, info);
+    };
+
+    const pasted = new DataTransfer();
+    pasted.setData("text/plain", `pasted A\tpasted B\n`);
+    grid.render.resetStats();
+    const pasteStartedAt = performance.now();
+    grid.element.dispatchEvent(
+        new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: pasted,
+        }),
+    );
+    const pasteMs = performance.now() - pasteStartedAt;
+    const dirtyOnPaste = dirty;
+    await settle(3);
+
+    model.update = originalUpdate;
+    const stats = grid.render.stats;
+    const key = grid.model.data.columns[colStart].key;
+
+    return {
+        row,
+        selectionRows: lastRow - row + 1,
+        copyMs,
+        copiedChars: text.length,
+        copiedLines: text.split("\n").length - 1,
+        copyPrevented: copyEvent.defaultPrevented,
+        pasteMs,
+        dirtyOnPaste,
+        mutationsOnPaste: stats.cellsAppended + stats.cellsRemoved,
+        // The paste tiled one clipboard row across the whole selection.
+        firstPastedValue: grid.model.data.rows[row][key],
+        lastPastedValue: grid.model.data.rows[lastRow][key],
+    };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -530,6 +613,9 @@ async function runBenchmark(count = 100000) {
     status("measuring an edit…");
     const editing = await measureEditing(count - 1000);
 
+    status("measuring copy and paste over 1,000 rows…");
+    const clipboard = await measureClipboard(count - 1000);
+
     status("measuring a sort of 100k rows…");
     const sort = await measureSort();
 
@@ -550,6 +636,7 @@ async function runBenchmark(count = 100000) {
             : 0,
         selectAll,
         editing,
+        clipboard,
         sortMs: sort.modelMs,
     };
 
@@ -620,6 +707,16 @@ function renderResults(r) {
             `${r.editing.commitMs.toFixed(3)} ms`,
             `${r.editing.dirtyCellsOnCommit} cells marked · editor survived repaint: ${r.editing.sameElementAfterRepaint}`,
         )}
+        ${row(
+            "Copy 1,000 rows × 2 columns",
+            `${r.clipboard.copyMs.toFixed(1)} ms`,
+            `${r.clipboard.copiedChars.toLocaleString()} chars · ${r.clipboard.copiedLines.toLocaleString()} lines`,
+        )}
+        ${row(
+            "Paste into 1,000 rows",
+            `${r.clipboard.pasteMs.toFixed(1)} ms`,
+            `${r.clipboard.dirtyOnPaste} repaint marked · ${r.clipboard.mutationsOnPaste} DOM mutations`,
+        )}
         ${row("Sort 100k rows (model)", `${r.sortMs.toFixed(1)} ms`)}
     </tbody></table>`;
     resultsEl.hidden = false;
@@ -653,6 +750,7 @@ window.avg = {
     measureRangeDrag,
     measureSelectAll,
     measureEditing,
+    measureClipboard,
     measureSort,
     scrollTo,
     settle,

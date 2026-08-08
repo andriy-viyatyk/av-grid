@@ -20,6 +20,15 @@ const QUOTE = '"';
 export interface CsvStringifyOptions {
     /** Emit a header row of the column names. Default `true`. */
     header?: boolean;
+    /**
+     * Header labels, when they are not the property names.
+     *
+     * Without this, the property read off each record and the label written above it are the
+     * same string — which breaks as soon as two columns share a name, because the second one
+     * reads the first one's property. The grid's copy path therefore keys its records by
+     * column *index* and passes the labels here.
+     */
+    headerNames?: Array<string | undefined>;
     /** Field separator. Default `","`; the grid's clipboard path passes `"\t"`. */
     delimiter?: string;
     /** Line separator. Default `"\n"`. */
@@ -68,13 +77,21 @@ export function recordsToCsv(
     columns: Array<string | undefined>,
     options: CsvStringifyOptions = {},
 ): string {
-    const { header = true, delimiter = ",", rowDelimiter = "\n" } = options;
+    const {
+        header = true,
+        headerNames,
+        delimiter = ",",
+        rowDelimiter = "\n",
+    } = options;
     const names = columns.map((c) => (c === undefined ? "undefined" : c));
 
     const lines: string[] = [];
     if (header) {
+        const labels = (headerNames ?? names).map((n) =>
+            n === undefined ? "undefined" : n,
+        );
         lines.push(
-            names.map((n) => quoteField(n, delimiter, rowDelimiter)).join(delimiter),
+            labels.map((n) => quoteField(n, delimiter, rowDelimiter)).join(delimiter),
         );
     }
 

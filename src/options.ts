@@ -120,6 +120,22 @@ export interface AVGridOptions<R = any> {
     onInvalidEdit?: (edit: InvalidEditEvent<R>) => void;
 
     // -----------------------------------------------------------------------
+    // Clipboard
+    // -----------------------------------------------------------------------
+
+    /**
+     * Turn off the grid's clipboard handling. On by default — no option is needed to get it.
+     *
+     * ctrl+C copies the selected range as tab-separated text, which is what Excel, Sheets and
+     * Numbers paste as cells; ctrl+shift+C adds a header row; ctrl+V pastes into the selection;
+     * ctrl+X copies and then clears, on an `editable` grid. Pasting writes through the same path
+     * as typing, so `validate`, `readonly` and `onEdit` all still apply.
+     *
+     * Set this when the page has its own clipboard behaviour to run instead.
+     */
+    disableClipboard?: boolean;
+
+    // -----------------------------------------------------------------------
     // Layout
     // -----------------------------------------------------------------------
 

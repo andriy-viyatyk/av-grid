@@ -25,14 +25,15 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1 and 2 are complete, and tasks 10–12 with them.** Tasks 1–12 are done; task 13
-(clipboard copy/paste) is next.
+**Phases 1 and 2 are complete, and tasks 10–13 with them.** Tasks 1–13 are done; task 14
+(row/column add and delete) is next.
 
 There is a working grid. `AVGrid.create(el, { rows })` renders a real one — columns, header
 labels, widths, row keys and data types all inferred — with header sorting, column resize and
 reorder, custom cell renderers, a search filter, cell focus, full keyboard navigation, range
 selection by drag or by shift, row selection through a checkbox column, in-cell editing
-(`editable: true`), and a stylesheet driven entirely by CSS custom properties.
+(`editable: true`), Excel-compatible clipboard copy/cut/paste, and a stylesheet driven entirely
+by CSS custom properties.
 
 The performance thesis survived the grid layer, and then survived selection. 100,000 rows in a
 real browser, through the *whole* grid rather than the engine alone: first paint 6.7 ms, 60 fps
@@ -47,7 +48,9 @@ Task 11's: selecting all 100,000 rows takes 24.9 ms, marks **19 rows** dirty, an
 cell is being edited does **zero** DOM mutations and hands back the same `<input>`, which is the
 first thing in the library that would notice if the render path stopped preferring `p.previous`.
 The gate was re-run with editing on and holds: first paint 5.7 ms, flat ratio 0.94×, 60/60 fps.
-Full results, history, and the measurements that mislead if taken carelessly, in
+Task 13's is the same shape one level up: pasting into 1,000 cells marks **one** repaint and
+mutates **zero** DOM nodes, because a paste writes silently and marks the viewport once at the
+end. Full results, history, and the measurements that mislead if taken carelessly, in
 [`tasks/benchmark-results.md`](tasks/benchmark-results.md).
 
 ## Reference implementation — Persephone
@@ -107,6 +110,7 @@ av-grid/
             AVGridModel.ts       ← the hub every other model hangs off
             AVGridData.ts        ← derived data + batched change events
             AVGridEvents.ts      ← the internal event bus
+            CopyPasteModel.ts    ← copy/cut/paste, on the native clipboard events
             ColumnsModel.ts      ← visible columns, resize, reorder
             RowsModel.ts         ← filter → sort pipeline
             SortColumnModel.ts   ← sort state and its comparator

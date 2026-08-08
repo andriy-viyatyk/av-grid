@@ -21,6 +21,7 @@ import type { CellContext, CellEdit, Column, SortColumn } from "../types";
 import { AVGridData } from "./AVGridData";
 import { AVGridEvents } from "./AVGridEvents";
 import { ColumnsModel } from "./ColumnsModel";
+import { CopyPasteModel } from "./CopyPasteModel";
 import { EditingModel } from "./EditingModel";
 import { FocusModel } from "./FocusModel";
 import { RowsModel } from "./RowsModel";
@@ -39,18 +40,22 @@ export class AVGridModels<R> {
     readonly selected: SelectedModel<R>;
     readonly focus: FocusModel<R>;
     readonly editing: EditingModel<R>;
+    readonly copyPaste: CopyPasteModel<R>;
 
     constructor(model: AVGridModel<R>) {
         // Order matters: `columns` must exist before `rows`, because the first
         // `updateColumnsData()` sends a data change that `RowsModel` reacts to. `selected` and
         // `focus` come last so neither revalidates against a half-built pipeline — and
-        // `editing` after `focus`, because every edit starts from where the focus is.
+        // `editing` after `focus`, because every edit starts from where the focus is, and
+        // `copyPaste` last of all — a paste is a batch of edits over the selection, so it needs
+        // both.
         this.columns = new ColumnsModel<R>(model);
         this.sortColumn = new SortColumnModel<R>(model);
         this.rows = new RowsModel<R>(model);
         this.selected = new SelectedModel<R>(model);
         this.focus = new FocusModel<R>(model);
         this.editing = new EditingModel<R>(model);
+        this.copyPaste = new CopyPasteModel<R>(model);
     }
 }
 

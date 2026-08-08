@@ -223,16 +223,20 @@ export function rowsToCsvText<R>(
     if (!rows?.length || !columns?.length) return undefined;
 
     const names = columns.map((c) => c.name ?? String(c.key));
+    // Keyed by index, not by name: two columns may share a name — and a computed column has no
+    // row property at all — so the name is not a usable identity. The labels go to `headerNames`.
+    const keys = columns.map((_, i) => String(i));
 
     const records = rows.map((row) =>
         columns.reduce<{ [key: string]: any }>((acc, c, i) => {
-            acc[names[i]] = columnDisplayValue(c, row);
+            acc[keys[i]] = columnDisplayValue(c, row);
             return acc;
         }, {}),
     );
 
-    return recordsToCsv(records, names, {
+    return recordsToCsv(records, keys, {
         header: withHeaders,
+        headerNames: names,
         delimiter: tabDelimiter === true ? "\t" : (tabDelimiter as string),
     });
 }

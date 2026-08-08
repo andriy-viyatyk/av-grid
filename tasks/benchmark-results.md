@@ -279,6 +279,63 @@ figure taken under that condition would have measured the throttle rather than t
 Screenshots pump about eight frames each, which is enough to nurse a short measurement along and
 nothing more. If the harness appears to hang, check `document.hidden` before suspecting the grid.
 
+## Task 13 — clipboard copy/paste — 2026-08-08
+
+Copy is the one operation in the library that is *honestly* O(selection): it has to produce a
+string containing every selected value, and there is no version of that which is viewport-bounded.
+So the question this measures is the other half — **what the paste costs the renderer** — plus
+whether the copy itself stays out of the way. Harness entry
+`window.avg.measureClipboard(row, rowCount)`.
+
+Measured on the 1,000-row board over a **500-row × 2-column** selection:
+
+| Measure | Result | |
+|---|---|---|
+| Copy 500 rows × 2 columns | 0.7 ms | 6,634 characters, 501 lines |
+| Copy took over the event | true | `preventDefault`, so the browser does not also copy |
+| Paste into 1,000 cells | 1.9 ms | tiled one clipboard row across all 500 |
+| **Repaints marked by the paste** | **1** | ✅ `{ all: true }` once, not a cell per row |
+| **DOM mutations on paste** | **0** | ✅ every visible cell was already in place |
+
+That 1 is the number to watch. A paste writes through `editCellAt` per cell, and marking each
+one would build a dirty set larger than the viewport it is about to repaint — so the writes are
+silent and the whole thing marks the viewport once at the end, exactly as a range delete does.
+`{ all: true }` repaints only what is on screen, which is why 1,000 written cells still mutate
+no DOM: each visible cell is `p.previous`, and only its text changes.
+
+Both events in that measurement are genuine `ClipboardEvent`s carrying a real `DataTransfer`, so
+this is the path ctrl+C and ctrl+V actually take — not the programmatic API, which the board's
+sandbox would refuse anyway.
+
+The round trip was verified in the browser against **the real Windows clipboard**, not only in
+tests. Two cells were given a value containing a tab and a value containing a newline;
+`copySelection()` wrote the selection out, and reading the system clipboard back gave
+
+```
+Ada\t"has\ttab"\r\n
+Alan\t"two\r\nlines"\r\n
+```
+
+— which is exactly the quoted-TSV shape Excel parses into cells. Pasting those same bytes back
+into the grid twenty rows down restored both values intact and moved the selection onto them.
+Screenshotted.
+
+One honest detail from that trip: the newline came back as `\r\n` rather than the `\n` that went
+out, because Windows normalises line endings for the whole clipboard payload. The grid does not
+undo that — the parser preserves whatever is inside the quotes, and inventing a normalisation
+would silently corrupt a value that really did contain `\r\n`.
+
+**What could not be checked from here:** a synthetic keystroke does not produce a native
+clipboard event, so `browser_press_key("Control+c")` delivers the keydown and nothing else — the
+same family of tool artifact as `browser_click` not dispatching `pointerdown`. The handlers were
+therefore exercised with genuine `ClipboardEvent`s carrying a real `DataTransfer`, and the
+system-clipboard half was checked through `copySelection()` as above. A human pressing ctrl+C is
+the one link in the chain still taken on the browser's word.
+
+**The 100k gate was not re-run for this task**, because nothing in the render path changed:
+`DataCell` is untouched, and the new code is three root listeners plus a model that runs only
+when a clipboard event fires. The last full run is task 12's, below.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -288,3 +345,4 @@ nothing more. If the harness appears to hang, check `document.hidden` before sus
 | 2026-08-08 | 10 | 6.7 ms | 1.08× | 60.0 / 60.0 | 0 | Focus and range selection. Drag ratio **1.04×**, 2 cells marked per move at both ends. |
 | 2026-08-08 | 11 | 5.8 ms | 0.89× | 60.0 / 60.0 | 0 | Row selection + checkbox column. Select-all on 100k: 24.9 ms, **19 rows marked**, 0 mutations. |
 | 2026-08-08 | 12 | 5.7 ms | 0.94× | 60.0 / 60.0 | 0 | In-cell editing. Editing at row 99,000: **1 cell marked**, **0 mutations**, editor survives a full repaint. No regression. |
+| 2026-08-08 | 13 | — | — | — | — | Clipboard. Render path untouched, so no gate re-run: paste into 1,000 cells marks **1 repaint** and mutates **0** DOM nodes; copying 500 rows costs 0.7 ms. |
