@@ -21,6 +21,10 @@ Then open the board in Persephone. After editing board files, apply the changes 
 
 `lib/` is a **build artifact and is gitignored**.
 
+> **Building another board?** Read `read_guide("boards")` first — it is the Persephone MCP
+> documentation for how boards work — then scaffold with the `create_board` tool so the board
+> is auto-trusted.
+>
 > **Why `AVGridBoard` and not `AVGridTest`?** Trust is granted per board *path*, and a board
 > Persephone did not create is untrusted — it renders a "Trust board" prompt instead of the
 > page, and `browser_evaluate` cannot reach it. `create_board` scaffolds a board that is

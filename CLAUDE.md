@@ -161,12 +161,6 @@ browser_evaluate { pageId, expression: "window.avg.runBenchmark(100000)" }
 browser_take_screenshot { pageId }       # verify visually — a11y snapshots hide layout bugs
 ```
 
-**Create a new board with the `create_board` MCP tool, then write your files into it.** Board
-trust is granted per path, and a board Persephone did not create renders a trust prompt
-instead of the page — `browser_evaluate` cannot reach it at all, which makes a hand-created
-board folder useless. `create_board` also refuses a name that already exists, so create first
-and populate second.
-
 After editing board files, apply the changes with **`board_refresh { pageId }`** — boards do
 not auto-reload. After editing `src/`, run `npm run build:board` first.
 
@@ -174,8 +168,22 @@ Each board puts its whole harness on one global — `window.bench` and `window.a
 session runs without clicking. Both expose paint timings and pool hit/miss counts, and a
 `resetStats()` that isolates a phase.
 
-**Add a board here for any subsystem that needs eyes on it** — selection, editing, filtering.
-Rewrite each board's `CLAUDE.md` to document that board once it works.
+### Creating a new board
+
+**1. Read the boards guide first — `read_guide("boards")`.** It is the Persephone MCP
+documentation for how boards are built: the sandbox and its offline-first CSP, the
+`window.persephone` bridge, the `--p-*` theme contract, and the `browser_*` testing tools.
+Read it before writing board files, not after the board fails to load.
+
+**2. Scaffold with the `create_board` MCP tool, then write your files into it.** A board
+created that way is **auto-trusted**. Board trust is granted per path, and a board Persephone
+did not create renders a trust prompt instead of the page — `browser_evaluate` cannot reach it
+at all, which makes a hand-created board folder useless for debugging. `create_board` also
+refuses a name that already exists, so create first and populate second.
+
+**Add a board here for any subsystem that needs eyes on it** — selection, editing, filtering —
+following *Creating a new board* above. Rewrite each board's `CLAUDE.md` to document that
+board once it works.
 
 ## Working agreements
 
