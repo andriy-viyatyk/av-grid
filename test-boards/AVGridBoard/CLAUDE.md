@@ -51,6 +51,8 @@ await window.avg.measureStructure(row)    // the task-14 check: does an insert m
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`
+await window.avg.measureList(100000)      // task 14b: mount, fps, flat ratio, select-all cost
+window.avg.closeList()
 window.avg.createGrid(count)              // explicit columns
 window.avg.minimalGrid()                  // AVGrid.create(el, { rows }) and nothing else
 window.avg.grid                           // the live AVGrid; .model, .render, .getState()
@@ -119,6 +121,13 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   (`{ x: 300, y: innerHeight - 40 }`) for the flip, `tall: true` for the height cap and the
   scrolling body, and near the right edge for the clamp. `insideViewport` must be `true` in
   every case.
+- **The virtualized list** — `measureList(count)` opens a `VirtualList` of `count` options
+  inside a real popover and reports mount cost, rows actually in the DOM, fps, the top-vs-end
+  paint ratio and what a select-all costs. Run it inside a popover, never bare: a list whose
+  container has no definite height renders nothing, which is a layout fact happy-dom cannot
+  reproduce. The numbers to quote are **rows in the DOM** (11, not 100,000) and the **flat
+  ratio**; `mountMs` is honest only because the clock stops before the settle — awaiting frames
+  first measures the display refresh rate.
 - **Auto-scroll while dragging** — drag a selection past any edge and the grid scrolls after
   it, faster the further past the edge the pointer goes, and keeps going while the pointer
   sits still. This is the one thing the pointer-event rewrite had to build by hand, so it is

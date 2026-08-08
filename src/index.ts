@@ -57,6 +57,12 @@ export { StructureModel } from "./model/StructureModel";
 export { SELECT_COLUMN_KEY, createSelectColumn } from "./view/SelectColumn";
 export { Popover } from "./view/Popover";
 export type { PopoverOptions, PopoverPlacement, PopoverSize } from "./view/Popover";
+export { VirtualList } from "./view/VirtualList";
+export type {
+    VirtualListItem,
+    VirtualListOptions,
+    VirtualListValue,
+} from "./view/VirtualList";
 
 // --- helpers --------------------------------------------------------------
 

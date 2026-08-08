@@ -483,6 +483,119 @@ export const css = `
     transform: rotate(-90deg);
 }
 
+/* --- VirtualList -----------------------------------------------------------------------
+   Mounted wherever its caller puts it — inside a popover, usually — so like the popover it
+   defines its own tokens rather than inheriting the grid's. */
+.avg-list {
+    --avg-text: var(--p-text, #202020);
+    --avg-text-muted: var(--p-text-muted, #767676);
+    --avg-bg: var(--p-bg, #ffffff);
+    --avg-accent: var(--p-accent, #0078d4);
+    --avg-border-color: color-mix(in srgb, var(--avg-text) 22%, transparent);
+    --avg-hover-bg: color-mix(in srgb, var(--avg-text) 6%, transparent);
+    --avg-selection-bg: color-mix(in srgb, var(--avg-accent) 18%, transparent);
+
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    color: var(--avg-text);
+}
+
+.avg-list-search {
+    flex: 0 0 auto;
+    margin: 4px;
+    padding: 3px 6px;
+    font: inherit;
+    color: var(--avg-text);
+    background-color: transparent;
+    border: solid 1px var(--avg-border-color);
+    border-radius: 4px;
+    outline: none;
+}
+
+.avg-list-search:focus {
+    border-color: var(--avg-accent);
+}
+
+.avg-list-body {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* The rows are engine-rendered, so the item rule has to cover both the pooled cells and the
+   select-all row, which is an ordinary element above the scroll area. */
+.avg-list-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 6px;
+    box-sizing: border-box;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+}
+
+.avg-list-all {
+    display: flex;
+    flex: 0 0 auto;
+    height: 24px;
+    border-bottom: solid 1px var(--avg-border-color);
+    color: var(--avg-text-muted);
+}
+
+.avg-list-item:hover {
+    background-color: var(--avg-hover-bg);
+}
+
+.avg-list-item[data-selected] {
+    background-color: var(--avg-selection-bg);
+}
+
+.avg-list-item[data-active] {
+    outline: solid 1px var(--avg-accent);
+    outline-offset: -1px;
+}
+
+.avg-list-item[data-disabled] {
+    color: var(--avg-text-muted);
+    cursor: default;
+    opacity: 0.6;
+}
+
+.avg-list-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.avg-list-box {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    color: var(--avg-text-muted);
+}
+
+.avg-list-box.avg-checked {
+    color: var(--avg-accent);
+}
+
+.avg-list-box > svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* A single-pick list has no checkboxes — the row highlight is the selection. */
+.avg-list:not([data-multiple]) .avg-list-box {
+    display: none;
+}
+
+.avg-list-empty {
+    padding: 8px;
+    color: var(--avg-text-muted);
+    text-align: center;
+}
+
 .avg-grid .avg-empty {
     position: absolute;
     inset: 0;

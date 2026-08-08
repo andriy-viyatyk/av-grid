@@ -394,6 +394,41 @@ row count is exactly the one that should not be taken on trust:
 | Range drag, both ends | 2.0 cells marked | ✅ |
 | Paste into 1,000 cells | 1 repaint, 0 mutations | ✅ |
 
+## Task 14b — the virtualized list — 2026-08-08
+
+The filter popover's body, measured because the whole reason it exists is a number: a
+distinct-values checklist over a high-cardinality column on 100k rows would otherwise put tens of
+thousands of DOM rows inside a popover. Harness entry `window.avg.measureList(count)`, which opens
+a real `Popover` and fills it — a list whose container has no definite height renders nothing, so
+measuring it outside one would measure the wrong thing.
+
+100,000 options, 24 px rows, in a 320 px-tall popover:
+
+| Measure | Result | Gate |
+|---|---|---|
+| Mount — construction + first paint | **4.4 ms** | same order as the grid's 7.4 ms for 100k rows ✅ |
+| Rows in the DOM | **11** | not 100,000 ✅ |
+| Scroll fps | 60.0 | ✅ |
+| Paint cost, top / end | 0.313 ms / 0.313 ms | |
+| **Flat-cost ratio** | **1.00×** | ≈ 1.0 ✅ |
+| Select all 100,000 options | 9.0 ms, 1 repaint | ✅ |
+
+The flat ratio is the same claim the grid makes, one level down: a paint at option 99,000 costs
+what a paint at option 0 costs, because both paint eleven rows. Select-all marks `{ all: true }`
+once for the whole operation — the trade already made for Delete, a boolean toggle and a paste —
+so ticking 100,000 options costs the same paint as ticking one.
+
+Two things this measurement corrected while it was being taken. `mountMs` originally awaited three
+frames before stopping the clock and reported **20.6 ms**, which was mostly the display refresh
+rate: the number that matters is construction plus the synchronous first paint, the same thing the
+grid's `firstPaintMs` measures. And the list initially rendered *nothing* under test, because the
+constructor built the engine before the items existed — `RenderGrid` paints synchronously so a grid
+is on screen when it returns, and that paint was being spent on an empty `filtered`. State before
+engine, now, with a comment saying why.
+
+No grid gate re-run: the list is a separate `RenderGrid` instance and touches nothing in the
+grid's render path.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -405,3 +440,5 @@ row count is exactly the one that should not be taken on trust:
 | 2026-08-08 | 12 | 5.7 ms | 0.94× | 60.0 / 60.0 | 0 | In-cell editing. Editing at row 99,000: **1 cell marked**, **0 mutations**, editor survives a full repaint. No regression. |
 | 2026-08-08 | 14 | 7.4 ms | 0.98× | 60.0 / 60.0 | 0 | Row/column add and delete. Adding a row above the viewport at row 90,000: **0 mutations**, scroll and focus both kept — after fixing a focus-recentre that moved the viewport 261 px. |
 | 2026-08-08 | 13 | — | — | — | — | Clipboard. Render path untouched, so no gate re-run: paste into 1,000 cells marks **1 repaint** and mutates **0** DOM nodes; copying 500 rows costs 0.7 ms. |
+| 2026-08-08 | 14b | — | — | 60.0 | 0 | `VirtualList`. 100,000 options: mount **4.4 ms**, **11 rows** in the DOM, flat ratio **1.00×**, select-all 9.0 ms in **1 repaint**. Separate engine instance, so no grid gate re-run. |
+| 2026-08-08 | 14a | — | — | — | — | `Popover`. Not on the render path. Verified in the browser: flip, clamp, height cap with a scrolling body, follow-on-scroll, Escape, outside click, focus restored, resize drag exact. |

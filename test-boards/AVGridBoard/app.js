@@ -11,7 +11,7 @@
  * clicking.
  */
 
-import { AVGrid, Popover } from "./lib/av-grid.js";
+import { AVGrid, Popover, VirtualList } from "./lib/av-grid.js";
 
 const el = (id) => document.getElementById(id);
 const statusEl = el("status");
@@ -908,9 +908,111 @@ function closePopover(result) {
     popover = null;
 }
 
+/**
+ * Task 14b — the virtualized list, against a real viewport.
+ *
+ * The task's gate: a list of 100,000 options has to mount and scroll like the grid does, not
+ * like a popover full of DOM. Opened inside a real `Popover`, because that is where it will
+ * live and because a list whose container has no definite height renders nothing at all.
+ */
+let listPopover = null;
+let list = null;
+
+async function measureList(count = 100000, ms = 1500) {
+    closeList();
+    const items = Array.from({ length: count }, (_v, i) => ({
+        value: i,
+        label: `option ${i.toString(36)}`,
+    }));
+
+    listPopover = new Popover({
+        anchor: document.querySelectorAll(".avg-header-cell")[1],
+        resizable: true,
+        size: { width: 260, height: 320 },
+    });
+    listPopover.show();
+
+    // Mount cost only — construction plus the synchronous first paint, the same thing the
+    // grid's `firstPaintMs` measures. Settling afterwards would fold in three frames of
+    // waiting and report the display refresh rate instead.
+    const t0 = performance.now();
+    list = new VirtualList({ items, selectAll: true });
+    listPopover.content.appendChild(list.element);
+    list.measure();
+    const mountMs = performance.now() - t0;
+    await settle();
+
+    const body = list.element.querySelector('[data-type="render-grid-scroll"]');
+    const rowsInDom = () => list.element.querySelectorAll(".avg-list-item[data-index]").length;
+
+    // Flat cost, the thesis this project exists to defend: a paint at option 99,000 must cost
+    // what a paint at option 0 costs.
+    const paintAt = async (top) => {
+        body.scrollTop = top;
+        await settle(2);
+        list.render.resetStats();
+        for (let i = 0; i < 60; i++) {
+            body.scrollTop += 24;
+            await nextFrame();
+        }
+        const s = list.render.stats;
+        return s.paints ? s.totalPaintMs / s.paints : 0;
+    };
+    const atTop = await paintAt(0);
+    const atEnd = await paintAt(24 * (count - 200));
+
+    // Scroll it the same way the grid is scrolled, and read the frame times.
+    const frames = [];
+    let last = performance.now();
+    const until = last + ms;
+    while (performance.now() < until) {
+        body.scrollTop += 40;
+        await new Promise((r) => requestAnimationFrame(r));
+        const now = performance.now();
+        frames.push(now - last);
+        last = now;
+    }
+    frames.sort((a, b) => a - b);
+    const mean = frames.reduce((a, b) => a + b, 0) / frames.length;
+
+    // Select-all over 100,000 options: one mark for the whole operation.
+    const t1 = performance.now();
+    list.element.querySelector(".avg-list-all").click();
+    const selectAllMs = performance.now() - t1;
+    await settle();
+
+    return {
+        count,
+        mountMs: Number(mountMs.toFixed(2)),
+        rowsInDom: rowsInDom(),
+        fps: Number((1000 / mean).toFixed(1)),
+        p95Ms: Number(frames[Math.floor(frames.length * 0.95)].toFixed(2)),
+        worstMs: Number(frames[frames.length - 1].toFixed(2)),
+        paintTopMs: Number(atTop.toFixed(3)),
+        paintEndMs: Number(atEnd.toFixed(3)),
+        flatRatio: Number((atEnd / atTop).toFixed(2)),
+        selectAllMs: Number(selectAllMs.toFixed(2)),
+        selectedCount: list.getSelected().length,
+        scrolledTo: Math.round(body.scrollTop),
+    };
+}
+
+function closeList() {
+    list?.destroy();
+    list = null;
+    listPopover?.close();
+    listPopover = null;
+}
+
 window.avg = {
     AVGrid,
     Popover,
+    VirtualList,
+    measureList,
+    closeList,
+    get list() {
+        return list;
+    },
     showPopover,
     popoverGeometry,
     closePopover,
