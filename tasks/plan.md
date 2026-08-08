@@ -50,9 +50,12 @@ Two more that follow from *Who this API is for* and are worth stating explicitly
 | 12 | In-cell editing | Behavior | ✅ Done |
 | 13 | Clipboard copy/paste | Behavior | ✅ Done |
 | 14 | Row/column add and delete | Behavior | ✅ Done |
+| 14a | `Popover` primitive | Filters | ✅ Done |
+| 14b | `VirtualList` primitive — on `RenderGrid` | Filters | ⬜ Not started |
 | 15 | Filters model + row filtering | Filters | ⬜ Not started |
 | 16 | Filter popover + options body | Filters | ⬜ Not started |
 | 17 | Filter bar | Filters | ⬜ Not started |
+| 17a | `CellSelect` rebuilt on the two primitives | Filters | ⬜ Not started |
 | 18 | `getState()`, introspection, `destroy()` | Polish | ⬜ Not started |
 | 19 | `docs/api.md` | Docs | ⬜ Not started |
 | 20 | `examples/` | Docs | ⬜ Not started |
@@ -316,11 +319,52 @@ losing focus or scroll position.
 
 ---
 
-## Phase 4 — Filters (tasks 15–17)
+## Phase 4 — Filters (tasks 14a, 14b, 15–17, 17a)
 
 The most UIKit-coupled corner of the reference, so it gets the most design work. Read *The
 filtering subsystem* in `goal.md` before starting task 15 — it enumerates behaviors that are
 easy to miss and annoying to retrofit.
+
+Two of those UIKit couplings are load-bearing enough to build **before** the filters model
+rather than inside task 16, which is what tasks 14a and 14b are. Both are **built fresh, not
+ported** — see the decision log.
+
+### Task 14a — `Popover` primitive
+
+**Build**
+- `src/view/Popover.ts` — a positioned floating panel, ~120 lines, no portal and no lifecycle
+  framework. Read `uikit/Popover/PopoverModel.ts` for the behaviors, then write it fresh:
+  - anchored to an **element** *and* offset by a **point** (the reference supports both, and
+    the filter chip and the header funnel use them differently);
+  - **flips** when it will not fit below / to the right of the anchor, and clamps to the
+    viewport;
+  - closes on outside pointerdown and on Escape, and **`show()` returns a promise that
+    resolves when it closes** — the shape `showFilterPopover` needs;
+  - optionally **resizable**, reporting the new size back so the caller can remember it.
+- Listeners go on the popover root and on `document`, never on content. It mounts outside the
+  grid root, so it is the first thing in the library that is not inside the grid's own DOM —
+  `destroy()` must take it with it (task 18).
+
+**Done when** a popover opens against a header cell near the right edge of the window and
+flips rather than clipping, Escape and an outside click both resolve its promise, and nothing
+is left on `document` after it closes.
+
+### Task 14b — `VirtualList` primitive — on `RenderGrid`
+
+**Build**
+- `src/view/VirtualList.ts` — a single-column virtualized list of checkbox+label rows over the
+  **engine we already own**, ~200 lines. Not a port of `ListBox` / `MultiListBox`: search box,
+  select-all, arrow-key navigation, `scrollToRow`, and nothing else.
+- The same three invariants apply as everywhere else — `p.previous ?? p.recycle?.()`,
+  listeners on the root, state on the model.
+
+**Done when** a list of 100,000 options scrolls at 60 fps and mounts in the same order of
+magnitude as the grid does, measured on a board rather than asserted.
+
+> **Why this is a prerequisite and not part of task 16.** A distinct-values checklist over a
+> 100k-row column can legitimately produce tens of thousands of options, and the reference
+> hands all of them to `MultiListBox` at once. Unvirtualized, that is the one place in the
+> design that reintroduces exactly the cost this library exists to avoid.
 
 ### Task 15 — Filters model + row filtering
 
@@ -351,8 +395,8 @@ the injected storage including `Date` values.
   - applying an empty selection **removes** the filter rather than filtering to nothing;
   - `onGetOptions(columns, filters, columnKey, search?)` **may return a promise**, and
     receives the *other* active filters so a host can offer cascading options.
-- Minimal vanilla replacements for `Popover`, `MultiListBox`, `Button`, `IconButton` — scoped
-  to exactly what the grid needs. Do not port UIKit.
+- Built on `Popover` (task 14a) and `VirtualList` (task 14b). What is left here is `Button` and
+  `IconButton` — scoped to exactly what the grid needs. Do not port UIKit.
 - Wire the header cell's funnel button (built inert in task 8) to open it.
 
 **Done when** a filter can be created from a header funnel, the popover dispatches on the
@@ -375,6 +419,22 @@ Persephone editing concern, not a filtering one.
 
 **Done when** a filter created from the header is editable from its chip, and both mounting
 paths work with two grids on one page.
+
+### Task 17a — `CellSelect` rebuilt on the two primitives
+
+**Build**
+- `src/view/CellSelect.ts` rewritten over `Popover` + `VirtualList`, replacing the native
+  `<select>`. Roughly 60 lines once both exist.
+
+**Done when** a column with 10,000 `options` opens instantly, the dropdown is themed by the
+same `--p-*` contract as the rest of the grid, and keyboard commit/cancel behaves exactly as
+the native element did.
+
+> **Why after 17 and not before.** Column `options` are enumerations — status, category — and
+> are realistically under a hundred, so the native element's size limit is not what makes this
+> worth doing. The real argument is that a native `<select>` cannot be themed to match, which
+> is a task-9 concern the port has been carrying quietly. It is cheap only *after* both
+> primitives exist, so it waits for them.
 
 ---
 
@@ -496,3 +556,12 @@ the start.
 | 2026-08-08 | 14 | **The temp-row guard is ported: one blank row at the end at a time.** ArrowDown or Tab off the end of the grid adds a row and marks it `data.newRowKey`; no second one is offered until it has been typed into. Without it, holding ArrowDown at the bottom manufactures a hundred empty rows. `EditingModel` clears the mark on the first committed value. |
 | 2026-08-08 | 14 | **The two add affordances are overlays, not cells, and still carry no listener.** `RenderGrid.addOverlay` appends them outside the pooled reconciliation — `syncRegion` only removes elements it appended itself, so nothing recycles them — and the click is resolved from the root by `data-avg-action`, like every other click. The third invariant holds even for an element that is never pooled: one place that knows what a click can mean, one teardown. |
 | 2026-08-08 | 14 | **`focusNewRows` lands on the first *editable* column, not column 0.** Caught on the board: with `selectColumn: true`, column 0 is the checkbox, which a click cannot focus either — so adding a row put the focus somewhere the next keystroke would go nowhere, which reads as the add having failed. Falls back to the first non-status column when every column is readonly. |
+| 2026-08-08 | 14a | **The UIKit components are rebuilt, not ported — `Popover`, `ListBox`/`MultiListBox` and `Select` all stay in Persephone.** Raised before task 15: a filter popover over a high-cardinality column on 100k rows needs a virtualized list, which is true, and `ListBox` is already built on `RenderGrid`, which is also true. But `ListBox` + `ListBoxModel` + `ListItem` + `SectionItem` + `MultiListBox` is ~1,100 lines of React carrying sections, groups, a keyboard model and a general-purpose item API, and what the filter body needs is checkbox rows, a search box, select-all and `scrollToRow` — ~200 lines over the engine the port already owns. `SelectModel` alone is 611 lines, sized by search, async options and form integration this library does not have. Porting 1,700 lines to obtain 320 is a net loss, and it is what *"port behavior, improve structure"* is there to prevent. `PopoverModel` is read for its behaviors — anchor element *plus* point offset, flip, outside-click, resize reported back, promise on close — and then written fresh without the portal. |
+| 2026-08-08 | 14a | **Virtualization fixes the rendering, not the distinct-values pass.** Worth stating so the effort lands in the right place: computing the distinct set over 100k rows is one O(rows) walk with a Map and is not a problem. What virtualization prevents is 50,000 DOM rows inside a popover. |
+| 2026-08-08 | 14a | **`onGetOptions` keeps its `search` parameter even though the default implementation ignores it.** The reference already assumed a host might narrow the options server-side rather than return every one; the grid's own implementation computes distinct values in memory, but a host with a million rows needs that door open, and it cannot be added later without breaking the callback's shape. |
+| 2026-08-08 | 14a | **The reference's Popover is `@floating-ui/react` with a shell around it, so there was nothing to port — only a contract to keep.** Placement, flipping, viewport clamping and live repositioning all come from the dependency; `Popover.tsx` adds a portal, and `PopoverModel.ts` adds the resize drag and the dismissal listeners. With no runtime dependencies allowed, the ~90 lines of placement arithmetic are written here: side + align from the placement string, flip only when the opposite side is genuinely roomier, cap the height to the space available and let the content scroll, then clamp into the viewport. The behaviours kept from the reference are the ones a caller would notice: anchor by element *or* by point, `ignoreOutside`, `matchAnchorWidth`, resize reported back, and the grip moving to the top corner when the popover opened upward. |
+| 2026-08-08 | 14a | **`show()` returns a promise that resolves when the popover closes.** The reference reaches that shape one level up, in `showFilterPopover`; putting it on the primitive costs nothing and makes every caller a single statement — `const applied = await popover.show()`, `undefined` when dismissed. It is also the whole teardown story: every exit path routes through `close()`, which is the only place the document listeners come off. |
+| 2026-08-08 | 14a | **The document listeners are bound in the *capture* phase, and that is load-bearing.** A popover opened from a `pointerdown` handler would otherwise see the tail of that same event bubble up to the document and dismiss itself before it was visible. Document capture runs before the target, so a listener added mid-dispatch has already missed that phase — the in-flight event cannot reach it. The anchor is exempt from outside-dismissal besides: whoever opened the popover owns what a second click on it means, and closing here would race their toggle. |
+| 2026-08-08 | 14a | **A popover carries its own copy of the `--avg-*` token block.** The tokens are defined on `[data-type="render-grid"].avg-grid` and the popover mounts on `document.body`, so it inherits none of them. Both blocks read the same `--p-*` host variables, so a theme change still moves the two together and still costs zero paints. |
+| 2026-08-08 | 14a | **Do not anchor a popover to a data cell.** Cells are pooled: one scrolls out and comes back as a different row, so the popover would silently re-anchor to whatever the element became. Found on the board — scrolling the grid under a cell-anchored popover walked it to the top of the viewport. Header cells, chips and points are all stable. Documented on the `anchor` option rather than guarded against, since the check would cost a `closest()` on every reposition. |
+| 2026-08-08 | 14a | **No benchmark row for this task.** The popover touches nothing in the render path — no cell renderer, no dirty set, no scroll handler — so the gate has nothing to say about it. Verified in the browser instead: flip, clamp, height cap with a scrolling body, follow-on-scroll, Escape, outside click, focus handed back to the grid, and a resize drag reporting +120×+90 with no drift after release. |

@@ -411,6 +411,78 @@ export const css = `
     color: var(--avg-accent);
 }
 
+/* --- Popover ---------------------------------------------------------------------------
+   Mounted on document.body, so it is outside the grid root and inherits none of the tokens
+   defined there. It repeats the theme contract rather than reaching for it: a popover has to
+   look like it belongs to the grid it was opened from, and both read the same --p-* tokens. */
+.avg-popover {
+    --avg-font-family: var(--p-font-family, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+    --avg-font-size: var(--p-font-base, 13px);
+    --avg-text: var(--p-text, #202020);
+    --avg-text-muted: var(--p-text-muted, #767676);
+    --avg-bg: var(--p-bg, #ffffff);
+    --avg-accent: var(--p-accent, #0078d4);
+    --avg-border-color: color-mix(in srgb, var(--avg-text) 22%, transparent);
+    --avg-hover-bg: color-mix(in srgb, var(--avg-text) 6%, transparent);
+
+    position: fixed;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
+    font-family: var(--avg-font-family);
+    font-size: var(--avg-font-size);
+    color: var(--avg-text);
+    background-color: var(--avg-bg);
+    border: solid 1px var(--avg-border-color);
+    border-radius: 6px;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--avg-text) 25%, transparent);
+    outline: none;
+}
+
+.avg-popover-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+}
+
+.avg-popover-resize {
+    position: absolute;
+    right: 1px;
+    bottom: 1px;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: nwse-resize;
+    color: var(--avg-text-muted);
+    opacity: 0.6;
+    user-select: none;
+    touch-action: none;
+    z-index: 1;
+}
+
+.avg-popover-resize:hover {
+    opacity: 1;
+}
+
+.avg-popover-resize > svg {
+    width: 12px;
+    height: 12px;
+}
+
+/* Opened above its anchor, the popover grows upward, so the grip moves to the top corner. */
+.avg-popover[data-placement^="top"] .avg-popover-resize {
+    top: 1px;
+    bottom: auto;
+    cursor: nesw-resize;
+    transform: rotate(-90deg);
+}
+
 .avg-grid .avg-empty {
     position: absolute;
     inset: 0;

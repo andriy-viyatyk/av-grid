@@ -11,7 +11,7 @@
  * clicking.
  */
 
-import { AVGrid } from "./lib/av-grid.js";
+import { AVGrid, Popover } from "./lib/av-grid.js";
 
 const el = (id) => document.getElementById(id);
 const statusEl = el("status");
@@ -851,8 +851,69 @@ el("bench").addEventListener("click", () => runBenchmark());
 el("minimal").addEventListener("click", () => minimalGrid());
 el("search").addEventListener("input", (e) => grid?.setSearchString(e.target.value));
 
+/**
+ * Task 14a — the popover, in a browser that actually lays things out.
+ *
+ * happy-dom returns a zero rect for everything, so every placement test in the suite runs on
+ * stubbed geometry. This is the only place the arithmetic meets a real viewport. Pass a
+ * selector or `{x, y}` to anchor it, and `tall: true` for content that cannot fit — which is
+ * what makes it flip and cap its height.
+ */
+let popover = null;
+
+function showPopover({ anchor = ".avg-header-cell", tall = false, ...rest } = {}) {
+    closePopover();
+    const target =
+        typeof anchor === "string" ? document.querySelector(anchor) : anchor;
+    if (!target) return { error: `no element matches ${anchor}` };
+
+    popover = new Popover({ anchor: target, resizable: true, minWidth: 120, minHeight: 80, ...rest });
+    const body = document.createElement("div");
+    body.style.cssText = "padding:8px;display:flex;flex-direction:column;gap:4px;min-width:200px";
+    for (let i = 0; i < (tall ? 60 : 4); i++) {
+        const row = document.createElement("div");
+        row.textContent = `option ${i}`;
+        body.appendChild(row);
+    }
+    popover.content.appendChild(body);
+    // Compared before clearing: the previous popover's promise resolves *after* this one has
+    // been assigned, so an unconditional `popover = null` here drops the live reference and
+    // leaks the panel. A harness bug, but exactly the shape a caller could hit.
+    const opened = popover;
+    void opened.show().then(() => {
+        if (popover === opened) popover = null;
+    });
+    return popoverGeometry();
+}
+
+function popoverGeometry() {
+    if (!popover) return { open: false };
+    const r = popover.root.getBoundingClientRect();
+    return {
+        open: true,
+        placement: popover.root.getAttribute("data-placement"),
+        top: Math.round(r.top),
+        left: Math.round(r.left),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+        // Both must hold, or the popover is hanging off the screen.
+        insideViewport:
+            r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+        contentScrolls: popover.content.scrollHeight > popover.content.clientHeight,
+    };
+}
+
+function closePopover(result) {
+    popover?.close(result);
+    popover = null;
+}
+
 window.avg = {
     AVGrid,
+    Popover,
+    showPopover,
+    popoverGeometry,
+    closePopover,
     createGrid,
     minimalGrid,
     runBenchmark,

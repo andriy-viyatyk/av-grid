@@ -25,8 +25,12 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1, 2 and 3 are complete.** Tasks 1–14 are done; task 15 (the filters model) is next,
-and starts phase 4.
+**Phases 1, 2 and 3 are complete.** Tasks 1–14 are done. Phase 4 starts with two primitives the
+filter UI needs and the library does not have — **14a `Popover`** and **14b `VirtualList`** —
+built fresh rather than ported from UIKit, and only then task 15, the filters model. **14a is
+done:** a floating panel that anchors to an element or a point, flips instead of clipping, caps
+its height to the space available and scrolls, dismisses on Escape or an outside pointerdown,
+resizes by a corner grip, and resolves a promise when it closes.
 
 There is a working grid. `AVGrid.create(el, { rows })` renders a real one — columns, header
 labels, widths, row keys and data types all inferred — with header sorting, column resize and
@@ -127,6 +131,7 @@ av-grid/
             CellSelect.ts        ← the dropdown editor, for a column with `options`
             DefaultEditFormatter.ts ← which of the two a cell gets
             HeaderCell.ts        ← label, sort indicator, resize grip, filter funnel
+            Popover.ts           ← the floating panel: anchor, flip, clamp, dismiss, resize
             SelectColumn.ts      ← the checkbox column, as an ordinary Column
             GridInteractions.ts  ← every listener, all of them delegated from the root
             cellDom.ts           ← setText / applyCellStyle, the two per-cell operations

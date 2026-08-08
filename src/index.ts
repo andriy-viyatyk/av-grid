@@ -55,6 +55,8 @@ export { createDefaultEditor } from "./view/DefaultEditFormatter";
 export { SortColumnModel } from "./model/SortColumnModel";
 export { StructureModel } from "./model/StructureModel";
 export { SELECT_COLUMN_KEY, createSelectColumn } from "./view/SelectColumn";
+export { Popover } from "./view/Popover";
+export type { PopoverOptions, PopoverPlacement, PopoverSize } from "./view/Popover";
 
 // --- helpers --------------------------------------------------------------
 

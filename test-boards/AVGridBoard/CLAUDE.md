@@ -48,6 +48,9 @@ await window.avg.measureSelectAll()       // the task-11 gate: select-all cost a
 await window.avg.measureEditing(row)      // the task-12 check: does the editor survive a repaint
 await window.avg.measureClipboard(row, n) // the task-13 check: copy cost, and what a paste repaints
 await window.avg.measureStructure(row)    // the task-14 check: does an insert move the viewport
+window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
+window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
+window.avg.closePopover(result)           // resolves the show() promise with `result`
 window.avg.createGrid(count)              // explicit columns
 window.avg.minimalGrid()                  // AVGrid.create(el, { rows }) and nothing else
 window.avg.grid                           // the live AVGrid; .model, .render, .getState()
@@ -109,6 +112,13 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   invent and a `Full Name` derived from two other fields. The thing worth re-checking after any
   change here is `measureStructure`: **scroll and focus must both survive an insert above the
   viewport**, and they only do because `StructureModel` suppresses one focus revalidation.
+- **The popover** — `showPopover({ anchor, tall })` opens one against any element or `{x, y}`
+  and returns where it landed. This is the *only* place the placement arithmetic is exercised
+  for real: happy-dom returns a zero rect for everything, so all 26 unit tests run on stubbed
+  geometry. Worth re-running here after any change to `Popover.ts` — anchor near the bottom
+  (`{ x: 300, y: innerHeight - 40 }`) for the flip, `tall: true` for the height cap and the
+  scrolling body, and near the right edge for the clamp. `insideViewport` must be `true` in
+  every case.
 - **Auto-scroll while dragging** — drag a selection past any edge and the grid scrolls after
   it, faster the further past the edge the pointer goes, and keeps going while the pointer
   sits still. This is the one thing the pointer-event rewrite had to build by hand, so it is
