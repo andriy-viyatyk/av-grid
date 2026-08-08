@@ -249,6 +249,14 @@ async function measureRangeDrag(row, steps = 200) {
     const b = cellAt(row + 1);
     if (!a || !b) throw new Error(`rows ${row}/${row + 1} are not on screen`);
 
+    // Real client coordinates, because the drag resolves its target by hit-testing the point
+    // — dispatching moves at (0, 0) would land outside the grid and trip the auto-scroll.
+    const centre = (el) => {
+        const r = el.getBoundingClientRect();
+        return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+    };
+    const at = [centre(b), centre(a)];
+
     // Shift, so the press extends the existing selection instead of re-anchoring it.
     a.dispatchEvent(
         new PointerEvent("pointerdown", {
@@ -256,6 +264,7 @@ async function measureRangeDrag(row, steps = 200) {
             button: 0,
             shiftKey: true,
             pointerId: 1,
+            ...at[1],
         }),
     );
 
@@ -271,8 +280,12 @@ async function measureRangeDrag(row, steps = 200) {
     };
 
     const move = (i) =>
-        (i % 2 ? a : b).dispatchEvent(
-            new PointerEvent("pointermove", { bubbles: true, pointerId: 1 }),
+        window.dispatchEvent(
+            new PointerEvent("pointermove", {
+                bubbles: true,
+                pointerId: 1,
+                ...at[i % 2],
+            }),
         );
 
     // Two loops, because one number cannot answer both halves of the question.

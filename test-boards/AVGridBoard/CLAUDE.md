@@ -77,6 +77,10 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   arrow / Tab / Home / End / PageUp / PageDown / ctrl+arrows to navigate, ctrl+A to select
   everything. The selection outline is muted while the grid is blurred and accent-coloured
   once it has focus — `grid.focus()` from the console shows both.
+- **Auto-scroll while dragging** — drag a selection past any edge and the grid scrolls after
+  it, faster the further past the edge the pointer goes, and keeps going while the pointer
+  sits still. This is the one thing the pointer-event rewrite had to build by hand, so it is
+  worth re-checking by mouse after any change to `GridInteractions`.
 
 ## Checks worth re-running after a render-path change
 

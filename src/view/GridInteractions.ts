@@ -22,6 +22,28 @@ const RESIZE_GRIP_PX = 11;
 
 const DRAG_MIME = "application/x-av-grid-column";
 
+/**
+ * How near an edge of the data area a range drag starts scrolling, and how fast it can go.
+ *
+ * The zone reaches *inside* the grid by two thirds of a row, so the scroll begins as the
+ * pointer arrives at the last visible row rather than only once it has left the grid — which
+ * is what makes dragging to row 99,000 feel continuous instead of requiring the pointer to be
+ * parked outside the window.
+ */
+const AUTO_SCROLL_EDGE_PX = 16;
+const AUTO_SCROLL_MIN_PX = 2;
+const AUTO_SCROLL_MAX_PX = 48;
+
+/** Pixels to scroll this frame, from how far past the edge zone the pointer is. */
+function autoScrollStep(overflow: number): number {
+    if (overflow === 0) return 0;
+    const speed = Math.min(
+        AUTO_SCROLL_MAX_PX,
+        Math.max(AUTO_SCROLL_MIN_PX, Math.abs(overflow) * 0.5),
+    );
+    return overflow < 0 ? -speed : speed;
+}
+
 interface CellRef {
     el: HTMLElement;
     row: number;
@@ -45,7 +67,13 @@ export class GridInteractions<R> {
     };
 
     /** The cell the last selection drag move resolved to, so a move inside one cell is free. */
-    private lastSelectCell = -1;
+    private selecting = false;
+    private lastSelectRow = -1;
+    private lastSelectCol = -1;
+    /** Where the pointer was on the last move — the auto-scroll loop reads it every frame. */
+    private pointerX = 0;
+    private pointerY = 0;
+    private autoScrollRaf?: number;
 
     constructor(model: AVGridModel<R>, grid: RenderGrid) {
         this.model = model;
@@ -209,44 +237,192 @@ export class GridInteractions<R> {
 
         if (e.button !== 0) return;
 
-        this.lastSelectCell = cell.row * 1e6 + cell.col;
-        this.root.addEventListener("pointermove", this.onSelectMove);
-        // On `window`, so releasing outside the grid still ends the drag.
+        // Without this the browser starts a text selection that follows the drag out of the
+        // grid and highlights whatever is around it. The grid's own cells set `user-select:
+        // none`, but the page outside them does not.
+        e.preventDefault();
+
+        this.selecting = true;
+        this.lastSelectRow = cell.row;
+        this.lastSelectCol = cell.col;
+        this.pointerX = e.clientX;
+        this.pointerY = e.clientY;
+
+        // On `window`, not on the root: a drag that leaves the grid must keep being heard,
+        // both to extend the selection and to end it wherever the button is released. Pointer
+        // capture would do the same, but it retargets the events to the root and this class
+        // resolves everything by hit-testing the point instead.
+        window.addEventListener("pointermove", this.onSelectMove);
         window.addEventListener("pointerup", this.endSelect);
         window.addEventListener("pointercancel", this.endSelect);
     };
 
     private onSelectMove = (e: PointerEvent): void => {
-        const cell = this.dataCellAt(e.target);
-        if (!cell) return;
-
-        // A drag emits ~60 moves a second and most of them stay inside one cell. Resolving
-        // that here keeps the model from being asked the same question sixty times.
-        const id = cell.row * 1e6 + cell.col;
-        if (id === this.lastSelectCell) return;
-        this.lastSelectCell = id;
-
-        const context = this.model.cellContext(cell.row, cell.col);
-        if (!context) return;
-
-        this.model.events.cell.onSelectMove.send({
-            row: context.row,
-            col: context.column,
-            rowIndex: cell.row,
-            colIndex: cell.col,
-        });
+        this.pointerX = e.clientX;
+        this.pointerY = e.clientY;
+        this.extendSelection();
+        this.updateAutoScroll();
     };
 
     private endSelect = (): void => {
-        if (this.lastSelectCell < 0) return;
-        this.lastSelectCell = -1;
+        if (!this.selecting) return;
+        this.selecting = false;
+        this.lastSelectRow = -1;
+        this.lastSelectCol = -1;
+        this.stopAutoScroll();
 
-        this.root.removeEventListener("pointermove", this.onSelectMove);
+        window.removeEventListener("pointermove", this.onSelectMove);
         window.removeEventListener("pointerup", this.endSelect);
         window.removeEventListener("pointercancel", this.endSelect);
 
         this.model.events.cell.onSelectEnd.send();
     };
+
+    /** Extend the selection to whatever cell the pointer is now over, or points towards. */
+    private extendSelection(): void {
+        const target = this.selectionTarget();
+        if (!target) return;
+
+        // A drag emits ~60 moves a second and most stay inside one cell. Resolving that here
+        // keeps the model from being asked the same question sixty times.
+        if (target.row === this.lastSelectRow && target.col === this.lastSelectCol) return;
+        this.lastSelectRow = target.row;
+        this.lastSelectCol = target.col;
+
+        const context = this.model.cellContext(target.row, target.col);
+        if (!context) return;
+
+        this.model.events.cell.onSelectMove.send({
+            row: context.row,
+            col: context.column,
+            rowIndex: target.row,
+            colIndex: target.col,
+        });
+    }
+
+    /**
+     * The cell a drag is currently pointing at.
+     *
+     * Two paths, and the second one is the reason this is not simply a hit test:
+     *
+     * 1. **Over a cell** — hit-test the point. This is the only thing that resolves the sticky
+     *    bands correctly, since a sticky cell overlaps a scrolling one.
+     * 2. **Off the data area** — read the edge row and column out of the *geometry*. Clamping
+     *    the point back inside and hit-testing that would look equivalent and is not: during
+     *    an auto-scroll the DOM is a frame behind the scroll offset, so it would keep
+     *    returning the cell that was at the edge before this frame's scroll and the selection
+     *    would stall one row short forever.
+     */
+    private selectionTarget(): { row: number; col: number } | undefined {
+        const hit = this.dataCellAt(
+            this.root.ownerDocument.elementFromPoint(this.pointerX, this.pointerY),
+        );
+        if (hit) return { row: hit.row, col: hit.col };
+
+        const { x, y } = this.edgeOverflow();
+        const { visible } = this.grid.model.renderInfo.current;
+
+        let row = this.lastSelectRow;
+        let col = this.lastSelectCol;
+        if (y > 0) row = this.model.gridRowToDataRow(visible.bottom);
+        else if (y < 0) row = this.model.gridRowToDataRow(visible.top);
+        if (x > 0) col = visible.right;
+        else if (x < 0) col = visible.left;
+
+        row = Math.max(0, row);
+        col = Math.max(0, col);
+        if (row >= this.model.data.rows.length || col >= this.model.data.columns.length) {
+            return undefined;
+        }
+        return { row, col };
+    }
+
+    /** The scrolling part of the viewport, in client coordinates — sticky bands excluded. */
+    private dataAreaRect(): {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+    } {
+        const rect = this.grid.container.getBoundingClientRect();
+        const { innerSize } = this.grid.model.renderInfo.current;
+        return {
+            left: rect.left + innerSize.stickyLeftWidth,
+            top: rect.top + innerSize.stickyTopHeight,
+            right: rect.right - innerSize.stickyRightWidth - this.grid.model.scrollBarWidth,
+            bottom:
+                rect.bottom -
+                innerSize.stickyBottomHeight -
+                this.grid.model.scrollBarHeight,
+        };
+    }
+
+    /** Signed distance past the edge zone on each axis; `0` means "not near an edge". */
+    private edgeOverflow(): { x: number; y: number } {
+        const area = this.dataAreaRect();
+        const past = (p: number, min: number, max: number): number => {
+            const lo = min + AUTO_SCROLL_EDGE_PX;
+            const hi = max - AUTO_SCROLL_EDGE_PX;
+            if (p < lo) return p - lo;
+            if (p > hi) return p - hi;
+            return 0;
+        };
+        return {
+            x: past(this.pointerX, area.left, area.right),
+            y: past(this.pointerY, area.top, area.bottom),
+        };
+    }
+
+    private updateAutoScroll(): void {
+        if (this.autoScrollRaf !== undefined) return;
+        const { x, y } = this.edgeOverflow();
+        if (x === 0 && y === 0) return;
+        this.autoScrollRaf = requestAnimationFrame(this.autoScrollTick);
+    }
+
+    /**
+     * Scroll one frame's worth towards the pointer, then extend the selection to the new edge.
+     *
+     * This is what the reference got for free from HTML5 drag-and-drop, whose auto-scroll is
+     * the browser's. Doing it explicitly costs this function and buys three things the
+     * browser's version does not give: all four edges, a speed that responds to how far past
+     * the edge the pointer is, and scrolling that continues while the pointer sits still
+     * outside the grid.
+     */
+    private autoScrollTick = (): void => {
+        this.autoScrollRaf = undefined;
+        if (!this.selecting) return;
+
+        const overflow = this.edgeOverflow();
+        const dx = autoScrollStep(overflow.x);
+        const dy = autoScrollStep(overflow.y);
+        if (dx === 0 && dy === 0) return;
+
+        const container = this.grid.container;
+        const beforeX = container.scrollLeft;
+        const beforeY = container.scrollTop;
+        container.scrollLeft += dx;
+        container.scrollTop += dy;
+
+        // Recompute the geometry now instead of waiting for the scroll event, so the target
+        // below is resolved against where the grid *is* rather than where it was. The real
+        // scroll event arrives later, sees an unchanged offset, and costs nothing.
+        this.grid.model.onScroll();
+
+        this.extendSelection();
+
+        // Both axes hit the end of the content: nothing moved, and nothing more will until
+        // the pointer does — at which point `onSelectMove` restarts the loop.
+        if (container.scrollLeft === beforeX && container.scrollTop === beforeY) return;
+
+        this.autoScrollRaf = requestAnimationFrame(this.autoScrollTick);
+    };
+
+    private stopAutoScroll(): void {
+        if (this.autoScrollRaf === undefined) return;
+        cancelAnimationFrame(this.autoScrollRaf);
+        this.autoScrollRaf = undefined;
+    }
 
     // -----------------------------------------------------------------------
     // Keyboard

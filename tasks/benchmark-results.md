@@ -156,6 +156,13 @@ gate rests on: it measures dispatch, the focus update and building the dirty set
 waiting, the real work vanishes under the display cadence, and the ratio comes back a
 meaningless 1.00 whatever the implementation does. That mistake was made and caught here.
 
+`measureRangeDrag` dispatches its moves on `window` with **real client coordinates** read from
+the two cells' bounding rects. That is not cosmetic: the drag resolves its target by
+hit-testing the point, so moves dispatched at (0, 0) land outside the grid, trip the
+auto-scroll, and measure something else entirely. Re-measured after the auto-scroll work
+landed: 2 cells marked per move at both ends, 0.0141 ms against 0.0129 ms — the per-move
+`elementFromPoint` costs nothing detectable.
+
 `measureFullRepaint` now does a throwaway `refresh()` before it measures, which finally kills
 the spurious "36 DOM mutations" for good: cells that scrolled out during an earlier phase stay
 attached until the next full *recompute* trims them, and settling alone never asks for one.

@@ -93,6 +93,62 @@ function pointer(el: Element, type: string, init: MouseEventInit = {}): void {
     el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, ...init }));
 }
 
+/**
+ * Move the pointer over a cell mid-drag.
+ *
+ * The drag listens on `window` and resolves the cell by hit-testing the point, so that a drag
+ * leaving the grid keeps extending the selection. happy-dom does no layout and cannot
+ * hit-test, so the point is faked: `elementFromPoint` is pointed at the cell the test means.
+ */
+function dragOver(g: AVGrid<Row>, row: number, col: number): void {
+    const target = cellAt(g, row, col);
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => target;
+    try {
+        window.dispatchEvent(
+            new MouseEvent("pointermove", { bubbles: true, button: 0 }),
+        );
+    } finally {
+        document.elementFromPoint = original;
+    }
+}
+
+function releasePointer(): void {
+    window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+}
+
+/** happy-dom reports every rect as 0×0; give the scroll container a believable one. */
+function stubViewportRect(g: AVGrid<Row>): void {
+    const container = g.element.querySelector(
+        '[data-type="render-grid-scroll"]',
+    ) as HTMLElement;
+    container.getBoundingClientRect = () =>
+        ({
+            left: 0,
+            top: 0,
+            right: 600,
+            bottom: 300,
+            width: 600,
+            height: 300,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        }) as DOMRect;
+}
+
+/** A drag move that hits no cell — the pointer has left the grid. */
+function dragOutside(clientX: number, clientY: number): void {
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => null;
+    try {
+        window.dispatchEvent(
+            new MouseEvent("pointermove", { bubbles: true, clientX, clientY }),
+        );
+    } finally {
+        document.elementFromPoint = original;
+    }
+}
+
 /** Collect every dirty set the grid produces while `fn` runs. */
 function captureDirty(g: AVGrid<Row>, fn: () => void): RerenderInfo[] {
     const captured: RerenderInfo[] = [];
@@ -375,21 +431,42 @@ describe("pointer drag", () => {
         pointer(cellAt(g, 1, 0)!, "pointerdown");
         expect(g.getSelection()!.rowRange).toEqual([1, 1]);
 
-        pointer(cellAt(g, 4, 2)!, "pointermove");
+        dragOver(g, 4, 2);
         expect(g.getSelection()!.rowRange).toEqual([1, 4]);
         expect(g.getSelection()!.colRange).toEqual([0, 2]);
 
-        window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+        releasePointer();
 
         // Moving after the release does nothing.
-        pointer(cellAt(g, 6, 2)!, "pointermove");
+        dragOver(g, 6, 2);
         expect(g.getSelection()!.rowRange).toEqual([1, 4]);
+    });
+
+    it("keeps extending to the edge row while the pointer is outside the grid", () => {
+        const g = grid(200);
+        stubViewportRect(g);
+
+        pointer(cellAt(g, 5, 0)!, "pointerdown");
+
+        // Below the grid: the pointer hits nothing, so the target comes from the geometry
+        // instead and the selection runs to the last visible row rather than stalling.
+        dragOutside(300, 1000);
+        const lastVisible = g.render.model.renderInfo.current.visible.bottom - 1;
+        expect(lastVisible).toBeGreaterThan(5);
+        expect(g.getSelection()!.rowRange).toEqual([5, lastVisible]);
+
+        // Above it, over the sticky header, the same rule runs the other way.
+        dragOutside(300, -50);
+        const firstVisible = g.render.model.renderInfo.current.visible.top - 1;
+        expect(g.getSelection()!.rowRange).toEqual([Math.max(0, firstVisible), 5]);
+
+        releasePointer();
     });
 
     it("shift-clicking extends from the existing anchor", () => {
         const g = grid();
         pointer(cellAt(g, 2, 0)!, "pointerdown");
-        window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+        releasePointer();
 
         pointer(cellAt(g, 5, 2)!, "pointerdown", { shiftKey: true });
         expect(g.getSelection()!.rowRange).toEqual([2, 5]);
