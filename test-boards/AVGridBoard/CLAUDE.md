@@ -96,7 +96,10 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   driveable from here with a real `ClipboardEvent` carrying a `DataTransfer`, and that is what
   `measureClipboard` does. A value containing a tab or a newline is quoted on the way out and
   comes back as one cell; paste a single cell's worth into one selected cell and the target
-  expands to fit.
+  expands to fit. `Full Name` is the case worth re-checking after any change here: it is a
+  computed column with a `render` and no row property, so it copies what it *shows*, and a paste
+  aimed at it is dropped while the fields either side still land — after which it re-derives
+  from whichever of them changed.
 - **Auto-scroll while dragging** — drag a selection past any edge and the grid scrolls after
   it, faster the further past the edge the pointer goes, and keeps going while the pointer
   sits still. This is the one thing the pointer-event rewrite had to build by hand, so it is

@@ -164,6 +164,79 @@ describe("copying", () => {
         expect(g.getSelectionText()).toBe("10%\n20%\n");
     });
 
+    it("copies what a computed column shows, not the property it does not have", () => {
+        const g = grid(3, {
+            columns: [
+                { key: "name", name: "Name", width: 100 },
+                {
+                    key: "full",
+                    name: "Full",
+                    width: 160,
+                    readonly: true,
+                    // No row has a `full` property; the cell exists only in the renderer.
+                    render: (c) => `${c.row.name} (${c.row.score})`,
+                },
+            ],
+        });
+        g.selectRange(0, 0, 1, 1);
+        expect(g.getSelectionText()).toBe(
+            "Row 1\tRow 1 (10)\nRow 2\tRow 2 (20)\n",
+        );
+    });
+
+    it("copies a rendered cell as text, not as markup", () => {
+        const g = grid(3, {
+            columns: [
+                {
+                    key: "name",
+                    name: "Name",
+                    width: 100,
+                    render: (c) => `<b>${c.value}</b>`,
+                },
+            ],
+        });
+        g.focusCell(0, 0);
+        expect(g.getSelectionText()).toBe("Row 1");
+
+        g.selectRange(0, 0, 1, 0);
+        expect(g.getSelectionText()).toBe("Row 1\nRow 2\n");
+    });
+
+    it("copies an element renderer's text content", () => {
+        const g = grid(3, {
+            columns: [
+                {
+                    key: "name",
+                    name: "Name",
+                    width: 100,
+                    render: (c) => {
+                        const el = document.createElement("span");
+                        el.textContent = `[${c.value}]`;
+                        return el;
+                    },
+                },
+            ],
+        });
+        g.selectRange(0, 0, 1, 0);
+        expect(g.getSelectionText()).toBe("[Row 1]\n[Row 2]\n");
+    });
+
+    it("lets formatValue win over render, as the cell does", () => {
+        const g = grid(3, {
+            columns: [
+                {
+                    key: "score",
+                    name: "Score",
+                    width: 100,
+                    formatValue: (_c, r) => `${r.score}%`,
+                    render: (c) => `<i>${c.value}</i>`,
+                },
+            ],
+        });
+        g.selectRange(0, 0, 1, 0);
+        expect(g.getSelectionText()).toBe("10%\n20%\n");
+    });
+
     it("keeps two columns that share a name as two columns", () => {
         const g = grid(3, {
             columns: [
@@ -323,6 +396,37 @@ describe("pasting", () => {
 
         expect(g.getRows()[0].note).toBe("hello");
         expect(g.getRows()[0].id).toBe(1);
+    });
+
+    it("drops the field aimed at a readonly computed column, and keeps the rest aligned", () => {
+        const g = grid(5, {
+            columns: [
+                { key: "name", name: "Name", width: 100 },
+                {
+                    key: "full",
+                    name: "Full",
+                    width: 160,
+                    readonly: true,
+                    render: (c) => `${c.row.name} (${c.row.note})`,
+                },
+                { key: "note", name: "Note", width: 100 },
+            ],
+        });
+
+        // Copy a row across all three columns, computed one included…
+        g.selectRange(0, 0, 0, 2);
+        const copied = g.getSelectionText();
+        expect(copied).toBe("Row 1\tRow 1 (note 1)\tnote 1\n");
+
+        // …and paste it onto the next row. The middle field has nowhere to go.
+        g.focusCell(1, 0);
+        g.pasteText(copied);
+
+        expect(g.getRows()[1].name).toBe("Row 1");
+        expect(g.getRows()[1].note).toBe("note 1");
+        expect("full" in (g.getRows()[1] as any)).toBe(false);
+        // The computed cell still recomputes from the two columns that did change.
+        expect(g.getSelectionText()).toBe("Row 1\tRow 1 (note 1)\tnote 1\n");
     });
 
     it("runs each cell through validate and onEdit", () => {

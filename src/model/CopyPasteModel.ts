@@ -26,6 +26,7 @@ import { csvToRecords, recordsToCsv } from "../core/csv";
 import { columnDisplayValue } from "../gridUtils";
 import type { Column } from "../types";
 import type { AVGridModel } from "./AVGridModel";
+import type { GridSelection } from "./FocusModel";
 
 /**
  * What shape the selection is copied in.
@@ -83,15 +84,63 @@ export class CopyPasteModel<R> {
     // -----------------------------------------------------------------------
 
     /**
-     * The columns a copy covers: the selected ones, minus the chrome.
+     * The columns a copy covers: the selected ones, minus the chrome, each with the index it
+     * sits at — which `render` needs and a filtered array would have lost.
      *
      * A status column — the checkbox — is not data, and ctrl+A selects it along with
      * everything else. The reference had no select column when it wrote this and so copied a
      * column of empty strings into the user's spreadsheet.
      */
-    private copyColumns(columns: Column<R>[]): Column<R>[] {
-        return columns.filter((c) => !c.isStatusColumn);
+    private copyColumns(selection: GridSelection<R>): Array<{
+        column: Column<R>;
+        index: number;
+    }> {
+        const first = selection.colRange[0];
+        return selection.columns
+            .map((column, i) => ({ column, index: first + i }))
+            .filter((c) => !c.column.isStatusColumn);
     }
+
+    /**
+     * What a cell *shows*, as text.
+     *
+     * Copy has to agree with the screen, and for a column with a custom `render` the screen is
+     * the only place the value exists. A computed column — `render: (c) => `${c.row.first}
+     * ${c.row.last}`` over a `key` no row has — is the case that makes this necessary: reading
+     * `row[column.key]` gives `undefined`, so it copied as an empty column while showing a full
+     * one. The reference had the same hole, in `columnDisplayValue`.
+     *
+     * `render` may return markup or an element, and neither belongs in a spreadsheet cell, so
+     * both are reduced to their text. `formatValue` and `displayFormat` still win over `render`,
+     * matching the order `DataCell` paints in.
+     */
+    private cellText(column: Column<R>, row: R, rowIndex: number, colIndex: number): any {
+        if (column.formatValue || column.displayFormat || !column.render) {
+            return columnDisplayValue(column, row);
+        }
+
+        const rendered = column.render({
+            value: (row as any)[column.key],
+            row,
+            column,
+            rowIndex,
+            colIndex,
+            rowKey: this.model.options.getRowKey(row),
+        });
+        if (rendered === null || rendered === undefined) return "";
+        if (typeof rendered !== "string") return rendered.textContent ?? "";
+        return rendered.includes("<") ? this.textOf(rendered) : rendered;
+    }
+
+    /** Reduce a fragment of markup to its text, through one reused detached element. */
+    private textOf(html: string): string {
+        const doc = this.model.renderModel?.gridRef.current?.ownerDocument ?? document;
+        const scratch = (this.scratch ??= doc.createElement("div"));
+        scratch.innerHTML = html;
+        return scratch.textContent ?? "";
+    }
+
+    private scratch?: HTMLElement;
 
     /**
      * The selection as text, in one of the four shapes. Pure — nothing touches the clipboard,
@@ -100,16 +149,22 @@ export class CopyPasteModel<R> {
     selectionText(mode: CopyMode = "copy"): string {
         const selection = this.model.models.focus.getGridSelection();
         if (!selection) return "";
-        const columns = this.copyColumns(selection.columns);
+        const columns = this.copyColumns(selection);
         const rows = selection.rows;
         if (!columns.length || !rows.length) return "";
+        const firstRow = selection.rowRange[0];
 
         if (mode === "copyAsJson") {
             return JSON.stringify(
-                rows.map((row) => {
+                rows.map((row, r) => {
                     const record: Record<string, any> = {};
-                    for (const column of columns) {
-                        record[String(column.key)] = columnDisplayValue(column, row);
+                    for (const { column, index } of columns) {
+                        record[String(column.key)] = this.cellText(
+                            column,
+                            row,
+                            firstRow + r,
+                            index,
+                        );
                     }
                     return record;
                 }),
@@ -121,23 +176,30 @@ export class CopyPasteModel<R> {
         // One cell copies its bare text — no quoting, no trailing newline. Pasting a single
         // value into a search box or a shell should give the value, not a one-field CSV of it.
         if (rows.length === 1 && columns.length === 1 && mode === "copy") {
-            const value = columnDisplayValue(columns[0], rows[0]);
+            const value = this.cellText(
+                columns[0].column,
+                rows[0],
+                firstRow,
+                columns[0].index,
+            );
             return value === null || value === undefined ? "" : String(value);
         }
 
         // Keyed by index rather than by name, so two columns sharing a name stay two columns.
         const keys = columns.map((_, i) => String(i));
-        const records = rows.map((row) => {
+        const records = rows.map((row, r) => {
             const record: Record<string, any> = {};
-            columns.forEach((column, i) => {
-                record[keys[i]] = columnDisplayValue(column, row);
+            columns.forEach(({ column, index }, i) => {
+                record[keys[i]] = this.cellText(column, row, firstRow + r, index);
             });
             return record;
         });
 
         return recordsToCsv(records, keys, {
             header: mode === "copyWithHeaders",
-            headerNames: columns.map((c) => c.name ?? String(c.key)),
+            headerNames: columns.map(
+                ({ column }) => column.name ?? String(column.key),
+            ),
             delimiter: "\t",
         });
     }
@@ -146,8 +208,9 @@ export class CopyPasteModel<R> {
     selectionHtml(): string {
         const selection = this.model.models.focus.getGridSelection();
         if (!selection) return "";
-        const columns = this.copyColumns(selection.columns);
+        const columns = this.copyColumns(selection);
         if (!columns.length || !selection.rows.length) return "";
+        const firstRow = selection.rowRange[0];
 
         const cell = (value: unknown, weight: number): string =>
             `<td style="${CELL_STYLE};font-weight:${weight}">${escapeHtml(
@@ -155,13 +218,15 @@ export class CopyPasteModel<R> {
             )}</td>`;
 
         const head = `<tr>${columns
-            .map((c) => cell(c.name ?? String(c.key), 600))
+            .map(({ column }) => cell(column.name ?? String(column.key), 600))
             .join("")}</tr>`;
         const body = selection.rows
             .map(
-                (row) =>
+                (row, r) =>
                     `<tr>${columns
-                        .map((c) => cell(columnDisplayValue(c, row), 400))
+                        .map(({ column, index }) =>
+                            cell(this.cellText(column, row, firstRow + r, index), 400),
+                        )
                         .join("")}</tr>`,
             )
             .join("");
