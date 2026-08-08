@@ -10,6 +10,7 @@
 
 import { range } from "../core/utils";
 import type { Column } from "../types";
+import { createSelectColumn } from "../view/SelectColumn";
 import type { AVGridModel } from "./AVGridModel";
 
 export const defaultColumnWidth = 140;
@@ -18,6 +19,16 @@ export const minColumnWidth = 20;
 
 export class ColumnsModel<R> {
     readonly model: AVGridModel<R>;
+
+    /**
+     * The checkbox column, built on first use and then kept.
+     *
+     * Stable identity matters: `AVGridData.columns` compares by identity, so a fresh object
+     * per `updateColumnsData` would report a column change — and therefore re-run the row
+     * pipeline — every time anything touched the column set. Lazy because the column's hooks
+     * read `model.models.selected`, which does not exist yet while this constructor runs.
+     */
+    private _selectColumn?: Column<R>;
 
     constructor(model: AVGridModel<R>) {
         this.model = model;
@@ -58,18 +69,35 @@ export class ColumnsModel<R> {
         this.setColumns(updateFunc(this.model.options.columns));
     };
 
+    get selectColumn(): Column<R> {
+        if (!this._selectColumn) {
+            this._selectColumn = createSelectColumn<R>(this.model);
+        }
+        return this._selectColumn;
+    }
+
     /**
-     * Recompute what the render layer sees: hidden columns dropped, and the index of the last
-     * status column, which becomes the engine's `stickyLeft`.
+     * Recompute what the render layer sees: the checkbox column prepended when the option is
+     * on, hidden columns dropped, and the index of the last status column, which becomes the
+     * engine's `stickyLeft`.
+     *
+     * The checkbox is added *here* rather than in `setColumns`, so it never reaches
+     * `options.columns`. A host therefore sees only its own columns in `getColumns()` and
+     * cannot accidentally duplicate or delete the grid's, whatever it passes to
+     * `setColumns()`.
      */
     updateColumnsData = (columns: Column<R>[]): void => {
+        const all = this.model.options.selectColumn
+            ? [this.selectColumn, ...columns]
+            : columns;
+
         let lastIsStatusIndex = -1;
-        columns.forEach((c, idx) => {
+        all.forEach((c, idx) => {
             if (c.isStatusColumn) lastIsStatusIndex = idx;
         });
 
         this.model.data.lastIsStatusIndex = lastIsStatusIndex;
-        this.model.data.columns = columns.filter((c) => !c.hidden);
+        this.model.data.columns = all.filter((c) => !c.hidden);
         this.model.data.change();
     };
 

@@ -1,9 +1,9 @@
 # AVGridBoard — the grid, in a real browser
 
-The debugger and visual check for **the grid layer** (tasks 6–10 of
+The debugger and visual check for **the grid layer** (tasks 6–11 of
 [`plan.md`](../../tasks/plan.md)): `AVGrid.create()`, inferred columns, header sorting, column
-resize and reorder, custom cell renderers, the injected stylesheet, the theme contract, and
-cell focus with keyboard navigation and range selection.
+resize and reorder, custom cell renderers, the injected stylesheet, the theme contract, cell
+focus with keyboard navigation and range selection, and row selection with the checkbox column.
 
 Its sibling [`RenderGridTest/`](../RenderGridTest/CLAUDE.md) benchmarks the *engine* with a
 trivial cell renderer. This board runs the whole thing. Use it whenever a change could alter
@@ -43,6 +43,7 @@ await window.avg.measurePaintCost(y)      // avg paint ms over 300 one-row scrol
 await window.avg.measureScrollFps(y)      // scripted 2s scroll; fps + frame percentiles
 await window.avg.measureFullRepaint()     // the sort / filter / setRows path
 await window.avg.measureRangeDrag(row)    // the task-10 gate: drag cost at any row
+await window.avg.measureSelectAll()       // the task-11 gate: select-all cost and dirty rows
 window.avg.createGrid(count)              // explicit columns
 window.avg.minimalGrid()                  // AVGrid.create(el, { rows }) and nothing else
 window.avg.grid                           // the live AVGrid; .model, .render, .getState()
@@ -77,6 +78,10 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   arrow / Tab / Home / End / PageUp / PageDown / ctrl+arrows to navigate, ctrl+A to select
   everything. The selection outline is muted while the grid is blurred and accent-coloured
   once it has focus — `grid.focus()` from the console shows both.
+- **Row selection** — the board turns `selectColumn: true` on, so the first column is the
+  checkbox. Click a box to select a row, click the header box to select or clear everything,
+  and watch the live readout. The two selections are independent and visible at once: checked
+  rows carry a full-width tint, the cell range carries an outline.
 - **Auto-scroll while dragging** — drag a selection past any edge and the grid scrolls after
   it, faster the further past the edge the pointer goes, and keeps going while the pointer
   sits still. This is the one thing the pointer-event rewrite had to build by hand, so it is

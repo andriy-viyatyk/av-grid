@@ -44,6 +44,33 @@ export interface AVGridOptions<R = any> {
     getRowKey?: (row: R) => string;
 
     // -----------------------------------------------------------------------
+    // Row selection
+    // -----------------------------------------------------------------------
+
+    /**
+     * Show the checkbox column, pinned to the left of the data columns.
+     *
+     * The column is the grid's, not the host's: it does not appear in `getColumns()` and does
+     * not survive into `setColumns()`, so a host can rewrite its columns without having to
+     * remember to put the checkbox back.
+     */
+    selectColumn?: boolean;
+
+    /**
+     * Initially selected rows, by row key — the value `getRowKey` returns, not the row index.
+     * Keys are used throughout so a selection survives sorting and filtering.
+     */
+    selected?: readonly string[];
+
+    /**
+     * The set of selected rows changed, by checkbox or by `setSelected()`.
+     *
+     * Receives the keys; call `grid.getSelectedRows()` for the row objects, which is O(rows)
+     * and so is not done for you on every click.
+     */
+    onSelectionChange?: (selectedKeys: string[]) => void;
+
+    // -----------------------------------------------------------------------
     // Layout
     // -----------------------------------------------------------------------
 

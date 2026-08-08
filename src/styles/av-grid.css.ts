@@ -261,6 +261,62 @@ export const css = `
     border: none;
 }
 
+/* ------------------------------------------------------- select column */
+
+/*
+ * The checkbox column is an ordinary column whose render hook returns markup, so it needs no
+ * layout of its own — only centring, a pointer cursor and the accent tint when checked. The
+ * header's title span holds the select-all box, which is why the header rule targets padding.
+ */
+.avg-grid .avg-header-cell[data-column-key="--select-column--"] {
+    padding-left: 0;
+    justify-content: center;
+}
+
+/*
+ * The title span normally holds text, so its inline content sits on a baseline with descender
+ * space below it — which lifts an icon inside it a couple of pixels above the cell's centre.
+ * Making the span a flex box takes the baseline out of it and centres the checkbox on both
+ * axes, so it lines up with the boxes in the column below and with the labels beside it.
+ */
+.avg-grid .avg-header-cell[data-column-key="--select-column--"] .avg-header-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 0;
+    overflow: visible;
+}
+
+/*
+ * The header's flex spacer is what pushes the filter funnel to the right edge — and it also
+ * absorbs every free pixel, so the justify-content above has nothing left to centre with. The
+ * select column has no funnel, so the spacer has no job here.
+ *
+ * (No backticks in this file's comments: the whole sheet is one template literal.)
+ */
+.avg-grid .avg-header-cell[data-column-key="--select-column--"] .avg-flex-space {
+    display: none;
+}
+
+.avg-grid .avg-select-box {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    color: var(--avg-text-muted);
+    cursor: pointer;
+}
+
+.avg-grid .avg-select-box.avg-checked {
+    color: var(--avg-accent);
+}
+
+.avg-grid .avg-data-cell[data-column-key="--select-column--"],
+.avg-grid .avg-header-cell[data-column-key="--select-column--"] {
+    cursor: pointer;
+}
+
 /* ---------------------------------------------------------------- pieces */
 
 .avg-grid .avg-check-icon {

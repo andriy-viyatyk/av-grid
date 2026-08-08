@@ -29,3 +29,8 @@ export const checkedIcon = svg(
 export const uncheckedIcon = svg(
     `<rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.5"/>`,
 );
+
+/** The header checkbox when some rows are selected but not all. */
+export const indeterminateIcon = svg(
+    `<rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.5"/><path d="M4.5 8h7"/>`,
+);

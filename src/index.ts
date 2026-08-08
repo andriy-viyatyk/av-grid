@@ -43,7 +43,10 @@ export type {
     SelectedCount,
     UpdateFocusOptions,
 } from "./model/FocusModel";
+export { SelectedModel } from "./model/SelectedModel";
+export type { SelectAllState } from "./model/SelectedModel";
 export { SortColumnModel } from "./model/SortColumnModel";
+export { SELECT_COLUMN_KEY, createSelectColumn } from "./view/SelectColumn";
 
 // --- helpers --------------------------------------------------------------
 

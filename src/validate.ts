@@ -364,6 +364,24 @@ export function resolveOptions<R>(options: unknown): ResolvedOptions<R> {
         );
     }
 
+    // The commonest way to get this wrong is to pass row *objects*, or indices, because
+    // "selected rows" sounds like it means rows. It means what `getRowKey` returns.
+    if (o.selected !== undefined) {
+        if (!Array.isArray(o.selected)) {
+            fail(
+                `\`selected\` must be an array of row keys, but was ${describe(o.selected)}. ` +
+                    `For example: selected: rows.slice(0, 3).map(getRowKey).`,
+            );
+        }
+        const bad = o.selected.find((k) => typeof k !== "string");
+        if (bad !== undefined) {
+            fail(
+                `\`selected\` must contain row keys as strings, but contained ${describe(bad)}. ` +
+                    `A row key is what getRowKey returns — not a row object or a row index.`,
+            );
+        }
+    }
+
     const columns =
         o.columns === undefined
             ? inferColumns<R>(o.rows)

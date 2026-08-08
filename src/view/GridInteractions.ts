@@ -16,6 +16,7 @@
 
 import type { AVGridModel } from "../model/AVGridModel";
 import type { RenderGrid } from "../render/RenderGrid";
+import { SELECT_COLUMN_KEY } from "./SelectColumn";
 
 /** How close to a header's right edge a pointer must be to start a resize. */
 const RESIZE_GRIP_PX = 11;
@@ -226,6 +227,12 @@ export class GridInteractions<R> {
         // Focus the root rather than letting the browser do it: the cell under the pointer is
         // a pooled element and must never itself hold focus.
         this.root.focus({ preventScroll: true });
+
+        // A status column — the checkbox, a row number — is chrome, not data. Clicking one
+        // must not move the cell focus or start a range drag, which is also how the reference
+        // behaved, there by simply not binding those handlers to those cells. The click that
+        // follows is still delivered, and is what toggles the checkbox.
+        if (context.column.isStatusColumn) return;
 
         this.model.events.cell.onMouseDown.send({
             e,
@@ -460,6 +467,12 @@ export class GridInteractions<R> {
 
         const header = this.headerAt(e.target);
         if (header) {
+            // The select column's header is a checkbox, not a sort control.
+            if (header.el.getAttribute("data-column-key") === SELECT_COLUMN_KEY) {
+                this.model.models.selected.toggleAll();
+                return;
+            }
+
             const filterButton = (e.target as Element | null)?.closest?.(
                 '[data-type="filter-button"]',
             );
@@ -478,6 +491,10 @@ export class GridInteractions<R> {
         if (cell) {
             const context = this.model.cellContext(cell.row, cell.col);
             if (context) {
+                if (String(context.column.key) === SELECT_COLUMN_KEY) {
+                    this.model.models.selected.toggleSelected(context.rowKey);
+                    return;
+                }
                 this.model.events.cell.onClick.send({
                     e,
                     row: context.row,

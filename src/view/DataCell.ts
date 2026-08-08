@@ -78,7 +78,9 @@ export function renderDataCell<R>(
     // --- classes -----------------------------------------------------------
     let className = "avg-data-cell" + alignClass(column, value);
     if (model.data.hovered.row === dataRow) className += " avg-row-hovered";
-    // Returns "" for every cell of an unfocused grid, and allocates nothing in that case.
+    // Both return "" — the identical empty string — for a grid with nothing selected, which
+    // is the default state and allocates nothing.
+    className += model.models.selected.rowClass(dataRow);
     className += model.models.focus.focusClass(p.col, dataRow);
 
     // `onCellClass` and `render` are the only two hooks that need a context object; when

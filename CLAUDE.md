@@ -25,13 +25,14 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1 and 2 are complete, and task 10 with them.** Tasks 1–10 are done; task 11 (row
-selection and the select column) is next.
+**Phases 1 and 2 are complete, and tasks 10–11 with them.** Tasks 1–11 are done; task 12
+(in-cell editing) is next.
 
 There is a working grid. `AVGrid.create(el, { rows })` renders a real one — columns, header
 labels, widths, row keys and data types all inferred — with header sorting, column resize and
 reorder, custom cell renderers, a search filter, cell focus, full keyboard navigation, range
-selection by drag or by shift, and a stylesheet driven entirely by CSS custom properties.
+selection by drag or by shift, row selection through a checkbox column, and a stylesheet driven
+entirely by CSS custom properties.
 
 The performance thesis survived the grid layer, and then survived selection. 100,000 rows in a
 real browser, through the *whole* grid rather than the engine alone: first paint 6.7 ms, 60 fps
@@ -41,8 +42,9 @@ cell in 0.2 ms doing **zero** DOM mutations, and a theme change costing **zero**
 Task 10's own gate: dragging a range selection anchored at row 0 down through row 99,000 —
 a live selection of 99,001 rows against 101 at the top — marks **2 cells dirty per pointer
 move at both ends**, for a model cost of 0.0141 ms against 0.0147 ms, a **ratio of 1.04×**.
-Full results, history, and the three measurements that mislead if taken carelessly, in
-[`tasks/benchmark-results.md`](tasks/benchmark-results.md).
+Task 11's: selecting all 100,000 rows takes 24.9 ms, marks **19 rows** dirty, and mutates
+**zero** DOM nodes. Full results, history, and the measurements that mislead if taken
+carelessly, in [`tasks/benchmark-results.md`](tasks/benchmark-results.md).
 
 ## Reference implementation — Persephone
 
@@ -105,9 +107,11 @@ av-grid/
             RowsModel.ts         ← filter → sort pipeline
             SortColumnModel.ts   ← sort state and its comparator
             FocusModel.ts        ← focus, keyboard nav, range selection
+            SelectedModel.ts     ← row selection, by row key
         view/                    ← the DOM, rewritten rather than transliterated
             DataCell.ts          ← the hot path; allocation-light
             HeaderCell.ts        ← label, sort indicator, resize grip, filter funnel
+            SelectColumn.ts      ← the checkbox column, as an ordinary Column
             GridInteractions.ts  ← every listener, all of them delegated from the root
             cellDom.ts           ← setText / applyCellStyle, the two per-cell operations
             icons.ts             ← SVG source strings

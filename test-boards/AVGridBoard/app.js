@@ -108,6 +108,8 @@ function createGrid(count = Number(el("rows").value) || 1000, useColumns = true)
         onCellClick: (c) => live(`click: ${c.column.key} = ${String(c.value)}`),
         onColumnResize: (key, width) => live(`resize: ${key} → ${width}px`),
         onColumnsReorder: (from, to) => live(`reorder: ${from} → ${to}`),
+        selectColumn: true,
+        onSelectionChange: (keys) => live(`selected: ${keys.length} rows`),
     });
     const firstPaintMs = performance.now() - startedAt;
 
@@ -237,12 +239,17 @@ async function measureRangeDrag(row, steps = 200) {
     const rowHeight = grid.getState().rowHeight;
     await scrollTo(Math.max(0, (row - 5) * rowHeight));
 
-    grid.selectRange(0, 0, row, 0);
+    // The first *data* column, which is not column 0 once the checkbox column is on: a
+    // pointerdown on a status column is deliberately inert, so dragging from one measures
+    // nothing at all — it silently reported 0 dirty cells per move until this was fixed.
+    const col = grid.model.data.columns.findIndex((c) => !c.isStatusColumn);
+
+    grid.selectRange(0, col, row, col);
     await settle(3);
 
     const cellAt = (dataRow) =>
         grid.element.querySelector(
-            `[data-type="data-cell"][data-row="${dataRow}"][data-col="0"]`,
+            `[data-type="data-cell"][data-row="${dataRow}"][data-col="${col}"]`,
         );
 
     const a = cellAt(row);
@@ -330,6 +337,62 @@ async function measureRangeDrag(row, steps = 200) {
     };
 }
 
+/**
+ * The task-11 gate: select-all on 100k rows must not stall.
+ *
+ * Two costs, because they fail differently. The *model* cost is one O(rows) pass to build the
+ * key set plus one to answer "is everything selected" — unavoidable, and the thing that would
+ * stall if it were accidentally quadratic. The *dirty set* is what a naive implementation gets
+ * wrong instead: marking 100,000 rows dirty is correct and useless, because only two dozen are
+ * on screen. That number must be a function of the viewport.
+ */
+async function measureSelectAll() {
+    grid.clearSelected();
+    // Same warm-up as `measureFullRepaint`, for the same reason: cells that scrolled out
+    // during an earlier phase stay attached until the next full *recompute* trims them, and
+    // settling alone never asks for one. Without this their removal is counted here.
+    grid.refresh();
+    await settle(4);
+
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirtyRows = 0;
+    model.update = (info) => {
+        if (!info || info.all) dirtyRows = Infinity;
+        else dirtyRows += (info.rows?.length ?? 0) + (info.cells?.length ?? 0);
+        return originalUpdate.call(model, info);
+    };
+
+    grid.render.resetStats();
+    const startedAt = performance.now();
+    grid.selectAll();
+    const selectAllMs = performance.now() - startedAt;
+
+    await settle(3);
+    const afterSelect = grid.render.stats;
+    const selectPaints = afterSelect.paints;
+    const selectMutations = afterSelect.cellsAppended + afterSelect.cellsRemoved;
+
+    const selectedCount = grid.getState().selectedCount;
+    const clearDirtyBefore = dirtyRows;
+    const clearStartedAt = performance.now();
+    grid.clearSelected();
+    const clearMs = performance.now() - clearStartedAt;
+    await settle(3);
+
+    model.update = originalUpdate;
+
+    return {
+        selectAllMs,
+        clearMs,
+        selectedCount,
+        dirtyRowsOnSelectAll: clearDirtyBefore,
+        dirtyRowsOnClear: dirtyRows - clearDirtyBefore,
+        paints: selectPaints,
+        mutations: selectMutations,
+    };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -375,6 +438,9 @@ async function runBenchmark(count = 100000) {
     status("measuring a range drag near row 99,000…");
     const dragBottom = await measureRangeDrag(count - 1000);
 
+    status("measuring select-all on 100k rows…");
+    const selectAll = await measureSelectAll();
+
     status("measuring a sort of 100k rows…");
     const sort = await measureSort();
 
@@ -393,6 +459,7 @@ async function runBenchmark(count = 100000) {
         dragRatio: dragTop.modelMsPerMove
             ? dragBottom.modelMsPerMove / dragTop.modelMsPerMove
             : 0,
+        selectAll,
         sortMs: sort.modelMs,
     };
 
@@ -443,6 +510,16 @@ function renderResults(r) {
             `${r.dragBottom.dirtyCellsPerMove.toFixed(1)} cells marked · selection ${r.dragBottom.selectionRows.toLocaleString()} rows`,
         )}
         ${row("Range-drag ratio", `${r.dragRatio.toFixed(2)}×`, "gate: ≈ 1.0")}
+        ${row(
+            "Select all 100k rows",
+            `${r.selectAll.selectAllMs.toFixed(1)} ms`,
+            `${r.selectAll.dirtyRowsOnSelectAll} rows marked · ${r.selectAll.mutations} DOM mutations`,
+        )}
+        ${row(
+            "Clear the selection",
+            `${r.selectAll.clearMs.toFixed(1)} ms`,
+            `${r.selectAll.dirtyRowsOnClear} rows marked`,
+        )}
         ${row("Sort 100k rows (model)", `${r.sortMs.toFixed(1)} ms`)}
     </tbody></table>`;
     resultsEl.hidden = false;
@@ -474,6 +551,7 @@ window.avg = {
     measureScrollFps,
     measureFullRepaint,
     measureRangeDrag,
+    measureSelectAll,
     measureSort,
     scrollTo,
     settle,

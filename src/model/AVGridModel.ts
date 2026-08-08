@@ -23,6 +23,7 @@ import { AVGridEvents } from "./AVGridEvents";
 import { ColumnsModel } from "./ColumnsModel";
 import { FocusModel } from "./FocusModel";
 import { RowsModel } from "./RowsModel";
+import { SelectedModel } from "./SelectedModel";
 import { SortColumnModel } from "./SortColumnModel";
 
 export interface AVGridState<R = any> {
@@ -34,15 +35,17 @@ export class AVGridModels<R> {
     readonly columns: ColumnsModel<R>;
     readonly sortColumn: SortColumnModel<R>;
     readonly rows: RowsModel<R>;
+    readonly selected: SelectedModel<R>;
     readonly focus: FocusModel<R>;
 
     constructor(model: AVGridModel<R>) {
         // Order matters: `columns` must exist before `rows`, because the first
-        // `updateColumnsData()` sends a data change that `RowsModel` reacts to. `focus` comes
-        // last so its `validateFocus` never runs against a half-built pipeline.
+        // `updateColumnsData()` sends a data change that `RowsModel` reacts to. `selected` and
+        // `focus` come last so neither revalidates against a half-built pipeline.
         this.columns = new ColumnsModel<R>(model);
         this.sortColumn = new SortColumnModel<R>(model);
         this.rows = new RowsModel<R>(model);
+        this.selected = new SelectedModel<R>(model);
         this.focus = new FocusModel<R>(model);
     }
 }

@@ -84,8 +84,16 @@ export interface AVGridStateSnapshot<R = any> {
     sort?: SortColumn;
     searchString?: string;
     rowHeight: number;
-    /** The focused cell and its range selection. Row selection joins it in task 11. */
+    /** The focused cell and its range selection. */
     focus?: CellFocus<R>;
+    /**
+     * How many rows are checkbox-selected, and whether that is all of them.
+     *
+     * The count rather than the keys deliberately: this snapshot is meant to be logged, and
+     * 100,000 keys in a console answers nothing. `getSelected()` returns them.
+     */
+    selectedCount: number;
+    allSelected: boolean;
 }
 
 export class AVGrid<R = any> {
@@ -238,6 +246,54 @@ export class AVGrid<R = any> {
     }
 
     // -----------------------------------------------------------------------
+    // Row selection
+    // -----------------------------------------------------------------------
+
+    /**
+     * The selected rows, by row key.
+     *
+     * This is the checkbox selection, and it is a different thing from the *cell* range in
+     * `getSelection()` — one is a set of rows a host acts on, the other a rectangle that copy
+     * and paste act on. A grid can have both at once.
+     *
+     * ```js
+     * AVGrid.create(el, { rows, selectColumn: true, onSelectionChange: (keys) => … });
+     * grid.setSelected(["3", "7"]);
+     * grid.getSelectedRows().forEach(send);
+     * ```
+     */
+    getSelected(): string[] {
+        return this.model.models.selected.getSelectedKeys();
+    }
+
+    /** The selected row objects, in display order. O(rows) — call it when you need them. */
+    getSelectedRows(): R[] {
+        return this.model.models.selected.getSelectedRows();
+    }
+
+    /** Replace the selection. Accepts an array or a `Set`; `undefined` clears it. */
+    setSelected(selected: Iterable<string> | undefined): void {
+        this.model.models.selected.setSelected(selected);
+    }
+
+    isSelected(rowKey: string): boolean {
+        return this.model.models.selected.isSelected(rowKey);
+    }
+
+    toggleSelected(rowKey: string): void {
+        this.model.models.selected.toggleSelected(rowKey);
+    }
+
+    /** Select every *displayed* row — so on a filtered grid, what the user can see. */
+    selectAll(): void {
+        this.model.models.selected.selectAll();
+    }
+
+    clearSelected(): void {
+        this.model.models.selected.clearSelected();
+    }
+
+    // -----------------------------------------------------------------------
     // Focus and range selection
     // -----------------------------------------------------------------------
 
@@ -322,7 +378,15 @@ export class AVGrid<R = any> {
         delete rest.searchString;
         delete rest.filters;
         delete rest.sort;
+        delete rest.selected;
         Object.assign(this.model.options, rest);
+
+        // Showing or hiding the checkbox column changes what the render layer sees, which
+        // `updateColumnsData` — not `setColumns` — is what produces.
+        if ("selectColumn" in options) {
+            this.model.models.columns.updateColumnsData(this.model.options.columns);
+        }
+        if ("selected" in options) this.setSelected(options.selected);
 
         if (rest.cellBorders !== undefined) {
             if (rest.cellBorders === false) {
@@ -369,6 +433,8 @@ export class AVGrid<R = any> {
             searchString: this.model.options.searchString,
             rowHeight: this.model.options.rowHeight,
             focus: this.model.models.focus.focus,
+            selectedCount: this.model.models.selected.count,
+            allSelected: this.model.models.selected.allSelected,
         };
     }
 

@@ -167,6 +167,57 @@ landed: 2 cells marked per move at both ends, 0.0141 ms against 0.0129 ms — th
 the spurious "36 DOM mutations" for good: cells that scrolled out during an earlier phase stay
 attached until the next full *recompute* trims them, and settling alone never asks for one.
 
+## Task 11 — row selection — 2026-08-08
+
+Task 11's requirement is softer than task 10's — *"select-all on 100k rows does not stall"* —
+but it fails in the same way if taken carelessly: selecting 100,000 rows changes 100,000 rows'
+appearance, and marking all of them dirty is correct, useless, and slow. Harness entry
+`window.avg.measureSelectAll()`.
+
+| Measure | Result | |
+|---|---|---|
+| Select all 100,000 rows | 24.9 ms | model cost, one click |
+| **Rows marked dirty** | **19** | ✅ the viewport, not the selection |
+| DOM mutations | 0 | ✅ |
+| Paints | 1 | ✅ |
+| Clear the selection | 0.1 ms | 19 rows marked |
+
+The 24.9 ms is almost entirely `new Set(100_000 keys)` — 18 ms of it, measured directly. The
+two passes that *were* avoidable are gone: `selectAll` tells `updateAllSelected` the answer
+instead of making it scan (6.4 ms), and the key array handed to `onSelectionChange` is built
+only if a host registered one. Isolated repeats settle at 8–12 ms once the JIT has warmed up.
+
+The rest of the gate, re-run with the checkbox column on and a row-selection class on every
+cell:
+
+| Measure | Task 10 | Task 11 | |
+|---|---|---|---|
+| Time to first paint | 6.7 ms | 5.8 ms | ✅ gate < 100 ms |
+| **Flat-cost ratio** | 1.08× | **0.89×** | ✅ ≈ 1.0 |
+| Scroll fps (top / bottom) | 60.0 / 60.0 | 60.0 / 60.0 | ✅ |
+| Full repaint | 0.2 ms, 0 mutations | 0.0 ms, 0 mutations | |
+| **Range drag — cells marked per move** | 2 / 2 | **2 / 2** | ✅ |
+| Range-drag ratio | 1.04× | 1.04× | ✅ |
+| Sort 100k rows | 22 ms | 23 ms | |
+
+**No regression.** A second per-cell class producer costs nothing measurable for the same
+reason the first one did: `rowClass()` returns before touching the row at all when nothing is
+selected, which is the state every grid is in until someone clicks.
+
+### The harness bug this found, which was not a grid bug
+
+The first run after the checkbox column landed reported the range drag marking **0 cells per
+move at both ends** — a perfect ratio, and completely empty. `measureRangeDrag` dragged from
+`data-col="0"`, which is the checkbox column once `selectColumn` is on, and a pointerdown on a
+status column is deliberately inert. It now resolves the first non-status column instead.
+
+Worth recording because of the shape of the failure: an instrumented measurement that reports
+*zero work* reads like a triumph and is nearly always a broken probe. The same run also
+reported 10 DOM mutations on select-all which did not reproduce in isolation — the familiar
+"cells that scrolled out during an earlier phase are trimmed by the next full recompute"
+artifact, and `measureSelectAll` now does the same throwaway `refresh()` warm-up that
+`measureFullRepaint` learned in task 9.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -174,3 +225,4 @@ attached until the next full *recompute* trims them, and settling alone never as
 | 2026-08-08 | 5 | 5.6 ms | 1.02× | 60.0 / 60.0 | 0 | Baseline. Gate passed. |
 | 2026-08-08 | 9 | 8.0 ms | 0.93× | 60.0 / 60.0 | 0 | Whole grid, real cell renderers. No regression. |
 | 2026-08-08 | 10 | 6.7 ms | 1.08× | 60.0 / 60.0 | 0 | Focus and range selection. Drag ratio **1.04×**, 2 cells marked per move at both ends. |
+| 2026-08-08 | 11 | 5.8 ms | 0.89× | 60.0 / 60.0 | 0 | Row selection + checkbox column. Select-all on 100k: 24.9 ms, **19 rows marked**, 0 mutations. |
