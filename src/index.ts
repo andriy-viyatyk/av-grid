@@ -45,6 +45,11 @@ export type {
 } from "./model/FocusModel";
 export { SelectedModel } from "./model/SelectedModel";
 export type { SelectAllState } from "./model/SelectedModel";
+export { EditingModel } from "./model/EditingModel";
+export type { CellEditor, EditorContext } from "./model/EditingModel";
+export { createCellInput } from "./view/CellInput";
+export { createCellSelect } from "./view/CellSelect";
+export { createDefaultEditor } from "./view/DefaultEditFormatter";
 export { SortColumnModel } from "./model/SortColumnModel";
 export { SELECT_COLUMN_KEY, createSelectColumn } from "./view/SelectColumn";
 

@@ -27,7 +27,7 @@ import { columnDisplayValue, formatDisplayValue, gridBoolean } from "../gridUtil
 import { checkIcon } from "./icons";
 import { applyCellStyle, setText } from "./cellDom";
 
-type ContentMode = "text" | "bool" | "html" | "node";
+type ContentMode = "text" | "bool" | "html" | "node" | "editor";
 
 const mode = new WeakMap<HTMLElement, ContentMode>();
 
@@ -78,6 +78,11 @@ export function renderDataCell<R>(
     // --- classes -----------------------------------------------------------
     let className = "avg-data-cell" + alignClass(column, value);
     if (model.data.hovered.row === dataRow) className += " avg-row-hovered";
+    // Two integer comparisons per cell, so a grid with no open editor — every grid, nearly all
+    // the time — pays almost nothing for the feature.
+    const editing = model.models.editing;
+    const isEditing = editing.isEditingCell(dataRow, p.col);
+    if (isEditing) className += " avg-editing";
     // Both return "" — the identical empty string — for a grid with nothing selected, which
     // is the default state and allocates nothing.
     className += model.models.selected.rowClass(dataRow);
@@ -110,6 +115,27 @@ export function renderDataCell<R>(
     el.setAttribute("data-column-key", String(column.key));
 
     // --- content -----------------------------------------------------------
+    if (isEditing) {
+        const editor = editing.editorElement();
+        if (editor) {
+            // Only when it is not already here: re-parenting an input is what would destroy
+            // the caret, the text selection and any IME composition in flight. A repaint of
+            // the editing cell — a hover, a selection change — must be free.
+            if (editor.parentElement !== el) {
+                setMode(el, "editor");
+                el.appendChild(editor);
+                editing.editorMounted();
+            }
+            applyCellStyle(el, p.style);
+            return el;
+        }
+    } else if (editing.ownsCell(el)) {
+        // This element held the open editor and is now being painted as a different cell —
+        // it was recycled while the edit was open, which happens when the editing row is
+        // scrolled far out of view. Commit rather than leave an editor nobody can reach.
+        editing.releaseCell();
+    }
+
     if (column.render && context) {
         const rendered = column.render(context);
         if (rendered === null || rendered === undefined) {

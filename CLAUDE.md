@@ -25,14 +25,14 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1 and 2 are complete, and tasks 10–11 with them.** Tasks 1–11 are done; task 12
-(in-cell editing) is next.
+**Phases 1 and 2 are complete, and tasks 10–12 with them.** Tasks 1–12 are done; task 13
+(clipboard copy/paste) is next.
 
 There is a working grid. `AVGrid.create(el, { rows })` renders a real one — columns, header
 labels, widths, row keys and data types all inferred — with header sorting, column resize and
 reorder, custom cell renderers, a search filter, cell focus, full keyboard navigation, range
-selection by drag or by shift, row selection through a checkbox column, and a stylesheet driven
-entirely by CSS custom properties.
+selection by drag or by shift, row selection through a checkbox column, in-cell editing
+(`editable: true`), and a stylesheet driven entirely by CSS custom properties.
 
 The performance thesis survived the grid layer, and then survived selection. 100,000 rows in a
 real browser, through the *whole* grid rather than the engine alone: first paint 6.7 ms, 60 fps
@@ -43,8 +43,12 @@ Task 10's own gate: dragging a range selection anchored at row 0 down through ro
 a live selection of 99,001 rows against 101 at the top — marks **2 cells dirty per pointer
 move at both ends**, for a model cost of 0.0141 ms against 0.0147 ms, a **ratio of 1.04×**.
 Task 11's: selecting all 100,000 rows takes 24.9 ms, marks **19 rows** dirty, and mutates
-**zero** DOM nodes. Full results, history, and the measurements that mislead if taken
-carelessly, in [`tasks/benchmark-results.md`](tasks/benchmark-results.md).
+**zero** DOM nodes. Task 12's is about survival rather than throughput — a full repaint while a
+cell is being edited does **zero** DOM mutations and hands back the same `<input>`, which is the
+first thing in the library that would notice if the render path stopped preferring `p.previous`.
+The gate was re-run with editing on and holds: first paint 5.7 ms, flat ratio 0.94×, 60/60 fps.
+Full results, history, and the measurements that mislead if taken carelessly, in
+[`tasks/benchmark-results.md`](tasks/benchmark-results.md).
 
 ## Reference implementation — Persephone
 
@@ -108,8 +112,12 @@ av-grid/
             SortColumnModel.ts   ← sort state and its comparator
             FocusModel.ts        ← focus, keyboard nav, range selection
             SelectedModel.ts     ← row selection, by row key
+            EditingModel.ts      ← in-cell editing: open, commit, cancel, validate
         view/                    ← the DOM, rewritten rather than transliterated
             DataCell.ts          ← the hot path; allocation-light
+            CellInput.ts         ← the text editor; owned by EditingModel, never pooled
+            CellSelect.ts        ← the dropdown editor, for a column with `options`
+            DefaultEditFormatter.ts ← which of the two a cell gets
             HeaderCell.ts        ← label, sort indicator, resize grip, filter funnel
             SelectColumn.ts      ← the checkbox column, as an ordinary Column
             GridInteractions.ts  ← every listener, all of them delegated from the root

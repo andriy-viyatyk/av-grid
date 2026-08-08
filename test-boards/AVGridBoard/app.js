@@ -60,7 +60,7 @@ function buildRows(count) {
 /** Explicit columns, exercising every column feature the grid layer has so far. */
 function columns() {
     return [
-        { key: "id", name: "#", width: 70, align: "right", resizable: false },
+        { key: "id", name: "#", width: 70, align: "right", resizable: false, readonly: true },
         { key: "firstName", name: "First Name", width: 120 },
         { key: "lastName", name: "Last Name", width: 140 },
         { key: "team", name: "Team", width: 110 },
@@ -68,6 +68,8 @@ function columns() {
             key: "full",
             name: "Full Name",
             width: 200,
+            // Computed from two other columns, so there is nothing an edit could write to.
+            readonly: true,
             // A computed column: no `full` property exists on any row.
             render: (c) => `${c.row.firstName} ${c.row.lastName}`,
         },
@@ -75,6 +77,9 @@ function columns() {
             key: "status",
             name: "Status",
             width: 110,
+            // `options` gives the cell a dropdown editor — and this column also has a custom
+            // `render`, so it proves the display renderer and the editor coexist.
+            options: STATUS,
             // An element renderer, to prove both return shapes work.
             render: (c) => {
                 const span = document.createElement("span");
@@ -83,7 +88,7 @@ function columns() {
                 return span;
             },
         },
-        { key: "score", name: "Score", width: 100 },
+        { key: "score", name: "Score", width: 100, dataType: "number" },
         { key: "active", name: "Active", width: 80, dataType: "boolean" },
         { key: "joined", name: "Joined", width: 170, displayFormat: "dateTime" },
     ];
@@ -110,6 +115,12 @@ function createGrid(count = Number(el("rows").value) || 1000, useColumns = true)
         onColumnsReorder: (from, to) => live(`reorder: ${from} → ${to}`),
         selectColumn: true,
         onSelectionChange: (keys) => live(`selected: ${keys.length} rows`),
+        editable: true,
+        // The grid writes the value itself; this is the notification. The `#` column is
+        // readonly and `full` is computed, so both refuse to open.
+        onEdit: (e) =>
+            live(`edit: ${e.columnKey} ${JSON.stringify(e.previousValue)} → ${JSON.stringify(e.value)}`),
+        onInvalidEdit: (e) => live(`rejected: ${JSON.stringify(e.value)} in ${e.column.key}`),
     });
     const firstPaintMs = performance.now() - startedAt;
 
@@ -393,6 +404,81 @@ async function measureSelectAll() {
     };
 }
 
+/**
+ * The task-12 check: opening, typing in and committing an editor must cost one cell.
+ *
+ * The failure this is watching for is the one the invariant in `CLAUDE.md` describes. If a
+ * repaint of the editing cell ever re-parents the editor — because the render path took a
+ * pooled element instead of `previous` — the caret dies on the next hover, and the symptom
+ * visible from here is DOM mutations during the edit. So the numbers to read are
+ * `dirtyCellsOnOpen` (must be 1), `mutationsWhileEditing` (must be 0), and
+ * `sameElementAfterRepaint` (must be true).
+ */
+async function measureEditing(row = 100) {
+    const rowHeight = grid.getState().rowHeight;
+    await scrollTo(Math.max(0, (row - 5) * rowHeight));
+    // The first editable data column.
+    const col = grid.model.data.columns.findIndex(
+        (c) => !c.isStatusColumn && !c.readonly && !c.options && c.dataType !== "boolean",
+    );
+
+    grid.focusCell(row, col);
+    grid.refresh();
+    await settle(4);
+
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirty = 0;
+    model.update = (info) => {
+        if (!info || info.all) dirty = Infinity;
+        else dirty += (info.cells?.length ?? 0) + (info.rows?.length ?? 0);
+        return originalUpdate.call(model, info);
+    };
+
+    grid.render.resetStats();
+    const openStartedAt = performance.now();
+    grid.startEdit(row, col);
+    const openMs = performance.now() - openStartedAt;
+    const dirtyCellsOnOpen = dirty;
+    await settle(3);
+
+    const editorEl = grid.element.querySelector('[data-type="cell-editor"]');
+    const cellOf = (el) => el?.closest('[data-type="data-cell"]');
+    const cellBefore = cellOf(editorEl);
+
+    // A repaint of the editing cell — what a hover or a selection change causes.
+    grid.render.resetStats();
+    grid.refresh();
+    await settle(3);
+    const editStats = grid.render.stats;
+    const sameElementAfterRepaint =
+        grid.element.querySelector('[data-type="cell-editor"]') === editorEl &&
+        cellOf(editorEl) === cellBefore;
+
+    dirty = 0;
+    editorEl.value = `edited ${row}`;
+    editorEl.dispatchEvent(new Event("input", { bubbles: true }));
+    const commitStartedAt = performance.now();
+    editorEl.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    const commitMs = performance.now() - commitStartedAt;
+    const dirtyCellsOnCommit = dirty;
+    await settle(3);
+
+    model.update = originalUpdate;
+
+    return {
+        row,
+        openMs,
+        commitMs,
+        dirtyCellsOnOpen,
+        dirtyCellsOnCommit,
+        mutationsWhileEditing: editStats.cellsAppended + editStats.cellsRemoved,
+        sameElementAfterRepaint,
+        committedValue: grid.model.data.rows[row][grid.model.data.columns[col].key],
+        stillEditing: grid.isEditing(),
+    };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -441,6 +527,9 @@ async function runBenchmark(count = 100000) {
     status("measuring select-all on 100k rows…");
     const selectAll = await measureSelectAll();
 
+    status("measuring an edit…");
+    const editing = await measureEditing(count - 1000);
+
     status("measuring a sort of 100k rows…");
     const sort = await measureSort();
 
@@ -460,6 +549,7 @@ async function runBenchmark(count = 100000) {
             ? dragBottom.modelMsPerMove / dragTop.modelMsPerMove
             : 0,
         selectAll,
+        editing,
         sortMs: sort.modelMs,
     };
 
@@ -520,6 +610,16 @@ function renderResults(r) {
             `${r.selectAll.clearMs.toFixed(1)} ms`,
             `${r.selectAll.dirtyRowsOnClear} rows marked`,
         )}
+        ${row(
+            "Open an editor",
+            `${r.editing.openMs.toFixed(3)} ms`,
+            `${r.editing.dirtyCellsOnOpen} cell marked · ${r.editing.mutationsWhileEditing} DOM mutations on repaint`,
+        )}
+        ${row(
+            "Commit the edit",
+            `${r.editing.commitMs.toFixed(3)} ms`,
+            `${r.editing.dirtyCellsOnCommit} cells marked · editor survived repaint: ${r.editing.sameElementAfterRepaint}`,
+        )}
         ${row("Sort 100k rows (model)", `${r.sortMs.toFixed(1)} ms`)}
     </tbody></table>`;
     resultsEl.hidden = false;
@@ -552,6 +652,7 @@ window.avg = {
     measureFullRepaint,
     measureRangeDrag,
     measureSelectAll,
+    measureEditing,
     measureSort,
     scrollTo,
     settle,

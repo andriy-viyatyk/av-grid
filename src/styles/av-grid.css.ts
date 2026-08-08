@@ -317,6 +317,38 @@ export const css = `
     cursor: pointer;
 }
 
+/* -------------------------------------------------------------- editing */
+
+/*
+ * The editor fills its cell, inset by one pixel so the focus outline the cell already draws
+ * stays visible around it. It inherits the grid's font rather than the browser's control font,
+ * so the text does not jump size or family when a cell opens for editing.
+ */
+.avg-grid .avg-cell-editor {
+    position: absolute;
+    inset: 1px;
+    box-sizing: border-box;
+    width: auto;
+    padding: 0 3px;
+    margin: 0;
+    border: none;
+    outline: none;
+    border-radius: 0;
+    font: inherit;
+    color: var(--avg-cell-text);
+    background-color: var(--avg-cell-bg);
+}
+
+.avg-grid select.avg-cell-editor {
+    padding-left: 1px;
+}
+
+/* The hover tint is suppressed over an open editor — see the ::after rule above. */
+.avg-grid .avg-data-cell.avg-editing::before {
+    border: 1px solid var(--avg-selection-border);
+    background-color: transparent;
+}
+
 /* ---------------------------------------------------------------- pieces */
 
 .avg-grid .avg-check-icon {

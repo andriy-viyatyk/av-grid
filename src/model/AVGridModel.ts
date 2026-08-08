@@ -21,6 +21,7 @@ import type { CellContext, CellEdit, Column, SortColumn } from "../types";
 import { AVGridData } from "./AVGridData";
 import { AVGridEvents } from "./AVGridEvents";
 import { ColumnsModel } from "./ColumnsModel";
+import { EditingModel } from "./EditingModel";
 import { FocusModel } from "./FocusModel";
 import { RowsModel } from "./RowsModel";
 import { SelectedModel } from "./SelectedModel";
@@ -37,16 +38,19 @@ export class AVGridModels<R> {
     readonly rows: RowsModel<R>;
     readonly selected: SelectedModel<R>;
     readonly focus: FocusModel<R>;
+    readonly editing: EditingModel<R>;
 
     constructor(model: AVGridModel<R>) {
         // Order matters: `columns` must exist before `rows`, because the first
         // `updateColumnsData()` sends a data change that `RowsModel` reacts to. `selected` and
-        // `focus` come last so neither revalidates against a half-built pipeline.
+        // `focus` come last so neither revalidates against a half-built pipeline — and
+        // `editing` after `focus`, because every edit starts from where the focus is.
         this.columns = new ColumnsModel<R>(model);
         this.sortColumn = new SortColumnModel<R>(model);
         this.rows = new RowsModel<R>(model);
         this.selected = new SelectedModel<R>(model);
         this.focus = new FocusModel<R>(model);
+        this.editing = new EditingModel<R>(model);
     }
 }
 

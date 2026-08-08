@@ -203,6 +203,44 @@ export type CellEdit<R = any> = {
     changed: boolean;
 };
 
+/**
+ * A committed edit, handed to `onEdit` just before the grid writes it.
+ *
+ * The reference's callback was `editRow(columnKey, rowKey, value)` — three positional
+ * arguments, and a host that wanted the row had to go and find it by key. This carries the row
+ * and column themselves, which is what a host almost always needs:
+ *
+ * ```js
+ * onEdit: (edit) => save(edit.row.id, edit.columnKey, edit.value)
+ * ```
+ *
+ * Return `false` from `onEdit` to reject the edit — the grid then writes nothing and the cell
+ * keeps its old value.
+ */
+export interface CellEditEvent<R = any> {
+    /** The value about to be written, after `validate` / `defaultValidate` coercion. */
+    value: any;
+    /** What the cell held before. */
+    previousValue: any;
+    row: R;
+    column: Column<R>;
+    columnKey: string;
+    rowKey: string;
+    /** Index into the currently displayed rows. */
+    rowIndex: number;
+    colIndex: number;
+}
+
+/** An edit that could not be coerced to the column's type — see `onInvalidEdit`. */
+export interface InvalidEditEvent<R = any> {
+    /** What the user actually typed, before coercion. */
+    value: any;
+    row: R;
+    column: Column<R>;
+    rowIndex: number;
+    colIndex: number;
+}
+
 // ---------------------------------------------------------------------------
 // Cell events
 // ---------------------------------------------------------------------------

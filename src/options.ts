@@ -13,9 +13,11 @@
 
 import type {
     CellContext,
+    CellEditEvent,
     CellFocus,
     Column,
     Filter,
+    InvalidEditEvent,
     SortColumn,
 } from "./types";
 
@@ -69,6 +71,53 @@ export interface AVGridOptions<R = any> {
      * and so is not done for you on every click.
      */
     onSelectionChange?: (selectedKeys: string[]) => void;
+
+    // -----------------------------------------------------------------------
+    // Editing
+    // -----------------------------------------------------------------------
+
+    /**
+     * Let the user edit cells in place.
+     *
+     * ```js
+     * AVGrid.create(el, {
+     *     rows,
+     *     editable: true,
+     *     onEdit: (edit) => save(edit.rowKey, edit.columnKey, edit.value),
+     * });
+     * ```
+     *
+     * Editing starts on a double-click, on F2 or Enter, or simply by typing into a focused
+     * cell; it commits on Enter, Tab or blur and cancels on Escape. Boolean columns have no
+     * text editor — Space, Enter or a double-click toggles them across the whole selection —
+     * and Delete clears every editable cell in the selection.
+     *
+     * Per-column opt-outs: `readonly: true` on a column, and any status column (the checkbox).
+     *
+     * **The grid writes the value into the row object** (`row[column.key] = value`) and then
+     * calls `onEdit`. That is the behaviour an agent expects from `editable: true` alone — the
+     * reference edited nothing without a callback, which reads as a broken grid. Return `false`
+     * from `onEdit` to keep the write from happening and own the update yourself.
+     */
+    editable?: boolean;
+
+    /**
+     * A cell was edited. Fires once per committed cell, *before* the value is written, so
+     * returning `false` rejects it.
+     *
+     * A range delete or a boolean toggle across a selection fires this once per cell.
+     */
+    onEdit?: (edit: CellEditEvent<R>) => void | boolean;
+
+    /**
+     * An edit was rejected because the value could not be coerced to the column's type — the
+     * usual case is a value that is not one of the column's `options`.
+     *
+     * This is where the reference called `beep()` from Persephone's audio utility. A library
+     * should not make noise uninvited, so the sound is the host's to make: the default is to do
+     * nothing at all.
+     */
+    onInvalidEdit?: (edit: InvalidEditEvent<R>) => void;
 
     // -----------------------------------------------------------------------
     // Layout

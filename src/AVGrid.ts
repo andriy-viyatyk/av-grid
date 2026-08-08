@@ -41,6 +41,7 @@ import { injectStyles } from "./styles/av-grid.css";
 import { renderDataCell } from "./view/DataCell";
 import { renderHeaderCell } from "./view/HeaderCell";
 import { GridInteractions } from "./view/GridInteractions";
+import { createDefaultEditor } from "./view/DefaultEditFormatter";
 import type { AVGridOptions } from "./options";
 import {
     AVGridError,
@@ -49,7 +50,7 @@ import {
     validateColumns,
     validateSort,
 } from "./validate";
-import type { CellFocus, Column, SortColumn } from "./types";
+import type { CellEdit, CellFocus, Column, SortColumn } from "./types";
 import type { GridSelection } from "./model/FocusModel";
 import type { AVGridDataChangeEvent } from "./model/AVGridData";
 import type { RowAlign } from "./render/types";
@@ -94,6 +95,8 @@ export interface AVGridStateSnapshot<R = any> {
      */
     selectedCount: number;
     allSelected: boolean;
+    /** The cell being edited, if any. Present only while an editor is open. */
+    editing?: { rowKey: string; columnKey: string };
 }
 
 export class AVGrid<R = any> {
@@ -168,6 +171,9 @@ export class AVGrid<R = any> {
                 this.render.model.checkSize();
             });
         }
+
+        // The model layer opens editors without importing the view layer; this is the seam.
+        this.model.models.editing.createEditor = createDefaultEditor;
 
         this.model.setRenderModel(this.render.model);
         this.interactions = new GridInteractions<R>(this.model, this.render);
@@ -294,6 +300,53 @@ export class AVGrid<R = any> {
     }
 
     // -----------------------------------------------------------------------
+    // Editing
+    // -----------------------------------------------------------------------
+
+    /**
+     * Open the editor on a cell, by index into the *displayed* rows.
+     *
+     * ```js
+     * AVGrid.create(el, { rows, editable: true, onEdit: (e) => save(e.rowKey, e.columnKey, e.value) });
+     * grid.startEdit(0, 1);
+     * ```
+     *
+     * Does nothing when the grid is not `editable`, the column is `readonly`, or the column is
+     * a boolean — booleans toggle instead, through `Space`, `Enter` or a double-click.
+     */
+    startEdit(rowIndex: number, colIndex: number): void {
+        this.model.models.editing.openEdit(rowIndex, colIndex);
+    }
+
+    /** Is an editor open? */
+    isEditing(): boolean {
+        return this.model.models.editing.isEditing;
+    }
+
+    /** The open edit — its cell, and the value the editor is holding. */
+    getEdit(): CellEdit<R> | undefined {
+        return this.model.models.editing.edit;
+    }
+
+    /** Write the editor's value and close it. */
+    commitEdit(): void {
+        this.model.models.editing.commitEdit();
+    }
+
+    /** Close the editor, discarding what was typed. */
+    cancelEdit(): void {
+        this.model.models.editing.cancelEdit();
+    }
+
+    /**
+     * Set one cell's value as if the user had edited it — validation, `onEdit` and the repaint
+     * all happen. Returns whether anything was written.
+     */
+    setCellValue(rowIndex: number, colIndex: number, value: any): boolean {
+        return this.model.models.editing.editCellAt(rowIndex, colIndex, value);
+    }
+
+    // -----------------------------------------------------------------------
     // Focus and range selection
     // -----------------------------------------------------------------------
 
@@ -387,6 +440,9 @@ export class AVGrid<R = any> {
             this.model.models.columns.updateColumnsData(this.model.options.columns);
         }
         if ("selected" in options) this.setSelected(options.selected);
+        // An editor left open on a grid that is no longer editable would commit on its next
+        // blur, writing a value the host has just said it does not accept.
+        if (options.editable === false) this.model.models.editing.cancelEdit();
 
         if (rest.cellBorders !== undefined) {
             if (rest.cellBorders === false) {
@@ -425,7 +481,11 @@ export class AVGrid<R = any> {
      * selection and focus to it.
      */
     getState(): AVGridStateSnapshot<R> {
+        const edit = this.model.models.editing.edit;
         return {
+            editing: edit
+                ? { rowKey: edit.rowKey, columnKey: String(edit.columnKey) }
+                : undefined,
             columns: this.model.options.columns,
             rowCount: this.model.data.rows.length,
             sourceRowCount: this.model.options.rows.length,
@@ -466,6 +526,9 @@ export class AVGrid<R = any> {
     /** Release everything: listeners, observers, pooled DOM. Safe to call twice. */
     destroy(): void {
         if (this.destroyed) return;
+        // Before the flag: an open editor commits on blur, and tearing the DOM down under it
+        // would fire that blur with nothing left to write into.
+        this.model.models.editing.cancelEdit();
         this.destroyed = true;
 
         this.dataSubscription.unsubscribe();

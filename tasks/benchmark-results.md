@@ -218,6 +218,67 @@ reported 10 DOM mutations on select-all which did not reproduce in isolation —
 artifact, and `measureSelectAll` now does the same throwaway `refresh()` warm-up that
 `measureFullRepaint` learned in task 9.
 
+## Task 12 — in-cell editing — 2026-08-08
+
+Editing has no throughput gate — nobody types into 100,000 cells — so the question here is a
+different one: **does an open editor survive a repaint?** The invariant in `CLAUDE.md` says a
+cell renderer must prefer `p.previous` over a pooled element, and an editor is the first thing
+in the library that *notices* when it does not. Take a pooled element instead and the input is
+re-parented on the next hover, which destroys the caret, the text selection and any IME
+composition in flight. Harness entry `window.avg.measureEditing(row)`.
+
+| Measure | Result | |
+|---|---|---|
+| Open an editor | 0.0 ms | |
+| **Cells marked dirty on open** | **1** | ✅ one cell, not the row |
+| Full repaint while editing — DOM mutations | **0** | ✅ |
+| **Editor element survives that repaint** | **true** | ✅ same input, same parent cell |
+| Commit | 5.7 ms | includes `onEdit` and re-focusing the grid |
+| Cells marked dirty on commit | 1 | |
+
+Measured at **row 99,000**, which is the only interesting place to measure it: everything above
+is the same code with a smaller index. The 5.7 ms commit is a one-off user action and most of it
+is `focusGrid()` returning focus to the root; it is on no repeated path. Opening costs 0.1 ms.
+
+Verified in the browser by hand as well as by the harness, on the 1,000-row board: F2 and
+double-click open with the value selected, typing opens with the typed character and the caret
+after it, Enter and Tab and blur commit, Escape discards, Tab lands the focus one column right,
+a dropdown pick commits immediately, Space flips the booleans in a selection, and Delete clears
+one. The editor sits flush in its cell (1px inset, inherited font) — screenshotted, not assumed.
+
+The rest of the gate, re-run on 100,000 rows with editing on:
+
+| Measure | Task 11 | Task 12 | |
+|---|---|---|---|
+| Time to first paint | 5.8 ms | 5.7 ms | ✅ gate < 100 ms |
+| **Flat-cost ratio** | 0.89× | **0.94×** | ✅ ≈ 1.0 |
+| Scroll fps (top / bottom) | 60.0 / 60.0 | 60.0 / 60.0 | ✅ |
+| Full repaint | 0.0 ms, 0 mutations | 0.0 ms, 0 mutations | ✅ |
+| **Range drag — cells marked per move** | 2 / 2 | **2 / 2** | ✅ |
+| Range-drag ratio | 1.04× | 0.93× | ✅ |
+| Select all 100k | 24.9 ms, 19 rows | 21.7 ms, 36 rows | ✅ viewport-bounded |
+| Sort 100k rows | 23 ms | 24 ms | |
+
+**No regression.** The per-cell cost this task adds to the hot path is `isEditingCell` — two
+integer comparisons against coordinates that are `-1` whenever no editor is open, which is
+almost always.
+
+Two numbers in that table differ from task 11 and neither is a regression. Select-all marked 36
+rows rather than 19 because this run reaches it scrolled to row 99,000, where the rendered
+window is a full viewport plus overscan rather than the partly-filled one at the top — the claim
+being tested is that the count follows the *viewport*, and 36 is a viewport. It also reported 10
+DOM mutations: the familiar artifact of cells left attached by the preceding drag phase, which
+the next full recompute trims (see task 9), not work done by the selection.
+
+### A frame-paced harness cannot be driven against a hidden window
+
+The first attempt at this run happened while the Persephone window was minimised.
+`document.hidden` was true, `requestAnimationFrame` was throttled to a standstill, and every
+measurement in `runBenchmark` is frame-paced — `measureEditing` hung mid-way and a scroll-fps
+figure taken under that condition would have measured the throttle rather than the grid.
+Screenshots pump about eight frames each, which is enough to nurse a short measurement along and
+nothing more. If the harness appears to hang, check `document.hidden` before suspecting the grid.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -226,3 +287,4 @@ artifact, and `measureSelectAll` now does the same throwaway `refresh()` warm-up
 | 2026-08-08 | 9 | 8.0 ms | 0.93× | 60.0 / 60.0 | 0 | Whole grid, real cell renderers. No regression. |
 | 2026-08-08 | 10 | 6.7 ms | 1.08× | 60.0 / 60.0 | 0 | Focus and range selection. Drag ratio **1.04×**, 2 cells marked per move at both ends. |
 | 2026-08-08 | 11 | 5.8 ms | 0.89× | 60.0 / 60.0 | 0 | Row selection + checkbox column. Select-all on 100k: 24.9 ms, **19 rows marked**, 0 mutations. |
+| 2026-08-08 | 12 | 5.7 ms | 0.94× | 60.0 / 60.0 | 0 | In-cell editing. Editing at row 99,000: **1 cell marked**, **0 mutations**, editor survives a full repaint. No regression. |

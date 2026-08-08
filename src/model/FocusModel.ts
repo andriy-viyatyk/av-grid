@@ -360,6 +360,10 @@ export class FocusModel<R> {
         this.ranges = this.deriveRanges(next);
 
         this.markChanged(oldRanges, this.ranges);
+        // An open editor belongs to the cell it was opened on. This is the reference's
+        // `useModel()` effect, called from the one place the focus can actually move instead of
+        // on every React render.
+        this.model.models.editing.onFocusMoved();
         this.model.options.onFocusChange?.(next);
     }
 

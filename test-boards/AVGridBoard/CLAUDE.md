@@ -1,9 +1,10 @@
 # AVGridBoard — the grid, in a real browser
 
-The debugger and visual check for **the grid layer** (tasks 6–11 of
+The debugger and visual check for **the grid layer** (tasks 6–12 of
 [`plan.md`](../../tasks/plan.md)): `AVGrid.create()`, inferred columns, header sorting, column
 resize and reorder, custom cell renderers, the injected stylesheet, the theme contract, cell
-focus with keyboard navigation and range selection, and row selection with the checkbox column.
+focus with keyboard navigation and range selection, row selection with the checkbox column, and
+in-cell editing.
 
 Its sibling [`RenderGridTest/`](../RenderGridTest/CLAUDE.md) benchmarks the *engine* with a
 trivial cell renderer. This board runs the whole thing. Use it whenever a change could alter
@@ -44,6 +45,7 @@ await window.avg.measureScrollFps(y)      // scripted 2s scroll; fps + frame per
 await window.avg.measureFullRepaint()     // the sort / filter / setRows path
 await window.avg.measureRangeDrag(row)    // the task-10 gate: drag cost at any row
 await window.avg.measureSelectAll()       // the task-11 gate: select-all cost and dirty rows
+await window.avg.measureEditing(row)      // the task-12 check: does the editor survive a repaint
 window.avg.createGrid(count)              // explicit columns
 window.avg.minimalGrid()                  // AVGrid.create(el, { rows }) and nothing else
 window.avg.grid                           // the live AVGrid; .model, .render, .getState()
@@ -82,6 +84,11 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   checkbox. Click a box to select a row, click the header box to select or clear everything,
   and watch the live readout. The two selections are independent and visible at once: checked
   rows carry a full-width tint, the cell range carries an outline.
+- **In-cell editing** — `editable: true` is on. Double-click a cell, press F2, or just start
+  typing; Enter, Tab and clicking away commit, Escape discards. `Status` has `options`, so it
+  opens a dropdown *and* has a custom `render` — the two coexist. `Active` is a boolean, so
+  Space and Enter toggle it across the whole selection instead of opening anything. `#` is
+  readonly and `Full Name` is computed, so neither opens. Delete clears the selected cells.
 - **Auto-scroll while dragging** — drag a selection past any edge and the grid scrolls after
   it, faster the further past the edge the pointer goes, and keeps going while the pointer
   sits still. This is the one thing the pointer-event rewrite had to build by hand, so it is
