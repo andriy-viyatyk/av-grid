@@ -25,9 +25,17 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1, 2 and 3 are complete.** Tasks 1–14 are done. Phase 4 starts with two primitives the
-filter UI needs and the library does not have — **14a `Popover`** and **14b `VirtualList`** —
-built fresh rather than ported from UIKit, and only then task 15, the filters model.
+**Phases 1, 2 and 3 are complete, and phase 4 is under way.** Tasks 1–14 are done, along with the
+two primitives the filter UI needed and the library did not have — **14a `Popover`** and **14b
+`VirtualList`**, built fresh rather than ported from UIKit — and **15, the filters model**. Next
+is task 16: the filter popover and its options body, which is where all three meet.
+
+**Filters apply, persist and round-trip.** `grid.applyFilter({ columnKey: "status", value:
+["open"] })` narrows 100,000 rows to 40,000 in **5.9 ms with one repaint and zero DOM
+mutations**, and clearing it costs **0.0 ms** because an unfiltered pass returns the same array
+it was given. `persistFilters: { name }` remembers the filters across a reload through an
+injected store — `localStorage` by default, never written to unless asked — reviving `Date`
+values without losing the labels around them. There is no filter *UI* yet: that is task 16.
 
 **Both primitives are done.** `Popover` anchors to an element or a point, flips instead of
 clipping, caps its height to the space available and scrolls, dismisses on Escape or an outside
@@ -41,7 +49,8 @@ labels, widths, row keys and data types all inferred — with header sorting, co
 reorder, custom cell renderers, a search filter, cell focus, full keyboard navigation, range
 selection by drag or by shift, row selection through a checkbox column, in-cell editing
 (`editable: true`), Excel-compatible clipboard copy/cut/paste, rows and columns added and
-deleted by button, keyboard or API, and a stylesheet driven entirely by CSS custom properties.
+deleted by button, keyboard or API, column filters applied through the API, and a stylesheet
+driven entirely by CSS custom properties.
 
 The performance thesis survived the grid layer, and then survived selection. 100,000 rows in a
 real browser, through the *whole* grid rather than the engine alone: first paint 6.7 ms, 60 fps
@@ -60,7 +69,11 @@ Task 13's is the same shape one level up: pasting into 1,000 cells marks **one**
 mutates **zero** DOM nodes, because a paste writes silently and marks the viewport once at the
 end. Task 14's is the geometry one — inserting a row *above* the viewport at row 90,000 mutates
 **zero** DOM nodes and keeps both the scroll position and the focus, which took fixing a
-focus-recentre that was moving the viewport 261 px behind the user's back. Full results, history,
+focus-recentre that was moving the viewport 261 px behind the user's back. Task 15's is the
+cheap direction and the expensive one: filtering 100k rows down costs **5.9 ms, one repaint and
+zero mutations**, filtering back up costs nothing at all, and closing the computed-column search
+gap left over from task 13 costs **+8.7%** on a full-text search — measured, because it puts a
+host callback inside the row loop. Full results, history,
 and the measurements that mislead if taken carelessly, in
 [`tasks/benchmark-results.md`](tasks/benchmark-results.md).
 
@@ -124,6 +137,7 @@ av-grid/
             CopyPasteModel.ts    ← copy/cut/paste, on the native clipboard events
             ColumnsModel.ts      ← visible columns, resize, reorder
             RowsModel.ts         ← filter → sort pipeline
+            FiltersModel.ts      ← which filters are applied, and their persistence
             SortColumnModel.ts   ← sort state and its comparator
             FocusModel.ts        ← focus, keyboard nav, range selection
             SelectedModel.ts     ← row selection, by row key

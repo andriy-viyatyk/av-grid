@@ -429,6 +429,72 @@ engine, now, with a comment saying why.
 No grid gate re-run: the list is a separate `RenderGrid` instance and touches nothing in the
 grid's render path.
 
+## Task 15 — filters and row filtering — 2026-08-09
+
+The task's own gate: *filtering 100k rows down and back up is smooth, and filters round-trip
+through the injected storage including `Date` values.* Harness entries
+`window.avg.measureFilter(count)` and `window.avg.measureFilterStorage()`.
+
+100,000 rows, 10 columns:
+
+| Measure | Result | Gate |
+|---|---|---|
+| Filter down — 100,000 → 40,000 | **5.9 ms** | one pass over every source row |
+| A second filter on top — → 20,000 | 6.0 ms | the AND path, same cost |
+| Filter back up — → 100,000 | **0.0 ms** | ✅ nothing applied, so `filterRows` returns the *same array* |
+| **Repaints per filter change** | **1** | ✅ |
+| **DOM mutations** | **0** | ✅ every visible cell was already in place |
+| Scroll fps on the filtered grid | 60.0 | ✅ |
+| Free-text search over 100k rows | 107 ms | every column of every row formatted |
+
+The DOM numbers are the point, and they are the ones that do not scale with the data. Narrowing
+100,000 rows to 40,000 changes what every visible cell shows, so it is a full repaint — and a full
+repaint of a viewport is the same work whether the grid behind it holds a hundred rows or a
+hundred thousand. Zero mutations, one paint, either way.
+
+Filtering *back up* costing nothing at all is `filterRows` returning its input array when there is
+nothing to apply — the same property that lets `setRows()` on an unfiltered 100k-row grid copy
+nothing. It is worth knowing that the expensive direction is the only direction.
+
+### What the computed-column fix costs
+
+Task 13 left a known gap: the free-text search read the raw row property, so a *computed* column —
+one on screen with no property behind it — could never match. Closed here by searching
+`columnDisplayValue`, which consults the column's `formatValue`. That puts a host callback inside
+the 100k-row loop, which is exactly why it was deferred, so it was measured rather than assumed:
+
+| Search over 100,000 rows × 10 columns | Median of 5 |
+|---|---|
+| With `formatValue` on the computed column | 107.1 ms |
+| Without it — what the search did before | 98.5 ms |
+
+**+8.6 ms, or 8.7%, for one computed column in ten.** Paid only while a search is active, and only
+by columns that define `formatValue`. `render` is still never called from the filter path: it may
+build an element, and the clipboard's fallback to it (`CopyPasteModel.cellText`) is affordable
+across a selection in a way it would not be across 100,000 rows a keystroke.
+
+Proven on the board rather than only in a unit test, with a computed value that appears in no row
+property at all: **12,500 rows matched with `formatValue`, 0 without.**
+
+### Persistence
+
+| Measure | Result | |
+|---|---|---|
+| Keys written to the injected store | `Filters-avgrid-board` | 388 bytes |
+| Keys written to real `localStorage` | **none** | ✅ the injection is the whole point |
+| Row count before / after the reload | 1 / 1 | ✅ round-tripped |
+| Restored `Date` is a `Date` | **true** | ✅ same instant |
+| Restored option kept its label | **true** | the reference lost this — see the decision log |
+
+The reload is simulated by destroying the grid and creating another against the same store, which
+is what a reload is from the model's point of view.
+
+The 100k gate was re-run even though this is not the render path, because `updateRows` sits behind
+every `setRows`. No regression: first paint 2.9–6.0 ms across repeats, flat ratio 0.84×, 60/60 fps,
+full repaint 0.2 ms / 0 mutations, drag 2 cells per move at both ends. (A single cold first run
+reported 10.2 ms; repeated runs settle immediately, so the cold number is page warm-up, not the
+grid.)
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -442,3 +508,4 @@ grid's render path.
 | 2026-08-08 | 13 | — | — | — | — | Clipboard. Render path untouched, so no gate re-run: paste into 1,000 cells marks **1 repaint** and mutates **0** DOM nodes; copying 500 rows costs 0.7 ms. |
 | 2026-08-08 | 14b | — | — | 60.0 | 0 | `VirtualList`. 100,000 options: mount **4.4 ms**, **11 rows** in the DOM, flat ratio **1.00×**, select-all 9.0 ms in **1 repaint**. Separate engine instance, so no grid gate re-run. |
 | 2026-08-08 | 14a | — | — | — | — | `Popover`. Not on the render path. Verified in the browser: flip, clamp, height cap with a scrolling body, follow-on-scroll, Escape, outside click, focus restored, resize drag exact. |
+| 2026-08-09 | 15 | 2.9–6.0 ms | 0.84× | 60.0 / 60.0 | 0 | Filters model + row filtering. 100k → 40,000 in **5.9 ms**, back up in **0.0 ms**, **1 repaint** and **0 mutations** either way, 60 fps filtered. Searching a computed column costs **+8.7%**. |

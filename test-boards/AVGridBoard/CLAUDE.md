@@ -48,6 +48,8 @@ await window.avg.measureSelectAll()       // the task-11 gate: select-all cost a
 await window.avg.measureEditing(row)      // the task-12 check: does the editor survive a repaint
 await window.avg.measureClipboard(row, n) // the task-13 check: copy cost, and what a paste repaints
 await window.avg.measureStructure(row)    // the task-14 check: does an insert move the viewport
+await window.avg.measureFilter(count)    // the task-15 gate: filter down, narrow, back up, search
+await window.avg.measureFilterStorage()  // filters round-tripped through an injected store
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`
@@ -105,7 +107,9 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   expands to fit. `Full Name` is the case worth re-checking after any change here: it is a
   computed column with a `render` and no row property, so it copies what it *shows*, and a paste
   aimed at it is dropped while the fields either side still land — after which it re-derives
-  from whichever of them changed.
+  from whichever of them changed. It carries a `formatValue` as well as a `render`, which is
+  what makes it searchable and filterable: the row filter never calls `render`, because that may
+  build an element and would run 100,000 times a keystroke.
 - **Adding and deleting** — all four `can*` options are on, so there is a **+ add person**
   button under the last row and a **+** at the right end of the header. ctrl+Insert inserts as
   many rows as are selected, ctrl+Delete deletes them, and the shift variants do the same for
@@ -128,6 +132,22 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   reproduce. The numbers to quote are **rows in the DOM** (11, not 100,000) and the **flat
   ratio**; `mountMs` is honest only because the clock stops before the settle — awaiting frames
   first measures the display refresh rate.
+- **Filtering** — `measureFilter(count)` filters 100k rows down, narrows with a second filter,
+  clears, and searches — reporting model cost, repaints and DOM mutations for each. The numbers
+  to quote are **1 repaint / 0 mutations** per change and the **0.0 ms** clear: an unfiltered
+  pass returns the same array it was given, so only narrowing costs anything. Two traps live
+  here. The generator's `status` and `team` cycles are both mod 5, so most pairs of values
+  intersect in *nothing* — pick `team: ["platform"]` alongside `status: ["open", "pending"]` or
+  the AND path measures an empty grid. And `Full Name` cannot demonstrate the computed-column
+  search on this data, because every word in it also appears in a real column; prove that one
+  with a `formatValue` returning a token found nowhere else (`Grace~Thompson` matches 12,500
+  rows with it and 0 without) — and note the board's eight first names and eight last names
+  pair up into only eight combinations, so `Grace~Hopper` is not one of them.
+- **Filter persistence** — `measureFilterStorage()` runs against an in-memory store rather than
+  `localStorage`, deliberately: the point of the injection is that the library never writes to
+  the host's storage uninvited, and a board leaving keys behind would prove the opposite. It
+  checks the row count survives a destroy-and-recreate, and that a `Date` comes back a `Date`
+  with its label intact.
 - **Auto-scroll while dragging** — drag a selection past any edge and the grid scrolls after
   it, faster the further past the edge the pointer goes, and keeps going while the pointer
   sits still. This is the one thing the pointer-event rewrite had to build by hand, so it is

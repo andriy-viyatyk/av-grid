@@ -76,6 +76,10 @@ function columns() {
             readonly: true,
             // A computed column: no `full` property exists on any row.
             render: (c) => `${c.row.firstName} ${c.row.lastName}`,
+            // And the plain-text form of the same thing, which is what makes the column
+            // searchable and filterable. `render` is deliberately not called by the row
+            // filter — it may build an element, and it would run 100,000 times a keystroke.
+            formatValue: (_col, row) => `${row.firstName} ${row.lastName}`,
         },
         {
             key: "status",
@@ -660,6 +664,138 @@ async function measureStructure(row = 90000) {
     };
 }
 
+/**
+ * The task-15 gate: filtering 100k rows down and back up.
+ *
+ * Two numbers matter and they are different in kind. `filterMs` is the model cost — one pass
+ * over every source row — and it is the one that scales with the data. The DOM cost is the
+ * one that must *not*: narrowing 100,000 rows to 20,000 changes every visible cell, so it is
+ * a full repaint, and a full repaint of a viewport-worth of cells is the same work whether
+ * the grid behind it holds a hundred rows or a hundred thousand.
+ */
+async function measureFilter(count = 100000) {
+    if (grid.getState().sourceRowCount !== count) createGrid(count);
+    grid.clearFilters();
+    grid.setSearchString(undefined);
+    await scrollTo(0);
+    await settle(4);
+
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirty = 0;
+    model.update = (info) => {
+        dirty += 1;
+        return originalUpdate.call(model, info);
+    };
+
+    const time = async (fn) => {
+        dirty = 0;
+        grid.render.resetStats();
+        const t0 = performance.now();
+        fn();
+        const ms = performance.now() - t0;
+        await settle(3);
+        const s = grid.render.stats;
+        return {
+            ms: Number(ms.toFixed(2)),
+            dirty,
+            paints: s.paints,
+            mutations: s.cellsAppended + s.cellsRemoved,
+            rows: grid.getState().rowCount,
+        };
+    };
+
+    // Down: one column, two values out of five.
+    const down = await time(() =>
+        grid.applyFilter({ columnKey: "status", value: ["open", "pending"] }),
+    );
+    // And a second filter on top of the first, which is the AND path. `platform` rather than
+    // any other team on purpose: the generator's status and team cycles are both mod 5, so
+    // most pairs intersect in nothing at all and would measure an empty grid.
+    const narrow = await time(() =>
+        grid.applyFilter({ columnKey: "team", value: ["platform"] }),
+    );
+    // Back up.
+    const up = await time(() => grid.clearFilters());
+
+    // The free-text search, which now formats every column's displayed value per row — the
+    // change task 15 made to close the computed-column gap. Measured on the same 100k rows.
+    const search = await time(() => grid.setSearchString("hopper"));
+    // And against the computed column specifically: `full` has no row property at all.
+    const computed = await time(() => grid.setSearchString("ada lovelace"));
+    await time(() => grid.setSearchString(undefined));
+
+    model.update = originalUpdate;
+
+    // Is a filtered grid still smooth? Filter it down and scroll what is left.
+    grid.applyFilter({ columnKey: "status", value: ["open"] });
+    await settle(4);
+    const fps = await measureScrollFps(0);
+    grid.clearFilters();
+    await settle(3);
+
+    return { count, down, narrow, up, search, computed, filteredFps: fps.fps };
+}
+
+/**
+ * The other half of the task-15 gate: do filters survive a reload, `Date` values included?
+ *
+ * Run against an injected in-memory store rather than `localStorage`, because the point of
+ * the injection is that the library never assumes it may write to the host's storage — and a
+ * board that quietly left keys behind would be proving the opposite.
+ */
+async function measureFilterStorage() {
+    const map = new Map();
+    const storage = {
+        getItem: (k) => (map.has(k) ? map.get(k) : null),
+        setItem: (k, v) => map.set(k, v),
+        removeItem: (k) => map.delete(k),
+    };
+    const persistFilters = { name: "avgrid-board", storage };
+
+    const host = el("grid-host");
+    const make = () => {
+        grid?.destroy();
+        host.textContent = "";
+        grid = AVGrid.create(host, { rows, columns: columns(), persistFilters });
+        window.avg.grid = grid;
+        return grid;
+    };
+
+    const joined = rows[10].joined;
+    make();
+    grid.setFilters([
+        { columnKey: "status", value: ["open", "pending"] },
+        { columnKey: "joined", value: [joined] },
+    ]);
+    await settle(3);
+    const before = { rowCount: grid.getState().rowCount, filters: grid.getFilters() };
+    const stored = map.get("Filters-avgrid-board");
+
+    // Same page, new grid — the reload, without the reload.
+    make();
+    await settle(3);
+    const after = { rowCount: grid.getState().rowCount, filters: grid.getFilters() };
+    const restoredDate = after.filters.find((f) => f.columnKey === "joined")?.value[0]?.value;
+
+    grid.clearFilters();
+    await settle(2);
+    createGrid(rows.length);
+
+    return {
+        storageKeys: [...map.keys()],
+        storedBytes: stored ? stored.length : 0,
+        rowCountBefore: before.rowCount,
+        rowCountAfter: after.rowCount,
+        roundTripped: before.rowCount === after.rowCount,
+        dateIsDate: restoredDate instanceof Date,
+        dateMatches: restoredDate instanceof Date && restoredDate.getTime() === joined.getTime(),
+        // The reference threw the option object away on restore and kept only the Date; the
+        // label has to survive too, or a restored chip has nothing to show.
+        labelKept: Boolean(after.filters.find((f) => f.columnKey === "joined")?.value[0]?.label),
+    };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -1027,6 +1163,8 @@ window.avg = {
     measureEditing,
     measureClipboard,
     measureStructure,
+    measureFilter,
+    measureFilterStorage,
     measureSort,
     scrollTo,
     settle,

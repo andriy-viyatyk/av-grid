@@ -36,6 +36,15 @@ export type { AVGridDataChangeEvent } from "./model/AVGridData";
 export { AVGridEvents } from "./model/AVGridEvents";
 export { ColumnsModel, defaultColumnWidth as defaultGridColumnWidth } from "./model/ColumnsModel";
 export { RowsModel } from "./model/RowsModel";
+export {
+    FiltersModel,
+    FILTERS_CONFIG_VERSION,
+    filtersStorageKey,
+    hasStoredFilters,
+    readStoredFilters,
+    writeStoredFilters,
+    reviveFilters,
+} from "./model/FiltersModel";
 export { FocusModel } from "./model/FocusModel";
 export type {
     GridSelection,
@@ -78,7 +87,12 @@ export {
 } from "./gridUtils";
 export { detectColumnWidth, detectColumnWidths } from "./column-width";
 export type { ColumnWidthOptions } from "./column-width";
-export { inferColumns, inferGetRowKey, inferRowKeyProperty } from "./validate";
+export {
+    inferColumns,
+    inferGetRowKey,
+    inferRowKeyProperty,
+    validateFilters,
+} from "./validate";
 
 // --- the engine -----------------------------------------------------------
 

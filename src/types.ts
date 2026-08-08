@@ -144,13 +144,40 @@ export type OnColumnsReorder = (sourceKey: string, targetKey: string) => void;
 /** Only `"options"` exists today; the popover is built as a dispatch point for more. */
 export type FilterType = "options";
 
+/**
+ * One applied column filter.
+ *
+ * Only `columnKey` and `value` are worth writing by hand — everything else is filled in from
+ * the column, so the shortest useful filter is:
+ *
+ * ```js
+ * grid.setFilters([{ columnKey: "status", value: ["open", "pending"] }]);
+ * ```
+ *
+ * The reference required `columnName` and `type` on every filter because its host always
+ * built them from a column it already had. Here a filter is something an agent writes, so
+ * both are optional on the way in and always present on the way out: `getFilters()` returns
+ * the normalized form, which is what the filter bar's chips read.
+ */
 export interface Filter {
     columnKey: string;
-    columnName: string;
-    type: FilterType;
+    /**
+     * What the filter keeps. Its shape is the filter type's — for `"options"`, the values to
+     * keep. Empty or absent means no filter at all, which is why applying one and removing it
+     * are the same call.
+     *
+     * Typed loosely on purpose: this is the field every caller writes, and it is narrowed by
+     * `OptionsFilter` once the type is known.
+     */
+    value?: any;
+    /** Chip label in the filter bar. Filled in from the column's `name` when omitted. */
+    columnName?: string;
+    /** Defaults to the column's `filterType`, then to `"options"`. */
+    type?: FilterType;
     displayFormat?: DisplayFormat;
 }
 
+/** A filter known to carry a value. The reference's `TAnyFilter`. */
 export interface AnyFilter extends Filter {
     value: any;
 }
@@ -161,11 +188,49 @@ export interface DisplayOption<T = any> {
     italic?: boolean;
 }
 
+/**
+ * Accepted as either the full option objects or bare values — `["open"]` normalizes to
+ * `[{ value: "open", label: "open" }]`, because a filter written by hand should not have to
+ * repeat itself.
+ */
 export type OptionsFilterValue = DisplayOption[];
 
 export interface OptionsFilter extends Filter {
-    type: "options";
-    value?: OptionsFilterValue;
+    type?: "options";
+    value?: OptionsFilterValue | readonly any[];
+}
+
+// ---------------------------------------------------------------------------
+// Filter persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * The slice of `localStorage` the grid uses, so any store can stand in for it.
+ *
+ * `localStorage` and `sessionStorage` both satisfy this structurally, so the common case is
+ * `persistFilters: { name: "orders", storage: sessionStorage }` with nothing to implement.
+ */
+export interface FilterStorage {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+    removeItem(key: string): void;
+}
+
+/**
+ * Opt in to remembering the applied filters across reloads.
+ *
+ * Passing this object *is* the consent: a library should not write to the host's storage
+ * because it happened to be there, which is why there is no default-on form of this.
+ *
+ * ```js
+ * AVGrid.create(el, { rows, persistFilters: { name: "orders" } });
+ * ```
+ */
+export interface PersistFiltersOptions {
+    /** Key suffix — filters are stored under `Filters-${name}`. Namespace it per grid. */
+    name: string;
+    /** Where to write. Defaults to `localStorage` when the page has one. */
+    storage?: FilterStorage;
 }
 
 // ---------------------------------------------------------------------------

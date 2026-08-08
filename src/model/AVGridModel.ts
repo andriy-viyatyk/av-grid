@@ -17,12 +17,13 @@ import { Model } from "../core/observable";
 import type { RenderGridModel } from "../render/RenderGridModel";
 import type { RerenderInfo } from "../render/types";
 import type { ResolvedOptions } from "../options";
-import type { CellContext, CellEdit, Column, SortColumn } from "../types";
+import type { CellContext, CellEdit, Column, Filter, SortColumn } from "../types";
 import { AVGridData } from "./AVGridData";
 import { AVGridEvents } from "./AVGridEvents";
 import { ColumnsModel } from "./ColumnsModel";
 import { CopyPasteModel } from "./CopyPasteModel";
 import { EditingModel } from "./EditingModel";
+import { FiltersModel } from "./FiltersModel";
 import { FocusModel } from "./FocusModel";
 import { RowsModel } from "./RowsModel";
 import { SelectedModel } from "./SelectedModel";
@@ -37,6 +38,7 @@ export interface AVGridState<R = any> {
 export class AVGridModels<R> {
     readonly columns: ColumnsModel<R>;
     readonly sortColumn: SortColumnModel<R>;
+    readonly filters: FiltersModel<R>;
     readonly rows: RowsModel<R>;
     readonly selected: SelectedModel<R>;
     readonly focus: FocusModel<R>;
@@ -52,8 +54,12 @@ export class AVGridModels<R> {
         // `copyPaste` after both — a paste is a batch of edits over the selection — and
         // `structure` last, because adding a row moves the focus, deleting one closes an open
         // editor, and a paste that overflows the grid asks it to grow.
+        // `filters` before `rows` because the first `updateRows()` reads the filter list, and
+        // a restore from storage has to have happened by then or the grid's first paint shows
+        // rows the user had filtered away.
         this.columns = new ColumnsModel<R>(model);
         this.sortColumn = new SortColumnModel<R>(model);
+        this.filters = new FiltersModel<R>(model);
         this.rows = new RowsModel<R>(model);
         this.selected = new SelectedModel<R>(model);
         this.focus = new FocusModel<R>(model);
@@ -167,6 +173,10 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
 
     setSort = (sort: SortColumn | undefined): void => {
         this.models.sortColumn.setSort(sort);
+    };
+
+    setFilters = (filters: readonly Filter[] | undefined): void => {
+        this.models.filters.setFilters(filters);
     };
 
     setSearchString = (searchString: string | undefined): void => {

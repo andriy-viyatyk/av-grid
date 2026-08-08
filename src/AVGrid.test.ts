@@ -446,6 +446,72 @@ describe("getState", () => {
     });
 });
 
+describe("filters", () => {
+    const withFull = [
+        { key: "name" },
+        { key: "full", formatValue: (_c: any, r: any) => `${r.name} (${r.id})` },
+    ];
+
+    it("narrows the rendered rows, and restores them", async () => {
+        const grid = create({ rows: people, columns: [{ key: "name" }] });
+        grid.applyFilter({ columnKey: "name", value: ["Ada", "Grace"] });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Ada", "Grace"]);
+
+        grid.clearFilters();
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+    });
+
+    it("hands back a normalized filter, ready to pass straight back in", async () => {
+        const grid = create({ rows: people, columns: [{ key: "name", name: "Name" }] });
+        grid.applyFilter({ columnKey: "name", value: ["Ada"] });
+
+        expect(grid.getFilters()).toEqual([
+            {
+                columnKey: "name",
+                columnName: "Name",
+                type: "options",
+                displayFormat: undefined,
+                value: [{ value: "Ada", label: "Ada" }],
+            },
+        ]);
+        expect(grid.isFiltered("name")).toBe(true);
+    });
+
+    it("appears in getState, for a host that logs one object", async () => {
+        const grid = create({ rows: people, columns: [{ key: "name" }] });
+        grid.setFilters([{ columnKey: "name", value: ["Ada"] }]);
+        await settle();
+
+        expect(grid.getState()).toMatchObject({ rowCount: 1, sourceRowCount: 3 });
+        expect(grid.getState().filters).toHaveLength(1);
+    });
+
+    it("takes filters through setOptions too", async () => {
+        const grid = create({ rows: people, columns: [{ key: "name" }] });
+        grid.setOptions({ filters: [{ columnKey: "name", value: ["Grace"] }] });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Grace"]);
+    });
+
+    it("searches a computed column by what it displays", async () => {
+        // The gap deferred from task 13: `full` has no row property, so a search that read
+        // the raw value could never match a column the user can see.
+        const grid = create({ rows: people, columns: withFull });
+        grid.setSearchString("(2)");
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Alan"]);
+    });
+
+    it("filters a computed column the same way", async () => {
+        const grid = create({ rows: people, columns: withFull });
+        grid.applyFilter({ columnKey: "full", value: ["Grace (3)"] });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Grace"]);
+    });
+});
+
 describe("two grids on one page", () => {
     it("do not interfere", async () => {
         const a = create({ rows: people, columns: [{ key: "name" }] });

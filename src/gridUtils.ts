@@ -104,31 +104,64 @@ export function formatDisplayValue(
     return "";
 }
 
-function filtersMatch<R>(row: R, filters?: Filter[]): boolean {
+/**
+ * A filter paired with the column it names, resolved once for the whole pass rather than
+ * once per row — the difference between one lookup and a hundred thousand.
+ */
+interface ResolvedFilter<R> {
+    filter: Filter;
+    column?: Column<R>;
+}
+
+function filterValue<R>(row: R, resolved: ResolvedFilter<R>): any {
+    const { filter, column } = resolved;
+    // A computed column has no row property to compare, so it is matched by what it *shows* —
+    // the same rule the clipboard already copies by. `formatValue` only; `render` is not
+    // called here, because it may return an element and it is host code inside the row loop.
+    return column?.formatValue
+        ? column.formatValue(column, row)
+        : row[filter.columnKey as keyof R];
+}
+
+/**
+ * Does one selected option match a row's value?
+ *
+ * `option` is normally a `DisplayOption`, but `filterRows` is public and a hand-written call
+ * may pass bare values, so both shapes are read. Dates compare by instant: two `Date` objects
+ * for the same moment are never `===`, and a filter restored from storage is always a
+ * different object from the one in the row.
+ */
+function optionMatches(option: any, rowValue: any): boolean {
+    const value =
+        option !== null &&
+        typeof option === "object" &&
+        !(option instanceof Date) &&
+        "value" in option
+            ? option.value
+            : option;
+
+    if (rowValue instanceof Date && value instanceof Date) {
+        return value.getTime() === rowValue.getTime();
+    }
+    return value === rowValue;
+}
+
+function filtersMatch<R>(row: R, filters?: ResolvedFilter<R>[]): boolean {
     let match = true;
 
     if (filters?.length) {
-        for (const filter of filters) {
-            const rowValue = row[filter.columnKey as keyof R];
+        for (const resolved of filters) {
+            const filter = resolved.filter;
+            const rowValue = filterValue(row, resolved);
 
-            switch (filter.type) {
+            switch (filter.type ?? "options") {
                 case "options": {
                     const optFilter = filter as OptionsFilter;
+                    // An empty selection filters nothing — the model removes such a filter
+                    // rather than showing an empty grid, and this is the same rule one level
+                    // down, for anyone calling `filterRows` directly.
                     if (optFilter.value?.length) {
-                        if (rowValue instanceof Date) {
-                            if (
-                                !optFilter.value.find((o) =>
-                                    o instanceof Date
-                                        ? o.getTime() ===
-                                          (rowValue as Date).getTime()
-                                        : o.value === rowValue,
-                                )
-                            ) {
-                                match = false;
-                            }
-                        } else if (
-                            !optFilter.value.find((o) => o.value === rowValue)
-                        ) {
+                        if (!optFilter.value.some((o) => optionMatches(o, rowValue))) {
                             match = false;
                         }
                     }
@@ -150,12 +183,12 @@ function searchStringMatch<R>(
 ): boolean {
     if (searchLower) {
         return columns.some((c) => {
-            const value = formatDisplayValue(
-                row[c.key as keyof R],
-                c.displayFormat,
-            )
-                ?.toString()
-                .toLowerCase();
+            // `columnDisplayValue`, not the raw property: a computed column — one with a
+            // `formatValue` and no row property behind it — is on screen, so a search that
+            // could not match it was a search the user could see failing. Deferred from task
+            // 13 to here because it puts a host callback inside the row loop; measured on the
+            // board rather than assumed, and it only runs while a search is active.
+            const value = columnDisplayValue(c, row)?.toString().toLowerCase();
 
             return Boolean(value) && value.indexOf(searchLower) >= 0;
         });
@@ -183,12 +216,19 @@ export function filterRows<R>(
         .split(" ")
         .filter((s) => s);
 
+    const resolved = filters?.length
+        ? filters.map<ResolvedFilter<R>>((filter) => ({
+              filter,
+              column: columns.find((c) => String(c.key) === filter.columnKey),
+          }))
+        : undefined;
+
     return rows.filter((r) => {
         if (!r) return false;
         const sMatch =
             !searchLower?.length ||
             searchLower.every((s) => searchStringMatch(r, columns, s));
-        return sMatch && (!filters?.length || filtersMatch(r, filters));
+        return sMatch && (!resolved?.length || filtersMatch(r, resolved));
     });
 }
 

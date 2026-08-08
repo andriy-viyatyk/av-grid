@@ -20,7 +20,14 @@
 
 import { detectColumnWidth } from "./column-width";
 import type { AVGridOptions, ResolvedOptions } from "./options";
-import type { Column, SortColumn } from "./types";
+import type {
+    AnyFilter,
+    Column,
+    DisplayOption,
+    Filter,
+    PersistFiltersOptions,
+    SortColumn,
+} from "./types";
 
 /** Rows scanned when inferring columns and widths. Enough to be representative, not enough to cost. */
 const INFERENCE_SAMPLE = 50;
@@ -352,6 +359,86 @@ export function validateSort<R>(
 }
 
 /**
+ * Check a filter list and return it normalized — `columnName` and `type` filled in from the
+ * column, and an options filter's bare values expanded into `{ value, label }`.
+ *
+ * Everything downstream (the row filter, the chips, the popover) reads the normalized form, so
+ * this runs on every path a filter can enter by: `create()`, `setFilters()`, `applyFilter()`
+ * and the restore from storage.
+ */
+export function validateFilters<R>(
+    filters: unknown,
+    columns: readonly Column<R>[],
+): Filter[] {
+    if (filters === undefined || filters === null) return [];
+
+    if (!Array.isArray(filters)) {
+        fail(
+            `\`filters\` must be an array, but was ${describe(filters)}. ` +
+                `Pass an empty array to clear the filters.`,
+        );
+    }
+
+    return filters.map((filter, index) => {
+        if (!filter || typeof filter !== "object") {
+            fail(
+                `\`filters[${index}]\` must be an object like ` +
+                    `{ columnKey: "status", value: ["open"] }, but was ${describe(filter)}.`,
+            );
+        }
+
+        const f = filter as AnyFilter;
+        const columnKey = f.columnKey;
+        if (typeof columnKey !== "string" || !columnKey.length) {
+            fail(
+                `\`filters[${index}].columnKey\` must be a column key, but was ${describe(columnKey)}.`,
+            );
+        }
+
+        const column = columns.find((c) => String(c.key) === columnKey);
+        if (!column) {
+            fail(
+                `Unknown column "${columnKey}" in \`filters[${index}]\`. ${available(columns)}`,
+            );
+        }
+
+        const type = f.type ?? column.filterType ?? "options";
+        if (type !== "options") {
+            fail(
+                `\`filters[${index}].type\` must be "options" — the only filter type there is ` +
+                    `today — but was ${JSON.stringify(type)}.`,
+            );
+        }
+
+        const normalized: AnyFilter = {
+            ...f,
+            columnKey,
+            columnName: f.columnName ?? column.name ?? columnKey,
+            type,
+            displayFormat: f.displayFormat ?? column.displayFormat,
+            value: f.value,
+        };
+
+        if (normalized.value !== undefined && normalized.value !== null) {
+            if (!Array.isArray(normalized.value)) {
+                fail(
+                    `\`filters[${index}].value\` must be an array of the values to keep, but was ` +
+                        `${describe(normalized.value)}. For example: value: ["open", "closed"]. ` +
+                        `Omit it — or pass an empty array — to remove the filter.`,
+                );
+            }
+            normalized.value = normalized.value.map((option: any) =>
+                option !== null && typeof option === "object" && "value" in option
+                    ? (option as DisplayOption)
+                    : { value: option, label: String(option ?? "") },
+            );
+        }
+
+        return normalized;
+    });
+}
+
+/**
  * Check every option, fill in every default, and return the resolved form the models use.
  *
  * Called from `create()` and again from `setOptions()`, so a bad value passed later fails the
@@ -416,9 +503,22 @@ export function resolveOptions<R>(options: unknown): ResolvedOptions<R> {
     // Validated for its own sake; the resolved value is read from the model, not from here.
     validateSort(o.sort, columns);
 
+    if (o.persistFilters !== undefined) {
+        const p = o.persistFilters as PersistFiltersOptions;
+        if (!p || typeof p !== "object" || typeof p.name !== "string" || !p.name.length) {
+            fail(
+                `\`persistFilters\` must be an object like { name: "orders" }, but was ` +
+                    `${describe(o.persistFilters)}. The name becomes the storage key.`,
+            );
+        }
+    }
+
     return {
         ...o,
         columns,
+        // Normalized here so the models never see a half-written filter, whichever way it
+        // arrived — the option, `setFilters()`, or a restore from storage.
+        filters: validateFilters<R>(o.filters, columns),
         getRowKey: o.getRowKey ?? inferGetRowKey(o.rows),
         rowHeight: o.rowHeight ?? 24,
     };

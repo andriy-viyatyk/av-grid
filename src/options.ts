@@ -22,6 +22,7 @@ import type {
     DeleteRowsEvent,
     Filter,
     InvalidEditEvent,
+    PersistFiltersOptions,
     SortColumn,
 } from "./types";
 
@@ -240,8 +241,28 @@ export interface AVGridOptions<R = any> {
     sort?: SortColumn | null;
     /** Free-text filter applied across every column's displayed value. */
     searchString?: string;
-    /** Applied column filters. The filter UI arrives in task 16; these already filter rows. */
+    /**
+     * Applied column filters. The filter UI arrives in task 16; these already filter rows.
+     *
+     * ```js
+     * filters: [{ columnKey: "status", value: ["open", "pending"] }]
+     * ```
+     *
+     * `columnName` and `type` are filled in from the column, and bare values are expanded to
+     * `{ value, label }` — so `getFilters()` gives back more than was passed in.
+     */
     filters?: Filter[];
+    /**
+     * Remember the applied filters across reloads, under `Filters-${name}`.
+     *
+     * ```js
+     * AVGrid.create(el, { rows, persistFilters: { name: "orders" } });
+     * ```
+     *
+     * Passing this is the consent to write — nothing is stored otherwise. Stored filters take
+     * precedence over `filters` above, which stays the default for a first visit.
+     */
+    persistFilters?: PersistFiltersOptions;
     disableSorting?: boolean;
     disableFiltering?: boolean;
 
@@ -250,6 +271,13 @@ export interface AVGridOptions<R = any> {
     // -----------------------------------------------------------------------
 
     onSortChange?: (sort: SortColumn | undefined) => void;
+    /**
+     * The applied filters changed — from the API, the header funnel or a filter chip alike.
+     *
+     * Receives the normalized list, which is safe to hand straight back to `setFilters()`:
+     * setting the filters the grid already has does nothing, so an echo cannot loop.
+     */
+    onFiltersChange?: (filters: Filter[]) => void;
     onColumnResize?: (columnKey: string, width: number) => void;
     onColumnsReorder?: (sourceKey: string, targetKey: string) => void;
     /** Fires after any change to the column set, whatever caused it. */
@@ -280,4 +308,6 @@ export interface ResolvedOptions<R = any> extends AVGridOptions<R> {
     columns: Column<R>[];
     getRowKey: (row: R) => string;
     rowHeight: number;
+    /** Always present and normalized — `FiltersModel` owns it, `RowsModel` reads it. */
+    filters: Filter[];
 }

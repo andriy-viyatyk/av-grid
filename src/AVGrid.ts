@@ -50,7 +50,7 @@ import {
     validateColumns,
     validateSort,
 } from "./validate";
-import type { CellEdit, CellFocus, Column, SortColumn } from "./types";
+import type { CellEdit, CellFocus, Column, Filter, SortColumn } from "./types";
 import type { GridSelection } from "./model/FocusModel";
 import type { CopyMode } from "./model/CopyPasteModel";
 import type { AVGridDataChangeEvent } from "./model/AVGridData";
@@ -85,6 +85,8 @@ export interface AVGridStateSnapshot<R = any> {
     sourceRowCount: number;
     sort?: SortColumn;
     searchString?: string;
+    /** The applied column filters, normalized. Empty when nothing is filtered. */
+    filters: Filter[];
     rowHeight: number;
     /** The focused cell and its range selection. */
     focus?: CellFocus<R>;
@@ -333,6 +335,59 @@ export class AVGrid<R = any> {
         this.model.setSearchString(searchString);
     }
 
+    /**
+     * The applied column filters, normalized — `columnName` and `type` filled in from the
+     * column, and each value an `{ value, label }` option.
+     *
+     * Safe to store and hand back to `setFilters()` later; that is what `persistFilters` does
+     * for you when you would rather not.
+     */
+    getFilters(): Filter[] {
+        return this.model.models.filters.getFilters();
+    }
+
+    /**
+     * Replace every filter. `[]` or `undefined` clears them.
+     *
+     * ```js
+     * grid.setFilters([{ columnKey: "status", value: ["open", "pending"] }]);
+     * ```
+     *
+     * Setting the filters the grid already has does nothing at all, so echoing
+     * `onFiltersChange` straight back cannot loop.
+     */
+    setFilters(filters: readonly Filter[] | undefined): void {
+        this.model.setFilters(filters);
+    }
+
+    /**
+     * Add or replace one column's filter — or remove it, when the value is empty.
+     *
+     * ```js
+     * grid.applyFilter({ columnKey: "status", value: ["open"] });   // filter to open rows
+     * grid.applyFilter({ columnKey: "status" });                    // and back again
+     * ```
+     *
+     * One call for both because that is what the filter popover needs: applying an empty
+     * selection means "no filter", not "no rows".
+     */
+    applyFilter(filter: Filter): void {
+        this.model.models.filters.applyFilter(filter);
+    }
+
+    removeFilter(columnKey: string): void {
+        this.model.models.filters.removeFilter(columnKey);
+    }
+
+    clearFilters(): void {
+        this.model.models.filters.clearFilters();
+    }
+
+    /** Is a filter applied to this column? What the header's funnel indicator asks. */
+    isFiltered(columnKey: string): boolean {
+        return this.model.models.filters.isFiltered(columnKey);
+    }
+
     // -----------------------------------------------------------------------
     // Row selection
     // -----------------------------------------------------------------------
@@ -561,10 +616,7 @@ export class AVGrid<R = any> {
         if ("columns" in options && options.columns) this.setColumns(options.columns);
         if ("rows" in options && options.rows) this.setRows(options.rows);
         if ("searchString" in options) this.setSearchString(options.searchString);
-        if ("filters" in options) {
-            this.model.options.filters = options.filters;
-            this.model.models.rows.updateRows();
-        }
+        if ("filters" in options) this.setFilters(options.filters);
         if ("sort" in options) this.setSort(options.sort ?? undefined);
 
         // Everything else is a straight assignment plus, where the engine cares, a re-set.
@@ -635,6 +687,7 @@ export class AVGrid<R = any> {
             sourceRowCount: this.model.options.rows.length,
             sort: this.model.state.get().sort,
             searchString: this.model.options.searchString,
+            filters: this.model.models.filters.getFilters(),
             rowHeight: this.model.options.rowHeight,
             focus: this.model.models.focus.focus,
             selectedCount: this.model.models.selected.count,

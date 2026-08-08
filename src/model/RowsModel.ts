@@ -85,6 +85,11 @@ export class RowsModel<R> {
         }
     };
 
+    /**
+     * `options.filters` is read, not owned: `FiltersModel` is the only thing that writes it,
+     * and calls `updateRows()` when it does. This model's job is which rows survive, never
+     * which filters are applied.
+     */
     private filter = (rows: readonly R[]): readonly R[] =>
         filterRows(
             rows,
