@@ -136,18 +136,31 @@ export interface RenderInputPrepared {
     renderRange: RenderRange;
 }
 
+/**
+ * Hands back a detached element that scrolled out of the window on an earlier frame, or
+ * `undefined` when the pool is empty.
+ *
+ * The element arrives in **whatever state its previous occupant left it** — same children,
+ * classes, attributes and listeners. That is deliberate: reusing the inner structure is most
+ * of the saving. A cell renderer that recycles must therefore overwrite everything it sets.
+ */
+export type RecycleFunc = () => HTMLElement | undefined;
+
 export interface RenderCellParams {
     col: number;
     row: number;
     style: CellStyle;
     key: RenderCellKey;
     renderInfo: RenderInputPrepared;
+    /** Present when a cell pool is attached. See `RecycleFunc`. */
+    recycle?: RecycleFunc;
 }
 
 export type RenderCellFunc = (p: RenderCellParams) => RenderedCell;
 
 export interface RenderData {
     renderCell: RenderCellFunc;
+    recycle?: RecycleFunc;
     old: RenderInputPrepared;
     newInfo: RenderInputPrepared;
     rerender: RerenderInfoPrepared | null;
@@ -165,6 +178,8 @@ export interface CalcRenderInfoInput {
     rowHeight: ElementLength;
     columnWidth: ElementLength;
     renderCell: RenderCellFunc;
+    /** Forwarded verbatim to every `renderCell` call. The geometry never calls it itself. */
+    recycle?: RecycleFunc;
     stickyTop: number;
     stickyLeft: number;
     stickyRight: number;

@@ -39,6 +39,7 @@ import type {
     RenderInputPrepared,
     RenderPoint,
     RenderSizeOptional,
+    RecycleFunc,
     RerenderInfo,
     RowAlign,
 } from "./types";
@@ -76,6 +77,8 @@ export interface RenderGridOptions {
     rowHeight?: ElementLength;
     columnWidth: ElementLength;
     renderCell: RenderCellFunc;
+    /** Supplied by the DOM shell so `renderCell` can reuse a scrolled-out element. */
+    recycle?: RecycleFunc;
     stickyTop?: number;
     stickyLeft?: number;
     stickyRight?: number;
@@ -418,6 +421,7 @@ export class RenderGridModel extends Model<RenderGridState> {
                 rowHeight,
                 columnWidth,
                 renderCell,
+                recycle: this.options.recycle,
                 stickyTop: stickyTop ?? 0,
                 stickyLeft: stickyLeft ?? 0,
                 stickyRight: stickyRight ?? 0,

@@ -340,6 +340,7 @@ const _renderCell = (
 ) => {
     const {
         renderCell,
+        recycle,
         old,
         newInfo,
         rerender,
@@ -378,6 +379,7 @@ const _renderCell = (
             },
             key,
             renderInfo: newInfo,
+            recycle,
         });
     }
     newInfo.map[key] = cell;
@@ -564,6 +566,7 @@ export function calcRenderInfo(
 
     const rd: RenderData = {
         renderCell,
+        recycle: input.recycle,
         old,
         newInfo,
         rerender: rerenderPrepared,
