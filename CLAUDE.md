@@ -25,19 +25,23 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1 and 2 are complete.** Tasks 1–9 are done; task 10 (focus, keyboard navigation and
-range selection) is next.
+**Phases 1 and 2 are complete, and task 10 with them.** Tasks 1–10 are done; task 11 (row
+selection and the select column) is next.
 
 There is a working grid. `AVGrid.create(el, { rows })` renders a real one — columns, header
 labels, widths, row keys and data types all inferred — with header sorting, column resize and
-reorder, custom cell renderers, a search filter, and a stylesheet driven entirely by CSS
-custom properties.
+reorder, custom cell renderers, a search filter, cell focus, full keyboard navigation, range
+selection by drag or by shift, and a stylesheet driven entirely by CSS custom properties.
 
-The performance thesis survived the grid layer. 100,000 rows in a real browser, through the
-*whole* grid rather than the engine alone: first paint 8.0 ms, 60 fps at both the top and row
-99,000, a **flat-cost ratio of 0.93×**, a full repaint of every visible cell in 0.5 ms doing
-**zero** DOM mutations, and a theme change costing **zero** paints. Full results, history, and
-the two measurements that mislead if taken carelessly, in
+The performance thesis survived the grid layer, and then survived selection. 100,000 rows in a
+real browser, through the *whole* grid rather than the engine alone: first paint 6.7 ms, 60 fps
+at both the top and row 99,000, a **flat-cost ratio of 1.08×**, a full repaint of every visible
+cell in 0.2 ms doing **zero** DOM mutations, and a theme change costing **zero** paints.
+
+Task 10's own gate: dragging a range selection anchored at row 0 down through row 99,000 —
+a live selection of 99,001 rows against 101 at the top — marks **2 cells dirty per pointer
+move at both ends**, for a model cost of 0.0141 ms against 0.0147 ms, a **ratio of 1.04×**.
+Full results, history, and the three measurements that mislead if taken carelessly, in
 [`tasks/benchmark-results.md`](tasks/benchmark-results.md).
 
 ## Reference implementation — Persephone
@@ -100,6 +104,7 @@ av-grid/
             ColumnsModel.ts      ← visible columns, resize, reorder
             RowsModel.ts         ← filter → sort pipeline
             SortColumnModel.ts   ← sort state and its comparator
+            FocusModel.ts        ← focus, keyboard nav, range selection
         view/                    ← the DOM, rewritten rather than transliterated
             DataCell.ts          ← the hot path; allocation-light
             HeaderCell.ts        ← label, sort indicator, resize grip, filter funnel

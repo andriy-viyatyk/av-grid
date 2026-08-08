@@ -104,9 +104,66 @@ one paint.
 background with **0 paints** — the browser did all of it. That is the task-9 requirement, and
 it is only true because there is one static stylesheet and no JavaScript reads a colour.
 
+## Task 10 — range selection — 2026-08-08
+
+Task 10 adds a gate of its own: **dragging a range selection at row 99,000 must be as fast as
+at row 100.** Same board, same dataset, new harness entry `window.avg.measureRangeDrag(row)`.
+
+The measurement is deliberately unkind. Before each drag the selection is anchored at row 0,
+so at row 99,000 the *live* selection covers 99,001 rows against 101 at the top. The reference
+marks both the old and the new selection rectangle dirty on every pointer move, unclipped —
+under that algorithm this measurement comes back roughly 990× worse at the bottom.
+
+| Measure | Row 100 | Row 99,000 | |
+|---|---|---|---|
+| Selection under the drag | 101 rows | 99,001 rows | 980× more selected |
+| **Cells marked dirty per move** | **2** | **2** | ✅ identical |
+| **Model cost per move** | **0.0141 ms** | **0.0147 ms** | ✅ **ratio 1.04×** |
+| Paint cost per move | 0.065 ms | 0.050 ms | |
+| DOM mutations over 200 moves | 0 | 0 | ✅ |
+
+The rest of the gate, re-run through the selection-aware `DataCell`:
+
+| Measure | Task 9 | Task 10 | |
+|---|---|---|---|
+| Time to first paint | 8.0 ms | 6.7 ms | ✅ gate < 100 ms |
+| Paint cost near the top | 0.906 ms | 0.895 ms | |
+| Paint cost near row 99,000 | 0.842 ms | 0.967 ms | |
+| **Flat-cost ratio** | 0.93× | **1.08×** | ✅ ≈ 1.0 |
+| Scroll fps (top / bottom) | 60.0 / 60.0 | 60.0 / 60.0 | ✅ |
+| Full repaint | 0.5 ms, 0 mutations | 0.2 ms, 0 mutations | |
+| Sort 100k rows | 21 ms | 22 ms | |
+
+**No regression.** Adding focus and selection state to every cell's class string cost nothing
+measurable, because `focusClass()` returns the same empty string for every cell of an
+unfocused grid and a bitmask comparison for the rest.
+
+### The number to quote, and the one to ignore
+
+**Quote cells-marked-per-move.** It is exact, it is 2 at both ends, and it is what the plan
+actually asks for: *"each mouse-move during a drag repaints only the cells whose selection
+state changed"*. Two is right — extending a one-column selection down a row makes the old last
+row lose its bottom border and the new one gain it.
+
+**Ignore a single-run timing ratio.** A move costs ~14 *microseconds*, so 200 of them total
+3 ms and the ratio swings between 0.77× and 1.09× on timer quantization alone. The 1.04×
+above is the mean of 6 × 400 moves at each end. This is the same trap as the 40-step paint
+sample in task 9, one order of magnitude further down.
+
+The harness times two loops for this reason. The tight loop — no frame wait — is the one the
+gate rests on: it measures dispatch, the focus update and building the dirty set. **Do not
+"simplify" it by awaiting a frame per move.** At 60Hz every move then costs 16.7 ms of
+waiting, the real work vanishes under the display cadence, and the ratio comes back a
+meaningless 1.00 whatever the implementation does. That mistake was made and caught here.
+
+`measureFullRepaint` now does a throwaway `refresh()` before it measures, which finally kills
+the spurious "36 DOM mutations" for good: cells that scrolled out during an earlier phase stay
+attached until the next full *recompute* trims them, and settling alone never asks for one.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
 |---|---|---|---|---|---|---|
 | 2026-08-08 | 5 | 5.6 ms | 1.02× | 60.0 / 60.0 | 0 | Baseline. Gate passed. |
 | 2026-08-08 | 9 | 8.0 ms | 0.93× | 60.0 / 60.0 | 0 | Whole grid, real cell renderers. No regression. |
+| 2026-08-08 | 10 | 6.7 ms | 1.08× | 60.0 / 60.0 | 0 | Focus and range selection. Drag ratio **1.04×**, 2 cells marked per move at both ends. |

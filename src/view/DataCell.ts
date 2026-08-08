@@ -78,6 +78,8 @@ export function renderDataCell<R>(
     // --- classes -----------------------------------------------------------
     let className = "avg-data-cell" + alignClass(column, value);
     if (model.data.hovered.row === dataRow) className += " avg-row-hovered";
+    // Returns "" for every cell of an unfocused grid, and allocates nothing in that case.
+    className += model.models.focus.focusClass(p.col, dataRow);
 
     // `onCellClass` and `render` are the only two hooks that need a context object; when
     // neither is set, the default path allocates nothing at all.

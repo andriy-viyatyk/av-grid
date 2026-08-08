@@ -36,6 +36,13 @@ export type { AVGridDataChangeEvent } from "./model/AVGridData";
 export { AVGridEvents } from "./model/AVGridEvents";
 export { ColumnsModel, defaultColumnWidth as defaultGridColumnWidth } from "./model/ColumnsModel";
 export { RowsModel } from "./model/RowsModel";
+export { FocusModel } from "./model/FocusModel";
+export type {
+    GridSelection,
+    SelectionType,
+    SelectedCount,
+    UpdateFocusOptions,
+} from "./model/FocusModel";
 export { SortColumnModel } from "./model/SortColumnModel";
 
 // --- helpers --------------------------------------------------------------

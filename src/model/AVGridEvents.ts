@@ -22,18 +22,24 @@ export interface CellMouseEventData<R = any> extends CellEventData<R> {
     e: MouseEvent;
 }
 
-export interface CellDragEventData<R = any> extends CellEventData<R> {
-    e: DragEvent;
-}
-
 class CellEvents<R = any> {
     readonly onClick = new Subscription<CellMouseEventData<R>>();
     readonly onDoubleClick = new Subscription<CellMouseEventData<R>>();
+    /** A pointer went down on a cell. Carries `shiftKey` and `button`, so it decides the anchor. */
     readonly onMouseDown = new Subscription<CellMouseEventData<R>>();
     readonly onContextMenu = new Subscription<CellMouseEventData<R>>();
-    readonly onDragStart = new Subscription<CellDragEventData<R>>();
-    readonly onDragEnter = new Subscription<CellDragEventData<R>>();
-    readonly onDragEnd = new Subscription<CellDragEventData<R>>();
+
+    /**
+     * The pointer moved onto a *different* cell while a range-selection drag is in flight.
+     *
+     * The reference used HTML5 drag-and-drop for this — `draggable` on every cell, a
+     * transparent drag image, and a `dragenter` handler. Pointer events do the same job
+     * without the drag image hack, without competing with the header's own reorder drag, and
+     * without a per-cell attribute to keep in sync through recycling.
+     */
+    readonly onSelectMove = new Subscription<CellEventData<R>>();
+    /** The drag ended, wherever the pointer was released. */
+    readonly onSelectEnd = new Subscription<void>();
 }
 
 class ContentEvents {

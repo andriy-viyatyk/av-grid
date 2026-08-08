@@ -13,6 +13,7 @@
 
 import type {
     CellContext,
+    CellFocus,
     Column,
     Filter,
     SortColumn,
@@ -100,6 +101,17 @@ export interface AVGridOptions<R = any> {
     onColumnsChange?: (columns: Column<R>[]) => void;
     /** Fires when the set of displayed rows changes — a sort, a filter, or `setRows()`. */
     onVisibleRowsChange?: (rows: readonly R[]) => void;
+
+    /**
+     * The focused cell, and the range selected around it, changed.
+     *
+     * Fires for clicks, drags and keyboard navigation alike, and once per cell during a drag
+     * rather than once per pointer move. `undefined` means the focus was cleared.
+     *
+     * Named for *cell* focus deliberately: `onSelectionChange` is reserved for row selection,
+     * which is a different thing a grid can have selected.
+     */
+    onFocusChange?: (focus: CellFocus<R> | undefined) => void;
 
     onCellClick?: (cell: CellContext<R>, e: MouseEvent) => void;
     onCellDoubleClick?: (cell: CellContext<R>, e: MouseEvent) => void;

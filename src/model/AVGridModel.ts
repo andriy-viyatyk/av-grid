@@ -21,6 +21,7 @@ import type { CellContext, CellEdit, Column, SortColumn } from "../types";
 import { AVGridData } from "./AVGridData";
 import { AVGridEvents } from "./AVGridEvents";
 import { ColumnsModel } from "./ColumnsModel";
+import { FocusModel } from "./FocusModel";
 import { RowsModel } from "./RowsModel";
 import { SortColumnModel } from "./SortColumnModel";
 
@@ -33,13 +34,16 @@ export class AVGridModels<R> {
     readonly columns: ColumnsModel<R>;
     readonly sortColumn: SortColumnModel<R>;
     readonly rows: RowsModel<R>;
+    readonly focus: FocusModel<R>;
 
     constructor(model: AVGridModel<R>) {
         // Order matters: `columns` must exist before `rows`, because the first
-        // `updateColumnsData()` sends a data change that `RowsModel` reacts to.
+        // `updateColumnsData()` sends a data change that `RowsModel` reacts to. `focus` comes
+        // last so its `validateFocus` never runs against a half-built pipeline.
         this.columns = new ColumnsModel<R>(model);
         this.sortColumn = new SortColumnModel<R>(model);
         this.rows = new RowsModel<R>(model);
+        this.focus = new FocusModel<R>(model);
     }
 }
 
@@ -88,6 +92,16 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
 
     requestRepaint = (): void => {
         this.renderModel?.requestRepaint();
+    };
+
+    /**
+     * Give the grid keyboard focus.
+     *
+     * Keys are handled on the root — see `GridInteractions` — so this is what a handler calls
+     * after doing something that could have moved focus elsewhere.
+     */
+    focusGrid = (): void => {
+        this.renderModel?.gridRef.current?.focus({ preventScroll: true });
     };
 
     // -----------------------------------------------------------------------

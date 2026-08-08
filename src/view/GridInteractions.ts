@@ -44,11 +44,20 @@ export class GridInteractions<R> {
         left: number;
     };
 
+    /** The cell the last selection drag move resolved to, so a move inside one cell is free. */
+    private lastSelectCell = -1;
+
     constructor(model: AVGridModel<R>, grid: RenderGrid) {
         this.model = model;
         this.grid = grid;
         this.root = grid.root;
 
+        // Keyboard navigation needs somewhere for focus to land, and the root is the only
+        // element that survives every repaint — a cell is pooled and may belong to a different
+        // coordinate on the next frame.
+        this.root.tabIndex = 0;
+
+        this.root.addEventListener("keydown", this.onKeyDown);
         this.root.addEventListener("pointerdown", this.onPointerDown);
         this.root.addEventListener("click", this.onClick);
         this.root.addEventListener("dblclick", this.onDoubleClick);
@@ -62,6 +71,7 @@ export class GridInteractions<R> {
     }
 
     destroy(): void {
+        this.root.removeEventListener("keydown", this.onKeyDown);
         this.root.removeEventListener("pointerdown", this.onPointerDown);
         this.root.removeEventListener("click", this.onClick);
         this.root.removeEventListener("dblclick", this.onDoubleClick);
@@ -73,6 +83,7 @@ export class GridInteractions<R> {
         this.root.removeEventListener("drop", this.onDrop);
         this.root.removeEventListener("dragend", this.onDragEnd);
         this.endResize();
+        this.endSelect();
     }
 
     // -----------------------------------------------------------------------
@@ -104,10 +115,13 @@ export class GridInteractions<R> {
     // -----------------------------------------------------------------------
 
     private onPointerDown = (e: PointerEvent): void => {
-        if (e.pointerType === "mouse" && e.buttons !== 1) return;
-
         const header = this.headerAt(e.target);
-        if (!header) return;
+        if (!header) {
+            this.onCellPointerDown(e);
+            return;
+        }
+
+        if (e.pointerType === "mouse" && e.buttons !== 1) return;
         if (header.el.getAttribute("data-resizable") !== "true") return;
 
         const rect = header.el.getBoundingClientRect();
@@ -158,6 +172,102 @@ export class GridInteractions<R> {
         if (this.root.hasPointerCapture?.(pointerId)) {
             this.root.releasePointerCapture(pointerId);
         }
+    };
+
+    // -----------------------------------------------------------------------
+    // Focus and range selection
+    // -----------------------------------------------------------------------
+
+    /**
+     * A pointer went down on a data cell: focus the grid, move the cell focus, and — for the
+     * primary button — arm a range drag.
+     *
+     * The reference did the drag with HTML5 drag-and-drop, which meant `draggable` on every
+     * cell, a 1×1 transparent GIF as the drag image, and a `dragenter` handler per cell. All
+     * three are avoidable here, and the last one is actively hostile to a pooled grid. Pointer
+     * events also mean the header's column-reorder drag and the cells' selection drag no
+     * longer share one event stream that each has to filter itself out of.
+     */
+    private onCellPointerDown = (e: PointerEvent): void => {
+        const cell = this.dataCellAt(e.target);
+        if (!cell) return;
+
+        const context = this.model.cellContext(cell.row, cell.col);
+        if (!context) return;
+
+        // Focus the root rather than letting the browser do it: the cell under the pointer is
+        // a pooled element and must never itself hold focus.
+        this.root.focus({ preventScroll: true });
+
+        this.model.events.cell.onMouseDown.send({
+            e,
+            row: context.row,
+            col: context.column,
+            rowIndex: cell.row,
+            colIndex: cell.col,
+        });
+
+        if (e.button !== 0) return;
+
+        this.lastSelectCell = cell.row * 1e6 + cell.col;
+        this.root.addEventListener("pointermove", this.onSelectMove);
+        // On `window`, so releasing outside the grid still ends the drag.
+        window.addEventListener("pointerup", this.endSelect);
+        window.addEventListener("pointercancel", this.endSelect);
+    };
+
+    private onSelectMove = (e: PointerEvent): void => {
+        const cell = this.dataCellAt(e.target);
+        if (!cell) return;
+
+        // A drag emits ~60 moves a second and most of them stay inside one cell. Resolving
+        // that here keeps the model from being asked the same question sixty times.
+        const id = cell.row * 1e6 + cell.col;
+        if (id === this.lastSelectCell) return;
+        this.lastSelectCell = id;
+
+        const context = this.model.cellContext(cell.row, cell.col);
+        if (!context) return;
+
+        this.model.events.cell.onSelectMove.send({
+            row: context.row,
+            col: context.column,
+            rowIndex: cell.row,
+            colIndex: cell.col,
+        });
+    };
+
+    private endSelect = (): void => {
+        if (this.lastSelectCell < 0) return;
+        this.lastSelectCell = -1;
+
+        this.root.removeEventListener("pointermove", this.onSelectMove);
+        window.removeEventListener("pointerup", this.endSelect);
+        window.removeEventListener("pointercancel", this.endSelect);
+
+        this.model.events.cell.onSelectEnd.send();
+    };
+
+    // -----------------------------------------------------------------------
+    // Keyboard
+    // -----------------------------------------------------------------------
+
+    /**
+     * Every key the grid handles, on the root.
+     *
+     * Keys originating inside an editable control are left alone — task 12 puts an `<input>`
+     * in a cell, and arrow keys there belong to the caret, not to the grid.
+     */
+    private onKeyDown = (e: KeyboardEvent): void => {
+        const target = e.target as Element | null;
+        if (
+            target &&
+            target !== this.root &&
+            target.closest?.("input, textarea, select, [contenteditable='true']")
+        ) {
+            return;
+        }
+        this.model.events.content.onKeyDown.send(e);
     };
 
     // -----------------------------------------------------------------------

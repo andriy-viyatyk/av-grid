@@ -202,9 +202,12 @@ async function measureScrollFps(startY, ms = 2000, pxPerFrame = 40) {
 
 /** A full repaint — the path sorting, filtering and setRows all take. */
 async function measureFullRepaint() {
-    // Settle generously first: cells that scrolled out during the previous phase are still
-    // attached until the next paint, and counting their removal here would read as though the
-    // repaint had replaced them.
+    // Warm up first, then settle generously. Cells that scrolled out during a previous phase
+    // stay attached until the next *full* recompute trims them — settling alone does not do
+    // it, because nothing has asked for a recompute. Counting their removal here reads as
+    // though the repaint had replaced them, which is where a spurious "36 DOM mutations"
+    // (4 overscan rows × 9 columns) comes from.
+    grid.refresh();
     await settle(6);
     grid.render.resetStats();
     grid.refresh();
@@ -212,6 +215,104 @@ async function measureFullRepaint() {
     const s = grid.render.stats;
     return {
         ms: s.lastPaintMs,
+        mutations: s.cellsAppended + s.cellsRemoved,
+    };
+}
+
+/**
+ * The task-10 gate: dragging a range selection near row 99,000 must cost what it costs near
+ * row 100.
+ *
+ * The selection is anchored at row 0 before the drag starts, so at row 99,000 the *live*
+ * selection covers 99,000 rows against 100 at the top. That asymmetry is the whole point: the
+ * reference marks both the old and the new rectangle dirty on every pointer move, unclipped,
+ * so its cost per move is the size of the selection and this measurement would come back
+ * roughly 990× worse at the bottom. Here the dirty set is clipped to the rendered window, so
+ * both ends should report the same handful of cells per move.
+ *
+ * Returns wall time, paint stats, and — the number the plan actually asks for — the *dirty
+ * cells per move*, read by instrumenting `update()` rather than by looking at the screen.
+ */
+async function measureRangeDrag(row, steps = 200) {
+    const rowHeight = grid.getState().rowHeight;
+    await scrollTo(Math.max(0, (row - 5) * rowHeight));
+
+    grid.selectRange(0, 0, row, 0);
+    await settle(3);
+
+    const cellAt = (dataRow) =>
+        grid.element.querySelector(
+            `[data-type="data-cell"][data-row="${dataRow}"][data-col="0"]`,
+        );
+
+    const a = cellAt(row);
+    const b = cellAt(row + 1);
+    if (!a || !b) throw new Error(`rows ${row}/${row + 1} are not on screen`);
+
+    // Shift, so the press extends the existing selection instead of re-anchoring it.
+    a.dispatchEvent(
+        new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            shiftKey: true,
+            pointerId: 1,
+        }),
+    );
+
+    // Count what each move marks dirty. `all: true` would be a failure, so it is recorded as
+    // Infinity rather than quietly averaged away.
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirtyCells = 0;
+    model.update = (info) => {
+        if (info && info.all) dirtyCells = Infinity;
+        else dirtyCells += (info && info.cells ? info.cells.length : 0);
+        return originalUpdate(info);
+    };
+
+    const move = (i) =>
+        (i % 2 ? a : b).dispatchEvent(
+            new PointerEvent("pointermove", { bubbles: true, pointerId: 1 }),
+        );
+
+    // Two loops, because one number cannot answer both halves of the question.
+    //
+    // 1. A *tight* loop with no frame wait, timing the model work alone — dispatch, the focus
+    //    update, and building the dirty set. This is where a cost proportional to the
+    //    selection would show up, so this is the number the gate rests on. Do not "fix" it by
+    //    awaiting a frame per move: at 60Hz every move then costs 16.7 ms of waiting, the real
+    //    work disappears under the display cadence, and the ratio comes back 1.00 whatever the
+    //    implementation does.
+    //
+    //    Ten times as many iterations as the paced loop, for the same reason `measurePaintCost`
+    //    samples 300 and not 40: a move costs ~15 microseconds, so 200 of them total 3 ms and
+    //    the ratio swings on timer quantization alone.
+    const modelSteps = steps * 10;
+    const modelStartedAt = performance.now();
+    for (let i = 0; i < modelSteps; i++) move(i);
+    const modelMsPerMove = (performance.now() - modelStartedAt) / modelSteps;
+
+    // 2. A frame-paced loop, for what each move costs to actually paint.
+    await settle(3);
+    grid.render.resetStats();
+    dirtyCells = 0;
+    for (let i = 0; i < steps; i++) {
+        move(i);
+        await nextFrame();
+    }
+
+    model.update = originalUpdate;
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
+
+    const s = grid.render.stats;
+    return {
+        row,
+        steps,
+        selectionRows: row + 1,
+        modelMsPerMove,
+        dirtyCellsPerMove: dirtyCells / steps,
+        paints: s.paints,
+        avgPaintMs: s.paints ? s.totalPaintMs / s.paints : 0,
         mutations: s.cellsAppended + s.cellsRemoved,
     };
 }
@@ -255,6 +356,12 @@ async function runBenchmark(count = 100000) {
     await settle(6);
     const repaint = await measureFullRepaint();
 
+    status("measuring a range drag near the top…");
+    const dragTop = await measureRangeDrag(100);
+
+    status("measuring a range drag near row 99,000…");
+    const dragBottom = await measureRangeDrag(count - 1000);
+
     status("measuring a sort of 100k rows…");
     const sort = await measureSort();
 
@@ -268,6 +375,11 @@ async function runBenchmark(count = 100000) {
         fpsTop,
         fpsBottom,
         fullRepaint: repaint,
+        dragTop,
+        dragBottom,
+        dragRatio: dragTop.modelMsPerMove
+            ? dragBottom.modelMsPerMove / dragTop.modelMsPerMove
+            : 0,
         sortMs: sort.modelMs,
     };
 
@@ -307,6 +419,17 @@ function renderResults(r) {
             `${r.fullRepaint.ms.toFixed(3)} ms`,
             `${r.fullRepaint.mutations} DOM mutations`,
         )}
+        ${row(
+            "Range drag at row 100",
+            `${r.dragTop.modelMsPerMove.toFixed(4)} ms/move`,
+            `${r.dragTop.dirtyCellsPerMove.toFixed(1)} cells marked · selection ${r.dragTop.selectionRows.toLocaleString()} rows`,
+        )}
+        ${row(
+            "Range drag near the bottom",
+            `${r.dragBottom.modelMsPerMove.toFixed(4)} ms/move`,
+            `${r.dragBottom.dirtyCellsPerMove.toFixed(1)} cells marked · selection ${r.dragBottom.selectionRows.toLocaleString()} rows`,
+        )}
+        ${row("Range-drag ratio", `${r.dragRatio.toFixed(2)}×`, "gate: ≈ 1.0")}
         ${row("Sort 100k rows (model)", `${r.sortMs.toFixed(1)} ms`)}
     </tbody></table>`;
     resultsEl.hidden = false;
@@ -337,6 +460,7 @@ window.avg = {
     measurePaintCost,
     measureScrollFps,
     measureFullRepaint,
+    measureRangeDrag,
     measureSort,
     scrollTo,
     settle,

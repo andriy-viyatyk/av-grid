@@ -49,7 +49,8 @@ import {
     validateColumns,
     validateSort,
 } from "./validate";
-import type { Column, SortColumn } from "./types";
+import type { CellFocus, Column, SortColumn } from "./types";
+import type { GridSelection } from "./model/FocusModel";
 import type { AVGridDataChangeEvent } from "./model/AVGridData";
 import type { RowAlign } from "./render/types";
 
@@ -83,6 +84,8 @@ export interface AVGridStateSnapshot<R = any> {
     sort?: SortColumn;
     searchString?: string;
     rowHeight: number;
+    /** The focused cell and its range selection. Row selection joins it in task 11. */
+    focus?: CellFocus<R>;
 }
 
 export class AVGrid<R = any> {
@@ -235,6 +238,62 @@ export class AVGrid<R = any> {
     }
 
     // -----------------------------------------------------------------------
+    // Focus and range selection
+    // -----------------------------------------------------------------------
+
+    /**
+     * The focused cell and the range anchored on it, or `undefined` when nothing is focused.
+     *
+     * ```js
+     * grid.focusCell(10, 2);            // row index, column index
+     * grid.selectRange(10, 0, 20, 3);   // rowStart, colStart, rowEnd, colEnd
+     * grid.getSelection().rows;         // the selected row objects
+     * ```
+     */
+    getFocus(): CellFocus<R> | undefined {
+        return this.model.models.focus.focus;
+    }
+
+    /** Set the focus directly. Indices are optional — keys alone are enough. */
+    setFocus(focus: CellFocus<R> | undefined): void {
+        this.model.models.focus.setFocus(focus);
+    }
+
+    clearFocus(): void {
+        this.model.models.focus.clearFocus();
+    }
+
+    /** Focus one cell by index into the *displayed* rows, discarding any selection. */
+    focusCell(rowIndex: number, colIndex: number, withScroll = false): void {
+        this.model.models.focus.focusCell(rowIndex, colIndex, withScroll);
+    }
+
+    /** Select a rectangle of cells. The focus lands on the end corner, as after a drag. */
+    selectRange(
+        startRowIndex: number,
+        startColIndex: number,
+        endRowIndex: number,
+        endColIndex: number,
+    ): void {
+        this.model.models.focus.selectRange(
+            startRowIndex,
+            startColIndex,
+            endRowIndex,
+            endColIndex,
+        );
+    }
+
+    /** The selected rows and columns, with their index ranges. `undefined` when unfocused. */
+    getSelection(): GridSelection<R> | undefined {
+        return this.model.models.focus.getGridSelection();
+    }
+
+    /** Give the grid keyboard focus, so arrow keys reach it without a click first. */
+    focus(): void {
+        this.model.focusGrid();
+    }
+
+    // -----------------------------------------------------------------------
     // Options
     // -----------------------------------------------------------------------
 
@@ -309,6 +368,7 @@ export class AVGrid<R = any> {
             sort: this.model.state.get().sort,
             searchString: this.model.options.searchString,
             rowHeight: this.model.options.rowHeight,
+            focus: this.model.models.focus.focus,
         };
     }
 

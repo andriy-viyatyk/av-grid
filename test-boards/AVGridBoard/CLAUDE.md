@@ -1,8 +1,9 @@
 # AVGridBoard — the grid, in a real browser
 
-The debugger and visual check for **the grid layer** (tasks 6–9 of
+The debugger and visual check for **the grid layer** (tasks 6–10 of
 [`plan.md`](../../tasks/plan.md)): `AVGrid.create()`, inferred columns, header sorting, column
-resize and reorder, custom cell renderers, the injected stylesheet, and the theme contract.
+resize and reorder, custom cell renderers, the injected stylesheet, the theme contract, and
+cell focus with keyboard navigation and range selection.
 
 Its sibling [`RenderGridTest/`](../RenderGridTest/CLAUDE.md) benchmarks the *engine* with a
 trivial cell renderer. This board runs the whole thing. Use it whenever a change could alter
@@ -41,6 +42,7 @@ await window.avg.runBenchmark(100000)     // the task-5 gate, through the whole 
 await window.avg.measurePaintCost(y)      // avg paint ms over 300 one-row scrolls from y
 await window.avg.measureScrollFps(y)      // scripted 2s scroll; fps + frame percentiles
 await window.avg.measureFullRepaint()     // the sort / filter / setRows path
+await window.avg.measureRangeDrag(row)    // the task-10 gate: drag cost at any row
 window.avg.createGrid(count)              // explicit columns
 window.avg.minimalGrid()                  // AVGrid.create(el, { rows }) and nothing else
 window.avg.grid                           // the live AVGrid; .model, .render, .getState()
@@ -71,6 +73,10 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   content-based widths, `dataType` and `displayFormat` guesses, inferred row keys.
 - **Interaction** — header click sorts, header edge drag resizes, header drag reorders,
   hovering highlights a row, the search box filters.
+- **Focus and selection** — click a cell, drag to select a range, shift-click to extend,
+  arrow / Tab / Home / End / PageUp / PageDown / ctrl+arrows to navigate, ctrl+A to select
+  everything. The selection outline is muted while the grid is blurred and accent-coloured
+  once it has focus — `grid.focus()` from the console shows both.
 
 ## Checks worth re-running after a render-path change
 
@@ -95,10 +101,17 @@ The second is the task-9 requirement in one line: **theming is CSS, never JavaSc
 - **`measurePaintCost` samples 300 steps, not 40.** A paint costs well under a millisecond, so
   a 40-step sample is dominated by timer noise and the top-to-bottom ratio swings between
   0.99× and 1.31× run to run. At 300 it settles within a percent or two.
-- **`measureFullRepaint` settles first, generously.** Cells that scrolled out during a
-  previous phase stay attached until the next paint. Reset the stats before they are collected
-  and their removal reads as though the repaint had replaced them — which is where a spurious
-  "36 DOM mutations" comes from. 36 is 4 overscan rows × 9 columns.
+- **`measureRangeDrag` reports two numbers, and only one of them is the gate.** Quote
+  `dirtyCellsPerMove` — it is exact, and it is 2 at row 100 and at row 99,000 alike.
+  `modelMsPerMove` is ~14 *microseconds*, so a single run's ratio swings 0.77×–1.09× on timer
+  quantization; average several runs before quoting it. Its tight loop deliberately does **not**
+  await a frame per move: at 60Hz that buries 14 µs of real work under 16.7 ms of waiting and
+  returns a meaningless 1.00× whatever the implementation does.
+- **`measureFullRepaint` warms up with a throwaway `refresh()` before measuring.** Cells that
+  scrolled out during a previous phase stay attached until the next full *recompute* trims
+  them — settling alone never asks for one. Measure without the warm-up and their removal
+  reads as though the repaint had replaced them, which is where a spurious "36 DOM mutations"
+  comes from. 36 is 4 overscan rows × 9 columns.
 - **60fps is the display ceiling**, not a measured limit. Read paint cost for headroom.
 - **The board is offline-first** (CSP blocks remote network), which is why the library is
   vendored into `lib/`.

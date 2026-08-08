@@ -1,0 +1,514 @@
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AVGrid } from "../AVGrid";
+import type { AVGridOptions } from "../options";
+import type { RerenderInfo } from "../render/types";
+
+/**
+ * Focus, keyboard navigation and range selection.
+ *
+ * happy-dom does no layout, so the same `withLayout` trick as `AVGrid.test.ts` gives the shell
+ * a viewport to compute against. What these tests can check is *behaviour and bookkeeping*:
+ * which cell is focused after a key, which classes land on which element, and — the one that
+ * matters most — exactly which cells a selection change marks dirty.
+ *
+ * What they cannot check is that a drag at row 99,000 is as fast as one at row 100. That is a
+ * wall-clock question and it belongs to the board. See `test-boards/AVGridBoard`.
+ */
+function withLayout<T>(fn: () => T): T {
+    const originalCreate = document.createElement.bind(document);
+    document.createElement = ((tag: string) => {
+        const el = originalCreate(tag) as HTMLElement;
+        Object.defineProperties(el, {
+            offsetWidth: { value: 600, configurable: true },
+            offsetHeight: { value: 300, configurable: true },
+            clientWidth: { value: 600, configurable: true },
+            clientHeight: { value: 300, configurable: true },
+        });
+        return el;
+    }) as typeof document.createElement;
+
+    try {
+        return fn();
+    } finally {
+        document.createElement = originalCreate;
+    }
+}
+
+interface Row {
+    id: number;
+    name: string;
+    score: number;
+}
+
+function rows(count: number): Row[] {
+    return Array.from({ length: count }, (_, i) => ({
+        id: i + 1,
+        name: `Row ${i + 1}`,
+        score: (i * 7) % 100,
+    }));
+}
+
+const grids: AVGrid<any>[] = [];
+
+function create<R>(options: AVGridOptions<R>): AVGrid<R> {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const grid = withLayout(() => AVGrid.create<R>(host, options));
+    grids.push(grid);
+    return grid;
+}
+
+function grid(count = 20, extra: Partial<AVGridOptions<Row>> = {}): AVGrid<Row> {
+    return create<Row>({
+        rows: rows(count),
+        columns: [
+            { key: "id", name: "ID", width: 60 },
+            { key: "name", name: "Name", width: 120 },
+            { key: "score", name: "Score", width: 80 },
+        ],
+        getRowKey: (r) => String(r.id),
+        ...extra,
+    });
+}
+
+function cellAt(g: AVGrid<Row>, row: number, col: number): HTMLElement | null {
+    return g.element.querySelector(
+        `[data-type="data-cell"][data-row="${row}"][data-col="${col}"]`,
+    );
+}
+
+function classesAt(g: AVGrid<Row>, row: number, col: number): string[] {
+    const el = cellAt(g, row, col);
+    return el ? Array.from(el.classList) : [];
+}
+
+function key(g: AVGrid<Row>, k: string, init: KeyboardEventInit = {}): void {
+    g.element.dispatchEvent(
+        new KeyboardEvent("keydown", { key: k, bubbles: true, ...init }),
+    );
+}
+
+function pointer(el: Element, type: string, init: MouseEventInit = {}): void {
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, ...init }));
+}
+
+/** Collect every dirty set the grid produces while `fn` runs. */
+function captureDirty(g: AVGrid<Row>, fn: () => void): RerenderInfo[] {
+    const captured: RerenderInfo[] = [];
+    const spy = vi
+        .spyOn(g.render.model, "update")
+        .mockImplementation((info?: RerenderInfo) => {
+            captured.push(info ?? {});
+        });
+    try {
+        fn();
+    } finally {
+        spy.mockRestore();
+    }
+    return captured;
+}
+
+afterEach(() => {
+    while (grids.length) grids.pop()?.destroy();
+    document.body.textContent = "";
+});
+
+describe("focus", () => {
+    it("starts with nothing focused, and no cell carries a focus class", () => {
+        const g = grid();
+        expect(g.getFocus()).toBeUndefined();
+        expect(g.getSelection()).toBeUndefined();
+        expect(classesAt(g, 0, 0)).not.toContain("avg-focused");
+    });
+
+    it("focusCell focuses a cell and marks it in the DOM", async () => {
+        const g = grid();
+        g.focusCell(2, 1);
+        await paint(g);
+
+        expect(g.getFocus()?.rowKey).toBe("3");
+        expect(g.getFocus()?.columnKey).toBe("name");
+        expect(classesAt(g, 2, 1)).toContain("avg-focused");
+        expect(classesAt(g, 2, 0)).not.toContain("avg-focused");
+    });
+
+    it("clearFocus removes the classes again", async () => {
+        const g = grid();
+        g.focusCell(2, 1);
+        await paint(g);
+        g.clearFocus();
+        await paint(g);
+
+        expect(g.getFocus()).toBeUndefined();
+        expect(classesAt(g, 2, 1)).not.toContain("avg-focused");
+    });
+
+    it("reports through onFocusChange", () => {
+        const onFocusChange = vi.fn();
+        const g = grid(20, { onFocusChange });
+        g.focusCell(1, 0);
+        expect(onFocusChange).toHaveBeenCalledTimes(1);
+        expect(onFocusChange.mock.calls[0][0].rowKey).toBe("2");
+
+        g.clearFocus();
+        expect(onFocusChange).toHaveBeenLastCalledWith(undefined);
+    });
+
+    it("appears in getState()", () => {
+        const g = grid();
+        g.focusCell(4, 2);
+        expect(g.getState().focus?.rowKey).toBe("5");
+    });
+});
+
+describe("range selection", () => {
+    it("selectRange marks every cell in the rectangle", async () => {
+        const g = grid();
+        g.selectRange(1, 0, 3, 1);
+        await paint(g);
+
+        for (let row = 1; row <= 3; row++) {
+            for (let col = 0; col <= 1; col++) {
+                expect(classesAt(g, row, col)).toContain("avg-in-selection");
+            }
+        }
+        expect(classesAt(g, 0, 0)).not.toContain("avg-in-selection");
+        expect(classesAt(g, 1, 2)).not.toContain("avg-in-selection");
+    });
+
+    it("marks the four edges of the rectangle, and only those", async () => {
+        const g = grid();
+        g.selectRange(1, 0, 3, 2);
+        await paint(g);
+
+        expect(classesAt(g, 1, 1)).toContain("avg-in-selection-top");
+        expect(classesAt(g, 2, 1)).not.toContain("avg-in-selection-top");
+        expect(classesAt(g, 3, 1)).toContain("avg-in-selection-bottom");
+        expect(classesAt(g, 2, 0)).toContain("avg-in-selection-left");
+        expect(classesAt(g, 2, 2)).toContain("avg-in-selection-right");
+        expect(classesAt(g, 2, 1)).not.toContain("avg-in-selection-left");
+    });
+
+    it("puts the focus on the end corner, whichever way the range was given", () => {
+        const g = grid();
+        g.selectRange(5, 2, 1, 0);
+
+        const selection = g.getSelection()!;
+        expect(selection.focusRow).toBe(1);
+        expect(selection.focusCol).toBe(0);
+        // The reported range is always ascending, whatever order it was dragged in.
+        expect(selection.rowRange).toEqual([1, 5]);
+        expect(selection.colRange).toEqual([0, 2]);
+        expect(selection.rows.map((r) => r.id)).toEqual([2, 3, 4, 5, 6]);
+        expect(selection.columns.map((c) => c.key)).toEqual(["id", "name", "score"]);
+    });
+
+    it("selects everything on ctrl+A", () => {
+        const g = grid(20);
+        g.focusCell(0, 0);
+        key(g, "a", { code: "KeyA", ctrlKey: true });
+
+        const selection = g.getSelection()!;
+        expect(selection.rowRange).toEqual([0, 19]);
+        expect(selection.colRange).toEqual([0, 2]);
+    });
+});
+
+describe("keyboard navigation", () => {
+    it("moves with the arrow keys", () => {
+        const g = grid();
+        g.focusCell(5, 1);
+
+        key(g, "ArrowDown");
+        expect(g.getFocus()?.rowKey).toBe("7");
+        key(g, "ArrowUp");
+        expect(g.getFocus()?.rowKey).toBe("6");
+        key(g, "ArrowRight");
+        expect(g.getFocus()?.columnKey).toBe("score");
+        key(g, "ArrowLeft");
+        expect(g.getFocus()?.columnKey).toBe("name");
+    });
+
+    it("stops at the edges rather than wrapping", () => {
+        const g = grid(5);
+        g.focusCell(0, 0);
+        key(g, "ArrowUp");
+        key(g, "ArrowLeft");
+        expect(g.getSelection()!.focusRow).toBe(0);
+        expect(g.getSelection()!.focusCol).toBe(0);
+
+        g.focusCell(4, 2);
+        key(g, "ArrowDown");
+        key(g, "ArrowRight");
+        expect(g.getSelection()!.focusRow).toBe(4);
+        expect(g.getSelection()!.focusCol).toBe(2);
+    });
+
+    it("Home and End jump to the first and last row; ctrl adds the column", () => {
+        const g = grid(30);
+        g.focusCell(10, 1);
+
+        key(g, "End");
+        expect(g.getSelection()!.focusRow).toBe(29);
+        expect(g.getSelection()!.focusCol).toBe(1);
+
+        key(g, "Home");
+        expect(g.getSelection()!.focusRow).toBe(0);
+
+        key(g, "End", { ctrlKey: true });
+        expect(g.getSelection()!.focusRow).toBe(29);
+        expect(g.getSelection()!.focusCol).toBe(2);
+
+        key(g, "Home", { ctrlKey: true });
+        expect(g.getSelection()!.focusRow).toBe(0);
+        expect(g.getSelection()!.focusCol).toBe(0);
+    });
+
+    it("ctrl+left and ctrl+right jump to the first and last column", () => {
+        const g = grid();
+        g.focusCell(3, 1);
+        key(g, "ArrowRight", { ctrlKey: true });
+        expect(g.getSelection()!.focusCol).toBe(2);
+        key(g, "ArrowLeft", { ctrlKey: true });
+        expect(g.getSelection()!.focusCol).toBe(0);
+    });
+
+    it("PageDown and PageUp move by a viewport, clamped to the ends", () => {
+        const g = grid(200);
+        g.focusCell(0, 0);
+        const page = g.render.model.visibleRowCount;
+        expect(page).toBeGreaterThan(1);
+
+        key(g, "PageDown");
+        expect(g.getSelection()!.focusRow).toBe(page);
+
+        key(g, "PageUp");
+        expect(g.getSelection()!.focusRow).toBe(0);
+
+        key(g, "PageUp");
+        expect(g.getSelection()!.focusRow).toBe(0);
+    });
+
+    it("ctrl+down and ctrl+up move by a viewport too", () => {
+        const g = grid(200);
+        g.focusCell(0, 0);
+        const page = g.render.model.visibleRowCount;
+
+        key(g, "ArrowDown", { ctrlKey: true });
+        expect(g.getSelection()!.focusRow).toBe(page);
+        key(g, "ArrowUp", { ctrlKey: true });
+        expect(g.getSelection()!.focusRow).toBe(0);
+    });
+
+    it("Tab walks across then wraps to the next row; shift+Tab walks back", () => {
+        const g = grid();
+        g.focusCell(2, 1);
+
+        key(g, "Tab");
+        expect(g.getSelection()!.focusCol).toBe(2);
+        key(g, "Tab");
+        expect(g.getSelection()!.focusCol).toBe(0);
+        expect(g.getSelection()!.focusRow).toBe(3);
+
+        key(g, "Tab", { shiftKey: true });
+        expect(g.getSelection()!.focusCol).toBe(2);
+        expect(g.getSelection()!.focusRow).toBe(2);
+    });
+
+    it("shift+arrow extends the selection from its anchor", () => {
+        const g = grid();
+        g.focusCell(3, 1);
+
+        key(g, "ArrowDown", { shiftKey: true });
+        key(g, "ArrowDown", { shiftKey: true });
+        key(g, "ArrowRight", { shiftKey: true });
+
+        const selection = g.getSelection()!;
+        expect(selection.rowRange).toEqual([3, 5]);
+        expect(selection.colRange).toEqual([1, 2]);
+        expect(selection.focusRow).toBe(5);
+    });
+
+    it("a plain arrow after a shift-extend collapses the selection again", () => {
+        const g = grid();
+        g.focusCell(3, 0);
+        key(g, "ArrowDown", { shiftKey: true });
+        expect(g.getSelection()!.rowRange).toEqual([3, 4]);
+
+        key(g, "ArrowDown");
+        expect(g.getSelection()!.rowRange).toEqual([5, 5]);
+    });
+
+    it("the first navigation key on an unfocused grid lands on the first cell", () => {
+        const g = grid();
+        key(g, "ArrowDown");
+        expect(g.getSelection()!.focusRow).toBe(0);
+        expect(g.getSelection()!.focusCol).toBe(0);
+    });
+
+    it("ignores keys that came from an editor inside a cell", () => {
+        const g = grid();
+        g.focusCell(3, 1);
+
+        const input = document.createElement("input");
+        cellAt(g, 3, 1)!.append(input);
+        input.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+
+        expect(g.getSelection()!.focusRow).toBe(3);
+    });
+
+    it("leaves keys it does not handle to the host", () => {
+        const g = grid();
+        g.focusCell(1, 1);
+        const e = new KeyboardEvent("keydown", { key: "F2", bubbles: true, cancelable: true });
+        g.element.dispatchEvent(e);
+        expect(e.defaultPrevented).toBe(false);
+    });
+});
+
+describe("pointer drag", () => {
+    it("selects a range from press to release", () => {
+        const g = grid();
+        pointer(cellAt(g, 1, 0)!, "pointerdown");
+        expect(g.getSelection()!.rowRange).toEqual([1, 1]);
+
+        pointer(cellAt(g, 4, 2)!, "pointermove");
+        expect(g.getSelection()!.rowRange).toEqual([1, 4]);
+        expect(g.getSelection()!.colRange).toEqual([0, 2]);
+
+        window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+
+        // Moving after the release does nothing.
+        pointer(cellAt(g, 6, 2)!, "pointermove");
+        expect(g.getSelection()!.rowRange).toEqual([1, 4]);
+    });
+
+    it("shift-clicking extends from the existing anchor", () => {
+        const g = grid();
+        pointer(cellAt(g, 2, 0)!, "pointerdown");
+        window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+
+        pointer(cellAt(g, 5, 2)!, "pointerdown", { shiftKey: true });
+        expect(g.getSelection()!.rowRange).toEqual([2, 5]);
+        expect(g.getSelection()!.colRange).toEqual([0, 2]);
+    });
+
+    it("a right-click inside a selection leaves it alone", () => {
+        const g = grid();
+        g.selectRange(1, 0, 4, 2);
+
+        pointer(cellAt(g, 2, 1)!, "pointerdown", { button: 2 });
+        expect(g.getSelection()!.rowRange).toEqual([1, 4]);
+
+        pointer(cellAt(g, 8, 1)!, "pointerdown", { button: 2 });
+        expect(g.getSelection()!.rowRange).toEqual([8, 8]);
+    });
+
+    it("focuses the grid root, never a pooled cell", () => {
+        const g = grid();
+        pointer(cellAt(g, 1, 0)!, "pointerdown");
+        expect(document.activeElement).toBe(g.element);
+    });
+});
+
+describe("the dirty set", () => {
+    it("marks only the cells whose selection state changed", () => {
+        const g = grid(200);
+        g.selectRange(0, 0, 3, 2);
+
+        // Extend by exactly one row. Rows 0–3 stay selected; row 3 loses the bottom border and
+        // row 4 gains it — so 6 cells, not the 15 the whole rectangle would be.
+        const dirty = captureDirty(g, () => g.selectRange(0, 0, 4, 2));
+
+        const cells = dirty.flatMap((d) => d.cells ?? []);
+        expect(dirty.every((d) => !d.all)).toBe(true);
+        expect(new Set(cells.map((c) => c.row))).toEqual(new Set([4, 5]));
+        expect(cells).toHaveLength(6);
+    });
+
+    it("marks nothing at all when the selection does not move", () => {
+        const g = grid();
+        g.selectRange(1, 0, 3, 2);
+        const dirty = captureDirty(g, () => g.selectRange(1, 0, 3, 2));
+        expect(dirty.flatMap((d) => d.cells ?? [])).toHaveLength(0);
+    });
+
+    it("costs the same at row 99,000 as at row 100", () => {
+        const g = grid(100_000);
+
+        const near = countDirty(g, 100);
+        const far = countDirty(g, 99_000);
+
+        // Not "similar" — identical. The dirty set is a function of the viewport, and the
+        // viewport does not know what row it is looking at.
+        expect(far).toBe(near);
+        expect(far).toBeGreaterThan(0);
+    });
+
+    /** Cells marked by extending a selection one row further down, starting at `from`. */
+    function countDirty(g: AVGrid<Row>, from: number): number {
+        // Scroll `from` to the top of the viewport. happy-dom does not dispatch a scroll event
+        // for an assignment to scrollTop, so drive the model directly.
+        g.render.model.offset = { x: 0, y: from * 24 };
+        g.render.model.updateRenderInfo({ all: true });
+
+        g.selectRange(from, 0, from + 10, 2);
+        const dirty = captureDirty(g, () => g.selectRange(from, 0, from + 11, 2));
+        return dirty.flatMap((d) => d.cells ?? []).length;
+    }
+});
+
+describe("keeping focus valid", () => {
+    it("follows its row through a sort", () => {
+        const g = grid(10);
+        g.focusCell(0, 1);
+        expect(g.getFocus()?.rowKey).toBe("1");
+
+        g.setSort({ key: "id", direction: "desc" });
+
+        // Same row, new position: last instead of first.
+        expect(g.getFocus()?.rowKey).toBe("1");
+        expect(g.getSelection()!.focusRow).toBe(9);
+    });
+
+    it("collapses a multi-cell selection when the rows move under it", () => {
+        const g = grid(10);
+        g.selectRange(0, 0, 3, 2);
+        g.setSort({ key: "id", direction: "desc" });
+
+        const selection = g.getSelection()!;
+        expect(selection.rowRange[0]).toBe(selection.rowRange[1]);
+    });
+
+    it("falls back to the index when the focused row is filtered away", () => {
+        const g = grid(10);
+        g.focusCell(4, 1);
+        expect(g.getFocus()?.rowKey).toBe("5");
+
+        g.setSearchString("Row 1");
+
+        // "Row 5" is gone; the focus lands on whatever is at the old index, clamped.
+        const focus = g.getFocus()!;
+        expect(g.getVisibleRows().some((r) => String(r.id) === focus.rowKey)).toBe(true);
+    });
+
+    it("drops the focus entirely when every row is filtered away", () => {
+        const g = grid(10);
+        g.focusCell(4, 1);
+        g.setSearchString("nothing matches this");
+        expect(g.getFocus()).toBeUndefined();
+    });
+});
+
+/** Let the microtask-coalesced dirty set and the rAF paint both run. */
+function paint(g: AVGrid<Row>): Promise<void> {
+    return new Promise((resolve) => {
+        void Promise.resolve().then(() => {
+            g.render.model.updateRenderInfo();
+            requestAnimationFrame(() => resolve());
+        });
+    });
+}
