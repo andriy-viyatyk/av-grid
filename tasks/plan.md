@@ -37,7 +37,7 @@ Two more that follow from *Who this API is for* and are worth stating explicitly
 | # | Task | Phase | Status |
 |---|------|-------|--------|
 | 1 | Foundations — observable, types, utils | Engine | ✅ Done |
-| 2 | Geometry — `renderInfo` + `rerender-check` | Engine | ⬜ Not started |
+| 2 | Geometry — `renderInfo` + `rerender-check` | Engine | ✅ Done |
 | 3 | `RenderGridModel` — scroll, resize, dirty merge | Engine | ⬜ Not started |
 | 4 | DOM shell — sticky bands + cell pool | Engine | ⬜ Not started |
 | 5 | **Benchmark page — 100k rows** ⛔ perf gate | Engine | ⬜ Not started |
@@ -418,4 +418,6 @@ the start.
 | 2026-08-08 | 1 | **`cellRenderer` and `cellFormater` collapsed into one `render` hook.** They differed only because one was a React `ComponentType` and the other returned a `ReactNode`; in the DOM both are "a function producing cell content", so keeping two would be two ways to do one thing. `haderRenderer` → `headerRender`, `editFormater` → `editRender`. `render` returns `string \| HTMLElement \| null`. |
 | 2026-08-08 | 1 | **`dataAlignment` → `align`**, on the guessability test — it is what Tabulator-adjacent muscle memory reaches for. **`Column.name` is now optional**, defaulting to `key`, so the minimum call in rule 4 of *Who this API is for* holds for inferred columns. |
 | 2026-08-08 | 1 | **`toClipboard` returns its promise** instead of swallowing it. The clipboard API rejects when the document is unfocused or permission is denied, and a copy that silently did nothing is the kind of failure that burns an agent's debugging loop. `debounce` and `memorize` gained `cancel()` / `clear()` so `destroy()` can release them. |
+| 2026-08-08 | 2 | **Dropped `RenderInfoProto` and its `calcExpandWidth` / `calcExpandHeight` methods.** They were attached to every render-info object via `Object.setPrototypeOf` and are called nowhere in Persephone — verified by grepping all of `src/renderer`. Removing them also removes a prototype mutation on a hot object. |
+| 2026-08-08 | 2 | **Two reference quirks found, preserved, and pinned with tests rather than fixed.** (a) A *first* `calcRenderInfo` call carrying a scroll `direction` at offset (0,0) falls inside the initial state's all-zero `visibleOffset` and returns it having rendered nothing — so task 3 must not pass a direction on a grid's first frame, or it comes up blank. (b) `rowInRange`/`colInRange` end with `r >= rowCount - stickyBottom`, which with `stickyBottom: 0` admits *any* out-of-bounds index; marking one paints nothing but costs an unnecessary recompute, so callers must mark real indices only. |
 | 2026-08-08 | 1 | **Scaffold fix:** `@types/node` was missing, so `vite.config.ts` did not typecheck. Added as a dev dependency with `"node"` in `tsconfig.types`. |
