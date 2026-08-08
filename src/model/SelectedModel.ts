@@ -131,6 +131,22 @@ export class SelectedModel<R> {
         this.apply(new Set(rows.map((r) => getRowKey(r))), rows.length > 0);
     };
 
+    /**
+     * Drop these keys from the selection, leaving the rest alone.
+     *
+     * What deleting rows calls. Not the same as `setSelected(remaining)`: the caller knows what
+     * went, not what is left, and on a 100k-row grid the difference is the size of the array.
+     */
+    deselect = (rowKeys: Iterable<string>): void => {
+        if (this._selected.size === 0) return;
+        const next = new Set(this._selected);
+        let removed = false;
+        for (const key of rowKeys) {
+            if (next.delete(key)) removed = true;
+        }
+        if (removed) this.apply(next);
+    };
+
     clearSelected = (): void => {
         if (this._selected.size === 0) return;
         this.apply(new Set(), false);

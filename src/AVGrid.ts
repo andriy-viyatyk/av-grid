@@ -111,6 +111,10 @@ export class AVGrid<R = any> {
     private readonly dataSubscription: { unsubscribe: () => void };
     private destroyed = false;
 
+    /** The two add affordances, present only while the matching option is on. */
+    private addRowButton?: HTMLButtonElement;
+    private addColumnButton?: HTMLButtonElement;
+
     /**
      * Create a grid inside `container`.
      *
@@ -180,6 +184,7 @@ export class AVGrid<R = any> {
         this.interactions = new GridInteractions<R>(this.model, this.render);
 
         this.dataSubscription = this.model.data.onChange.subscribe(this.onDataChange);
+        this.syncAffordances();
 
         // The models ran their first pass in the AVGridModel constructor, before the render
         // model existed to be told about it. Paint what they produced.
@@ -226,7 +231,83 @@ export class AVGrid<R = any> {
     }
 
     setColumns(columns: Column<R>[]): void {
-        this.model.setColumns(validateColumns<R>(columns, this.model.options.rows));
+        this.model.setColumns(
+            validateColumns<R>(columns, this.model.options.rows, this.knownColumnKeys()),
+        );
+    }
+
+    /** The keys the grid already has — columns it has accepted once stay acceptable. */
+    private knownColumnKeys(): ReadonlySet<string> {
+        return new Set(this.model.options.columns.map((c) => String(c.key)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Adding and deleting rows and columns
+    // -----------------------------------------------------------------------
+
+    /**
+     * Insert rows, at an index into the *displayed* rows. Omit the index to append.
+     *
+     * ```js
+     * grid.addRows([{ id: 9, name: "Ada" }]);      // at the end
+     * grid.addRows([{ id: 9, name: "Ada" }], 0);   // at the top
+     * ```
+     *
+     * Returns the rows that went in — empty when `onAddRows` refused them. On a sorted or
+     * filtered grid the row order is held still, so a new row appears where it was put instead
+     * of sorting away or failing the filter; the next sort change releases it.
+     *
+     * Unlike the user-facing affordances, this does not need `canAddRows`.
+     */
+    addRows(rows: R[], index?: number): R[] {
+        if (!Array.isArray(rows)) {
+            throw new AVGridError(
+                `grid.addRows(rows, index?): rows must be an array of row objects.`,
+            );
+        }
+        return this.model.models.structure.addRows(rows, index, true);
+    }
+
+    /** Add one blank row, built by `options.newRow`, and focus it. */
+    addRow(index?: number): R | undefined {
+        return this.model.models.structure.addBlankRows(1, index)[0];
+    }
+
+    /** Delete rows by key — the value `getRowKey` returns. Returns whether anything went. */
+    deleteRows(rowKeys: readonly string[]): boolean {
+        if (!Array.isArray(rowKeys)) {
+            throw new AVGridError(
+                `grid.deleteRows(rowKeys): rowKeys must be an array of row keys — ` +
+                    `what getRowKey returns, not row objects or indices.`,
+            );
+        }
+        return this.model.models.structure.deleteRows([...rowKeys], true);
+    }
+
+    /** Delete the rows the *cell* selection covers. What ctrl+Delete does. */
+    deleteSelectedRows(): boolean {
+        return this.model.models.structure.deleteSelectedRows();
+    }
+
+    /** Insert columns, at an index into `getColumns()`. Omit the index to append. */
+    addColumns(columns: Column<R>[], index?: number): Column<R>[] {
+        return this.model.models.structure.addColumns(
+            validateColumns<R>(
+                columns,
+                this.model.options.rows,
+                new Set(columns.map((c) => String(c?.key))),
+            ),
+            index,
+        );
+    }
+
+    /** Add one blank column, built by `options.newColumn`. */
+    addColumn(index?: number): Column<R> | undefined {
+        return this.model.models.structure.addBlankColumns(1, index)[0];
+    }
+
+    deleteColumns(columnKeys: readonly string[]): boolean {
+        return this.model.models.structure.deleteColumns([...columnKeys]);
     }
 
     // -----------------------------------------------------------------------
@@ -531,6 +612,7 @@ export class AVGrid<R = any> {
             this.render.setOptions({ overscanColumn: rest.overscanColumn });
         }
 
+        this.syncAffordances();
         this.refresh();
     }
 
@@ -610,6 +692,53 @@ export class AVGrid<R = any> {
      * the models cannot express as a lazily-read function, because the engine compares it in
      * `inputChanged()`.
      */
+    /**
+     * Create or remove the add-row and add-column buttons to match the options.
+     *
+     * They are overlays rather than cells — `RenderGrid.addOverlay` explains why that is safe —
+     * and they carry no listener of their own: the click is resolved from the root like every
+     * other, so there is one teardown and no element with a handler bound to it.
+     */
+    private syncAffordances(): void {
+        const doc = this.render.root.ownerDocument;
+        const { canAddRows, canAddColumns, addRowLabel } = this.model.options;
+
+        if (canAddRows) {
+            if (!this.addRowButton) {
+                this.addRowButton = doc.createElement("button");
+                this.addRowButton.type = "button";
+                // Out of the tab order: Tab inside the grid moves the cell focus, so a button
+                // in the sequence would be reachable from outside and nowhere else.
+                this.addRowButton.tabIndex = -1;
+                this.addRowButton.className = "avg-add-row";
+                this.addRowButton.setAttribute("data-avg-action", "add-row");
+                this.render.addOverlay(this.addRowButton, "content");
+            }
+            const label = addRowLabel ?? "add row";
+            this.addRowButton.textContent = `+ ${label}`;
+            this.addRowButton.title = `${label} (Ctrl+Insert)`;
+        } else {
+            this.addRowButton?.remove();
+            this.addRowButton = undefined;
+        }
+
+        if (canAddColumns) {
+            if (!this.addColumnButton) {
+                this.addColumnButton = doc.createElement("button");
+                this.addColumnButton.type = "button";
+                this.addColumnButton.tabIndex = -1;
+                this.addColumnButton.className = "avg-add-column";
+                this.addColumnButton.setAttribute("data-avg-action", "add-column");
+                this.addColumnButton.textContent = "+";
+                this.addColumnButton.title = "Add column (Ctrl+→)";
+                this.render.addOverlay(this.addColumnButton, "header");
+            }
+        } else {
+            this.addColumnButton?.remove();
+            this.addColumnButton = undefined;
+        }
+    }
+
     private onDataChange = (e: AVGridDataChangeEvent): void => {
         if (this.destroyed) return;
         if (e.lastIsStatusIndex) {

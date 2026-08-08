@@ -231,6 +231,45 @@ export interface CellEditEvent<R = any> {
     colIndex: number;
 }
 
+// ---------------------------------------------------------------------------
+// Structure — rows and columns added and removed
+// ---------------------------------------------------------------------------
+
+/**
+ * Rows are about to be added, handed to `onAddRows` before the grid inserts them.
+ *
+ * Return `false` to cancel, exactly as `onEdit` does. The rows are the objects that will be
+ * inserted — mutate them to fill in whatever the grid could not know.
+ *
+ * ```js
+ * onAddRows: (e) => { e.rows.forEach((r) => (r.id = nextId())); }
+ * ```
+ */
+export interface AddRowsEvent<R = any> {
+    rows: R[];
+    /** Where they go, as an index into the currently displayed rows. */
+    index: number;
+}
+
+/** Rows are about to be deleted. Return `false` from `onDeleteRows` to cancel. */
+export interface DeleteRowsEvent<R = any> {
+    rows: R[];
+    rowKeys: string[];
+}
+
+/** Columns are about to be added. Return `false` from `onAddColumns` to cancel. */
+export interface AddColumnsEvent<R = any> {
+    columns: Column<R>[];
+    /** Where they go, as an index into `grid.getColumns()`. */
+    index: number;
+}
+
+/** Columns are about to be deleted. Return `false` from `onDeleteColumns` to cancel. */
+export interface DeleteColumnsEvent<R = any> {
+    columns: Column<R>[];
+    columnKeys: string[];
+}
+
 /** An edit that could not be coerced to the column's type — see `onInvalidEdit`. */
 export interface InvalidEditEvent<R = any> {
     /** What the user actually typed, before coercion. */

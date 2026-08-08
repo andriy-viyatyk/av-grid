@@ -336,6 +336,64 @@ the one link in the chain still taken on the browser's word.
 `DataCell` is untouched, and the new code is three root listeners plus a model that runs only
 when a clipboard event fires. The last full run is task 12's, below.
 
+## Task 14 — row/column add and delete — 2026-08-08
+
+Adding a row makes the grid taller, which is the one thing in the library that changes the
+*geometry* rather than the contents. So the question here is not throughput — it is whether the
+viewport survives. Harness entry `window.avg.measureStructure(row)`.
+
+Measured on the 100k-row board, scrolled to row 90,000 and focused there, inserting **above** the
+viewport — the case that would shift it if anything did:
+
+| Measure | Result | |
+|---|---|---|
+| Add a row above the viewport | 3.4 ms | the O(rows) array copy behind the insert |
+| Delete it again | 11.4 ms | one pass over 100k rows, one `getRowKey` each |
+| **DOM mutations on add** | **0** | ✅ the same cells, showing shifted data |
+| **Scroll position kept** | **true** | ✅ |
+| **Focus kept** | **true** | ✅ followed the row, which moved one down and back |
+
+`addMs` and `deleteMs` are not gates. Both are dominated by copying the host's row array, which
+is O(rows) *by choice*: the alternative is a permanent index that every sort and filter would
+have to maintain, to save a few milliseconds on an operation a user performs by hand. The delete
+pass was halved — 32 ms to 11 ms — by splitting "what goes" from "what stays" in a single loop
+rather than filtering the array twice, because each filter calls the host's `getRowKey` per row.
+
+### The scroll jump this found, which was a real bug
+
+The first run reported `scrollKept: false` and **260 DOM mutations** — a whole viewport's worth.
+The cause was not the insert. `FocusModel` revalidates the focus whenever the rows change, and a
+focused row whose *index* moved is treated as "the rows moved", which scrolls it back to
+**centre**. Inserting one row above the focus therefore yanked the viewport by 261 px and
+repainted everything, for a change the user did not make.
+
+The reference has the same hazard and the same answer: a `noScrollOnFocus` flag set by
+`AVGridActions.addRows` around exactly that one revalidation. It had not been ported, because
+until this task nothing inserted rows. `StructureModel` now sets it in both `addRows` and
+`deleteRows`, and the numbers above are the result.
+
+Worth recording *how* it was found, because it very nearly was not: the boolean `scrollKept` said
+false, and the first three hypotheses — browser scroll anchoring, a height clamp, a stale
+`offset.y` — were all wrong. Wrapping `scrollTo` / `scrollToRow` / `restoreScroll` on the render
+model in a logger answered it in one call: `scrollToRow(90002, "center")`. **Instrument the
+suspect rather than reasoning about it.**
+
+The remaining **10 mutations** seen mid-investigation are honest and expected: the grid got 24 px
+taller, so one more row fits at the bottom, and one row of cells is appended. Once the add and the
+delete are measured as a pair, that nets back to 0.
+
+**The 100k gate was re-run** and holds — the render path is untouched, but a task that changes the
+row count is exactly the one that should not be taken on trust:
+
+| Measure | Result | Gate |
+|---|---|---|
+| Time to first paint | 7.4 ms | < 100 ms ✅ |
+| Flat-cost ratio | 0.98× | ≈ 1.0 ✅ |
+| Scroll fps, top / bottom | 60.0 / 60.0 | ✅ |
+| Full repaint | 0.100 ms, 0 mutations | ✅ |
+| Range drag, both ends | 2.0 cells marked | ✅ |
+| Paste into 1,000 cells | 1 repaint, 0 mutations | ✅ |
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -345,4 +403,5 @@ when a clipboard event fires. The last full run is task 12's, below.
 | 2026-08-08 | 10 | 6.7 ms | 1.08× | 60.0 / 60.0 | 0 | Focus and range selection. Drag ratio **1.04×**, 2 cells marked per move at both ends. |
 | 2026-08-08 | 11 | 5.8 ms | 0.89× | 60.0 / 60.0 | 0 | Row selection + checkbox column. Select-all on 100k: 24.9 ms, **19 rows marked**, 0 mutations. |
 | 2026-08-08 | 12 | 5.7 ms | 0.94× | 60.0 / 60.0 | 0 | In-cell editing. Editing at row 99,000: **1 cell marked**, **0 mutations**, editor survives a full repaint. No regression. |
+| 2026-08-08 | 14 | 7.4 ms | 0.98× | 60.0 / 60.0 | 0 | Row/column add and delete. Adding a row above the viewport at row 90,000: **0 mutations**, scroll and focus both kept — after fixing a focus-recentre that moved the viewport 261 px. |
 | 2026-08-08 | 13 | — | — | — | — | Clipboard. Render path untouched, so no gate re-run: paste into 1,000 cells marks **1 repaint** and mutates **0** DOM nodes; copying 500 rows costs 0.7 ms. |

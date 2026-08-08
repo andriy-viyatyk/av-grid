@@ -200,6 +200,25 @@ export function inferColumns<R>(rows: readonly R[]): Column<R>[] {
 }
 
 /**
+ * Which property `inferGetRowKey` would read, if any.
+ *
+ * Task 14 needs the answer separately: a blank row has to be given a unique value for that
+ * property, or every added row would share the key `"undefined"` and selection, focus and
+ * editing would all address the same one.
+ */
+export function inferRowKeyProperty<R>(rows: readonly R[]): string | undefined {
+    const first = rows.find((r) => r !== null && r !== undefined) as any;
+    if (!first || typeof first !== "object" || Array.isArray(first)) return undefined;
+
+    return ["id", "key", "_id", "uuid", "rowKey"].find(
+        (candidate) =>
+            candidate in first &&
+            first[candidate] !== null &&
+            first[candidate] !== undefined,
+    );
+}
+
+/**
  * A stable row identity when the host did not supply one.
  *
  * Prefers an `id`-shaped property, because a host that has one expects it to be the key — it
@@ -208,18 +227,9 @@ export function inferColumns<R>(rows: readonly R[]): Column<R>[] {
  * filtering (they reorder the same objects) but not a `setRows()` that rebuilds them.
  */
 export function inferGetRowKey<R>(rows: readonly R[]): (row: R) => string {
-    const first = rows.find((r) => r !== null && r !== undefined) as any;
-
-    if (first && typeof first === "object" && !Array.isArray(first)) {
-        for (const candidate of ["id", "key", "_id", "uuid", "rowKey"]) {
-            if (
-                candidate in first &&
-                first[candidate] !== null &&
-                first[candidate] !== undefined
-            ) {
-                return (row: R) => String((row as any)?.[candidate]);
-            }
-        }
+    const candidate = inferRowKeyProperty(rows);
+    if (candidate !== undefined) {
+        return (row: R) => String((row as any)?.[candidate]);
     }
 
     const assigned = new WeakMap<object, string>();
@@ -248,6 +258,15 @@ function available(columns: readonly Column<any>[]): string {
 export function validateColumns<R>(
     columns: unknown,
     rows: readonly R[],
+    /**
+     * Keys allowed to match nothing in the data.
+     *
+     * The "unknown column" check catches a typo at `create()`, where the host's word is all the
+     * grid has. Once columns can be *added*, that same check would reject the normal case — a
+     * column exists before anything has been typed into it — so `addColumns` exempts what it is
+     * adding and `setColumns` exempts the columns the grid already has.
+     */
+    exemptKeys?: ReadonlySet<string>,
 ): Column<R>[] {
     if (!Array.isArray(columns)) {
         fail(
@@ -281,10 +300,17 @@ export function validateColumns<R>(
         seen.add(key);
 
         // A key that matches nothing in the data renders an empty column and looks like a
-        // rendering bug. Computed columns are exempt: they never read the row property.
+        // rendering bug. Two exemptions: computed columns never read the row property, and a
+        // column being *added* is empty by definition — the data arrives when it is typed in.
         const col = column as Column<R>;
         const computed = Boolean(col.render || col.formatValue || col.isStatusColumn);
-        if (!computed && sample && typeof sample === "object" && !(key in sample)) {
+        if (
+            !computed &&
+            !exemptKeys?.has(key) &&
+            sample &&
+            typeof sample === "object" &&
+            !(key in sample)
+        ) {
             fail(
                 `Unknown column "${key}". ${available(
                     Object.keys(sample).map((k) => ({ key: k })),

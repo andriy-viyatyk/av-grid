@@ -12,10 +12,14 @@
  */
 
 import type {
+    AddColumnsEvent,
+    AddRowsEvent,
     CellContext,
     CellEditEvent,
     CellFocus,
     Column,
+    DeleteColumnsEvent,
+    DeleteRowsEvent,
     Filter,
     InvalidEditEvent,
     SortColumn,
@@ -118,6 +122,65 @@ export interface AVGridOptions<R = any> {
      * nothing at all.
      */
     onInvalidEdit?: (edit: InvalidEditEvent<R>) => void;
+
+    // -----------------------------------------------------------------------
+    // Adding and deleting rows and columns
+    // -----------------------------------------------------------------------
+
+    /**
+     * Let the user add rows: an **+ add row** button under the last row, ctrl+Insert, ArrowDown
+     * or Tab off the end of the grid, and a paste that is taller than the grid.
+     *
+     * ```js
+     * AVGrid.create(el, {
+     *     rows,
+     *     editable: true,
+     *     canAddRows: true,
+     *     newRow: () => ({ id: crypto.randomUUID(), name: "", score: 0 }),
+     *     onAddRows: (e) => save(e.rows),
+     * });
+     * ```
+     *
+     * The four `can*` options govern *the user's* affordances only. `grid.addRows()` and the
+     * other methods always work — an API call is the host's own decision, and needing to set an
+     * option before your own code may call a method is a trap, not a safeguard.
+     */
+    canAddRows?: boolean;
+    /** Let the user delete rows — ctrl+Delete deletes the selected ones. */
+    canDeleteRows?: boolean;
+    /** Let the user add columns — ctrl+shift+Insert, ctrl+→ off the last column, and a `+` in the header. */
+    canAddColumns?: boolean;
+    /** Let the user delete columns — ctrl+shift+Delete deletes the selected ones. */
+    canDeleteColumns?: boolean;
+
+    /**
+     * What a blank row contains. Called once per row being added, with the index it will land at.
+     *
+     * The default produces `{}` — plus a unique placeholder for the row-key property when the
+     * grid inferred one, because two rows sharing a key would confuse selection, focus and
+     * editing. Supply this whenever a blank row needs anything else.
+     */
+    newRow?: (index: number) => R;
+
+    /** What a blank column looks like. The default is `{ key: "column<n>", name: "Column <n>" }`. */
+    newColumn?: (index: number) => Column<R>;
+
+    /** Text on the add-row button. Default `"add row"`. */
+    addRowLabel?: string;
+
+    /**
+     * Rows are about to be added, however that was triggered. Return `false` to cancel.
+     *
+     * Fires *before* the insert, like `onEdit`, so the callback can fill the rows in or refuse
+     * them. `grid.getRows()` afterwards includes them.
+     */
+    onAddRows?: (e: AddRowsEvent<R>) => void | boolean;
+    /** Rows are about to be deleted. Return `false` to cancel — this is where a confirm goes. */
+    onDeleteRows?: (e: DeleteRowsEvent<R>) => void | boolean;
+    /** Columns are about to be added. Return `false` to cancel. */
+    onAddColumns?: (e: AddColumnsEvent<R>) => void | boolean;
+    /** Columns are about to be deleted. Return `false` to cancel. */
+    onDeleteColumns?: (e: DeleteColumnsEvent<R>) => void | boolean;
 
     // -----------------------------------------------------------------------
     // Clipboard

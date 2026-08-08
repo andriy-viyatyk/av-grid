@@ -356,9 +356,9 @@ export class CopyPasteModel<R> {
      *
      * Two rules, both the reference's, both what a spreadsheet does:
      *
-     * - **A single selected cell expands** to whatever the clipboard needs, clamped to the last
-     *   row and column that exist. (Growing the grid to fit is task 14's `onAddRows` /
-     *   `onAddColumns`; until then the overflow is dropped rather than silently wrapped.)
+     * - **A single selected cell expands** to whatever the clipboard needs. On a grid with
+     *   `canAddRows` / `canAddColumns` the grid grows to fit; without them the target is clamped
+     *   to the last row and column that exist and the overflow is dropped rather than wrapped.
      * - **A larger selection tiles.** Two rows of clipboard into six rows of selection fills all
      *   six, which is how a user copies one row onto many.
      *
@@ -414,6 +414,19 @@ export class CopyPasteModel<R> {
         const [colStart, colEnd] = selection.colRange;
         if (rowStart !== rowEnd || colStart !== colEnd) {
             return { rowStart, rowEnd, colStart, colEnd, expanded: false };
+        }
+
+        // Grow to fit, when the grid is allowed to. Both are done before a single value is
+        // written, so the loop that follows sees its final bounds and the whole paste is one
+        // structural change rather than one per overflowing row.
+        const structure = this.model.models.structure;
+        const missingRows = rowStart + rowCount - this.model.data.rows.length;
+        if (missingRows > 0 && structure.canAddRows) {
+            structure.addBlankRows(missingRows, undefined, false);
+        }
+        const missingColumns = colStart + colCount - this.model.data.columns.length;
+        if (missingColumns > 0 && structure.canAddColumns) {
+            structure.addBlankColumns(missingColumns);
         }
 
         return {

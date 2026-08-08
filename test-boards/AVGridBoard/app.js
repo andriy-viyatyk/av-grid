@@ -50,8 +50,12 @@ function buildRows(count) {
         };
     }
 
+    lastRowId = count;
     return { rows: out, ms: performance.now() - startedAt };
 }
+
+/** Highest `id` handed out, so `newRow` can keep going from there. */
+let lastRowId = 0;
 
 // ---------------------------------------------------------------------------
 // The grid
@@ -121,6 +125,27 @@ function createGrid(count = Number(el("rows").value) || 1000, useColumns = true)
         onEdit: (e) =>
             live(`edit: ${e.columnKey} ${JSON.stringify(e.previousValue)} → ${JSON.stringify(e.value)}`),
         onInvalidEdit: (e) => live(`rejected: ${JSON.stringify(e.value)} in ${e.column.key}`),
+        // Task 14. `newRow` because the board's rows carry an `id` the grid cannot invent a
+        // number for, and a `firstName`/`lastName` pair that `full` is derived from.
+        canAddRows: true,
+        canDeleteRows: true,
+        canAddColumns: true,
+        canDeleteColumns: true,
+        addRowLabel: "add person",
+        newRow: () => ({
+            id: ++lastRowId,
+            firstName: "",
+            lastName: "",
+            team: "",
+            status: "open",
+            active: false,
+            score: 0,
+            joined: new Date(),
+        }),
+        onAddRows: (e) => live(`add: ${e.rows.length} row(s) at ${e.index}`),
+        onDeleteRows: (e) => live(`delete: ${e.rows.length} row(s)`),
+        onAddColumns: (e) => live(`add column: ${e.columns.map((c) => c.key).join(", ")}`),
+        onDeleteColumns: (e) => live(`delete column: ${e.columnKeys.join(", ")}`),
     });
     const firstPaintMs = performance.now() - startedAt;
 
@@ -562,6 +587,79 @@ async function measureClipboard(row = 100, rowCount = 1000) {
     };
 }
 
+/**
+ * The task-14 check: adding and deleting rows must not move the viewport or lose the focus.
+ *
+ * The numbers to read are `scrollKept` and `focusKept` — both must be true. Adding a row 90,000
+ * rows down is a `{ all: true }` repaint of what is on screen, so `dirtyOnAdd` is 1 and
+ * `mutationsOnAdd` is 0 for the same reason a paste is: the grid got taller, but the same
+ * twenty-odd cells are still the ones being looked at.
+ *
+ * `addMs` is not a gate. It is dominated by the array copy behind the insert, which is O(rows)
+ * by choice — see `StructureModel.sourceIndex`.
+ */
+async function measureStructure(row = 90000) {
+    const rowHeight = grid.getState().rowHeight;
+    await scrollTo(Math.max(0, (row - 5) * rowHeight));
+    await settle(3);
+
+    const col = grid.model.data.columns.findIndex(
+        (c) => !c.isStatusColumn && !c.readonly && !c.options && c.dataType !== "boolean",
+    );
+    grid.focusCell(row, col);
+    await settle(3);
+
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirty = 0;
+    model.update = (info) => {
+        dirty += 1;
+        return originalUpdate.call(model, info);
+    };
+
+    const offsetBefore = grid.render.container.scrollTop;
+    const focusBefore = grid.getFocus();
+    const rowsBefore = grid.getVisibleRows().length;
+
+    // Insert *above* the viewport, which is the case that would shift it if anything did.
+    grid.render.resetStats();
+    const addStartedAt = performance.now();
+    grid.model.models.structure.addBlankRows(1, row - 1, false);
+    const addMs = performance.now() - addStartedAt;
+    const dirtyOnAdd = dirty;
+    await settle(3);
+    const addStats = grid.render.stats;
+
+    dirty = 0;
+    grid.render.resetStats();
+    const addedKey = grid.model.options.getRowKey(grid.getVisibleRows()[row - 1]);
+    const deleteStartedAt = performance.now();
+    grid.model.models.structure.deleteRows([addedKey], false);
+    const deleteMs = performance.now() - deleteStartedAt;
+    const dirtyOnDelete = dirty;
+    await settle(3);
+
+    model.update = originalUpdate;
+    const focusAfter = grid.getFocus();
+
+    return {
+        row,
+        rowsBefore,
+        rowsAfter: grid.getVisibleRows().length,
+        addMs,
+        deleteMs,
+        dirtyOnAdd,
+        dirtyOnDelete,
+        mutationsOnAdd: addStats.cellsAppended + addStats.cellsRemoved,
+        // The insert pushed the focused row down one, and the delete put it back — the focus
+        // follows the row, because it is held by key rather than by index.
+        focusKept:
+            focusAfter?.rowKey === focusBefore?.rowKey &&
+            focusAfter?.columnKey === focusBefore?.columnKey,
+        scrollKept: grid.render.container.scrollTop === offsetBefore,
+    };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -616,6 +714,9 @@ async function runBenchmark(count = 100000) {
     status("measuring copy and paste over 1,000 rows…");
     const clipboard = await measureClipboard(count - 1000);
 
+    status("measuring an add and a delete above the viewport…");
+    const structure = await measureStructure(count - 10000);
+
     status("measuring a sort of 100k rows…");
     const sort = await measureSort();
 
@@ -637,6 +738,7 @@ async function runBenchmark(count = 100000) {
         selectAll,
         editing,
         clipboard,
+        structure,
         sortMs: sort.modelMs,
     };
 
@@ -717,6 +819,16 @@ function renderResults(r) {
             `${r.clipboard.pasteMs.toFixed(1)} ms`,
             `${r.clipboard.dirtyOnPaste} repaint marked · ${r.clipboard.mutationsOnPaste} DOM mutations`,
         )}
+        ${row(
+            "Add a row above the viewport",
+            `${r.structure.addMs.toFixed(1)} ms`,
+            `${r.structure.dirtyOnAdd} repaint marked · ${r.structure.mutationsOnAdd} DOM mutations`,
+        )}
+        ${row(
+            "Delete it again",
+            `${r.structure.deleteMs.toFixed(1)} ms`,
+            `scroll kept: ${r.structure.scrollKept} · focus kept: ${r.structure.focusKept}`,
+        )}
         ${row("Sort 100k rows (model)", `${r.sortMs.toFixed(1)} ms`)}
     </tbody></table>`;
     resultsEl.hidden = false;
@@ -751,6 +863,7 @@ window.avg = {
     measureSelectAll,
     measureEditing,
     measureClipboard,
+    measureStructure,
     measureSort,
     scrollTo,
     settle,

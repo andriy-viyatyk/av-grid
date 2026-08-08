@@ -511,6 +511,21 @@ export class GridInteractions<R> {
         }
         if (this.resizing) return;
 
+        // The add-row and add-column buttons. They are overlays rather than cells, but they are
+        // still resolved from the root — one place that knows what a click can mean, and one
+        // teardown. See the third invariant in `CLAUDE.md`.
+        const action = (e.target as Element | null)?.closest?.("[data-avg-action]");
+        if (action && this.root.contains(action)) {
+            const structure = this.model.models.structure;
+            if (action.getAttribute("data-avg-action") === "add-row") {
+                structure.addBlankRows(1);
+            } else {
+                structure.addBlankColumns(1);
+            }
+            this.root.focus({ preventScroll: true });
+            return;
+        }
+
         const header = this.headerAt(e.target);
         if (header) {
             // The select column's header is a checkbox, not a sort control.

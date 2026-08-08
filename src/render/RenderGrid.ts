@@ -212,6 +212,21 @@ export class RenderGrid {
         return { ...this._stats, pool: this.pool.stats };
     }
 
+    /**
+     * Attach an element that is not a cell — an add-row button, an empty-state message.
+     *
+     * Safe against the paint because `syncRegion` only ever removes elements it appended
+     * itself: `attached` holds exactly the pooled cells, so anything put here is invisible to
+     * the reconciliation and is never recycled out from under its listeners.
+     *
+     * `"content"` sits in the scrolling area, below the last row and inside the trailing
+     * whitespace; `"header"` sits in the sticky top band, which scrolls horizontally with the
+     * columns but stays put vertically.
+     */
+    addOverlay(el: HTMLElement, region: "content" | "header" = "content"): void {
+        this.regions[region === "header" ? "stickyTop" : "cells"].append(el);
+    }
+
     /** Replace some or all options; the model decides whether a recompute is needed. */
     setOptions(options: Partial<RenderGridShellOptions>): void {
         Object.assign(this.options, options);

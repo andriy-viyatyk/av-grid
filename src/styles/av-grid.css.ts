@@ -358,6 +358,59 @@ export const css = `
     color: var(--avg-text-muted);
 }
 
+/*
+ * The add-row and add-column affordances. Both sit outside the pooled cells: the row button in
+ * the slack below the last row, the column button at the right end of the header band — so both
+ * scroll with the content they extend, rather than floating over the viewport.
+ */
+.avg-grid .avg-add-row {
+    position: absolute;
+    bottom: 1px;
+    left: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    color: var(--avg-text-muted);
+    opacity: 0.6;
+}
+
+.avg-grid .avg-add-row:hover {
+    opacity: 1;
+    color: var(--avg-accent);
+}
+
+.avg-grid .avg-add-column {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 100%;
+    padding: 0;
+    border: none;
+    background-color: var(--avg-header-bg);
+    font: inherit;
+    cursor: pointer;
+    user-select: none;
+    color: var(--avg-text-muted);
+    opacity: 0.6;
+}
+
+.avg-grid .avg-add-column:hover {
+    opacity: 1;
+    color: var(--avg-accent);
+}
+
 .avg-grid .avg-empty {
     position: absolute;
     inset: 0;

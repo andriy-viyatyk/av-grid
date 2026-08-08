@@ -313,17 +313,27 @@ export class FocusModel<R> {
         });
     };
 
-    /** Select the rows just added, keeping whatever column span the old focus had. */
+    /**
+     * Select the rows just added, keeping whatever column span the old focus had.
+     *
+     * With nothing focused before, the fallback is the first column a value can be *typed*
+     * into, not column 0 — on a grid with `selectColumn` that is the checkbox, which a click
+     * cannot focus either. Landing there means the first keystroke after adding a row goes
+     * nowhere, which reads as the add having failed.
+     */
     focusNewRows = (
         startIndex: number,
         count: number,
         oldFocus?: CellFocus<R>,
     ): void => {
+        const fallback =
+            this.model.models.columns.firstEditable?.index ??
+            this.model.data.columns.findIndex((c) => !c.isStatusColumn);
         this.selectRange(
             startIndex,
-            oldFocus?.selection?.colStart ?? 0,
+            oldFocus?.selection?.colStart ?? Math.max(0, fallback),
             startIndex + count - 1,
-            oldFocus?.selection?.colEnd ?? 0,
+            oldFocus?.selection?.colEnd ?? Math.max(0, fallback),
         );
     };
 
@@ -690,11 +700,25 @@ export class FocusModel<R> {
 
         // One viewport, in rows. Falls back to 1 so the keys still work before first layout.
         const page = this.model.renderModel?.visibleRowCount || 1;
-        const lastRow = rows.length - 1;
-        const lastColumn = columns.length - 1;
+        let lastRow = rows.length - 1;
+        let lastColumn = columns.length - 1;
+
+        /**
+         * Grow the grid by one row off the bottom, or one column off the right.
+         *
+         * The three navigation keys that can do it are the reference's, and the shape is the
+         * one thing worth calling out: the grid grows *first*, then the ordinary movement below
+         * runs against the new bounds. Trying to move and then grow gets the clamping wrong.
+         */
+        const growRow = (): boolean => {
+            if (!this.model.models.structure.addTrailingRow().length) return false;
+            lastRow = this.model.data.rows.length - 1;
+            return true;
+        };
 
         switch (e.key) {
             case "ArrowDown":
+                if (rowIndex === lastRow && !e.ctrlKey && !e.shiftKey) growRow();
                 rowIndex = e.ctrlKey
                     ? Math.min(lastRow, rowIndex + page)
                     : Math.min(lastRow, rowIndex + 1);
@@ -722,6 +746,15 @@ export class FocusModel<R> {
                 columnIndex = e.ctrlKey ? 0 : Math.max(0, columnIndex - 1);
                 break;
             case "ArrowRight":
+                // ctrl+→ on the last column adds one, rather than doing nothing twice.
+                if (
+                    e.ctrlKey &&
+                    columnIndex === lastColumn &&
+                    this.model.models.structure.canAddColumns &&
+                    this.model.models.structure.addBlankColumns(1).length
+                ) {
+                    lastColumn = this.model.data.columns.length - 1;
+                }
                 columnIndex = e.ctrlKey
                     ? lastColumn
                     : Math.min(lastColumn, columnIndex + 1);
@@ -736,6 +769,9 @@ export class FocusModel<R> {
                     }
                 } else {
                     columnIndex = columnIndex < lastColumn ? columnIndex + 1 : 0;
+                    // Tabbing off the last cell of the last row wraps onto a new one, which is
+                    // how a row gets filled in without touching the mouse.
+                    if (columnIndex === 0 && rowIndex === lastRow) growRow();
                     if (columnIndex === 0 && rowIndex < lastRow) rowIndex++;
                 }
                 break;

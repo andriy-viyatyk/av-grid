@@ -153,9 +153,22 @@ export class RowsModel<R> {
         this.model.update({ all: true });
     };
 
-    private onRowsAdded = ({ rows }: { rows: R[] }): void => {
+    /**
+     * While frozen, added rows are placed by hand — the pipeline is not going to re-run and
+     * put them anywhere. At the display index the caller asked for, so a row inserted in the
+     * middle of a sorted grid appears where it was inserted rather than at the end.
+     */
+    private onRowsAdded = ({
+        rows,
+        insertIndex,
+    }: {
+        rows: R[];
+        insertIndex?: number;
+    }): void => {
         if (!this.model.data.rowsFrozen) return;
-        this.model.data.rows = [...this.model.data.rows, ...rows];
+        const next = [...this.model.data.rows];
+        next.splice(insertIndex ?? next.length, 0, ...rows);
+        this.model.data.rows = next;
     };
 
     private onRowsDeleted = ({ rowKeys }: { rowKeys: string[] }): void => {

@@ -53,6 +53,7 @@ export { createCellInput } from "./view/CellInput";
 export { createCellSelect } from "./view/CellSelect";
 export { createDefaultEditor } from "./view/DefaultEditFormatter";
 export { SortColumnModel } from "./model/SortColumnModel";
+export { StructureModel } from "./model/StructureModel";
 export { SELECT_COLUMN_KEY, createSelectColumn } from "./view/SelectColumn";
 
 // --- helpers --------------------------------------------------------------
@@ -69,7 +70,7 @@ export {
 } from "./gridUtils";
 export { detectColumnWidth, detectColumnWidths } from "./column-width";
 export type { ColumnWidthOptions } from "./column-width";
-export { inferColumns, inferGetRowKey } from "./validate";
+export { inferColumns, inferGetRowKey, inferRowKeyProperty } from "./validate";
 
 // --- the engine -----------------------------------------------------------
 

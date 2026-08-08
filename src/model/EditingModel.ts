@@ -288,6 +288,13 @@ export class EditingModel<R> {
         this.model.models.rows.freezeRows();
         (row as any)[column.key] = value;
 
+        // A blank row that has been typed into is no longer *the* blank row, so navigating off
+        // the end of the grid may offer another. See `StructureModel.addTrailingRow`.
+        if (this.model.data.newRowKey === this.model.options.getRowKey(row)) {
+            this.model.data.newRowKey = undefined;
+            this.model.data.change();
+        }
+
         if (!silent) this.markCell(dataRow, colIndex);
         return true;
     };
@@ -536,7 +543,10 @@ export class EditingModel<R> {
             return;
         }
 
-        if (e.code === "Delete") {
+        // ctrl+Delete deletes rows and ctrl+shift+Delete deletes columns — `StructureModel`
+        // owns both. Clearing the cells as well would be a second, invisible edit of rows that
+        // are on their way out.
+        if (e.code === "Delete" && !e.ctrlKey) {
             e.preventDefault();
             this.deleteRange();
             return;

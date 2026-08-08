@@ -27,6 +27,7 @@ import { FocusModel } from "./FocusModel";
 import { RowsModel } from "./RowsModel";
 import { SelectedModel } from "./SelectedModel";
 import { SortColumnModel } from "./SortColumnModel";
+import { StructureModel } from "./StructureModel";
 
 export interface AVGridState<R = any> {
     sort?: SortColumn;
@@ -41,14 +42,16 @@ export class AVGridModels<R> {
     readonly focus: FocusModel<R>;
     readonly editing: EditingModel<R>;
     readonly copyPaste: CopyPasteModel<R>;
+    readonly structure: StructureModel<R>;
 
     constructor(model: AVGridModel<R>) {
         // Order matters: `columns` must exist before `rows`, because the first
         // `updateColumnsData()` sends a data change that `RowsModel` reacts to. `selected` and
         // `focus` come last so neither revalidates against a half-built pipeline — and
         // `editing` after `focus`, because every edit starts from where the focus is, and
-        // `copyPaste` last of all — a paste is a batch of edits over the selection, so it needs
-        // both.
+        // `copyPaste` after both — a paste is a batch of edits over the selection — and
+        // `structure` last, because adding a row moves the focus, deleting one closes an open
+        // editor, and a paste that overflows the grid asks it to grow.
         this.columns = new ColumnsModel<R>(model);
         this.sortColumn = new SortColumnModel<R>(model);
         this.rows = new RowsModel<R>(model);
@@ -56,6 +59,7 @@ export class AVGridModels<R> {
         this.focus = new FocusModel<R>(model);
         this.editing = new EditingModel<R>(model);
         this.copyPaste = new CopyPasteModel<R>(model);
+        this.structure = new StructureModel<R>(model);
     }
 }
 

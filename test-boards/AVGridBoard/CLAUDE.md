@@ -1,10 +1,10 @@
 # AVGridBoard — the grid, in a real browser
 
-The debugger and visual check for **the grid layer** (tasks 6–13 of
+The debugger and visual check for **the grid layer** (tasks 6–14 of
 [`plan.md`](../../tasks/plan.md)): `AVGrid.create()`, inferred columns, header sorting, column
 resize and reorder, custom cell renderers, the injected stylesheet, the theme contract, cell
 focus with keyboard navigation and range selection, row selection with the checkbox column,
-in-cell editing, and clipboard copy/cut/paste.
+in-cell editing, clipboard copy/cut/paste, and rows and columns added and deleted.
 
 Its sibling [`RenderGridTest/`](../RenderGridTest/CLAUDE.md) benchmarks the *engine* with a
 trivial cell renderer. This board runs the whole thing. Use it whenever a change could alter
@@ -47,6 +47,7 @@ await window.avg.measureRangeDrag(row)    // the task-10 gate: drag cost at any 
 await window.avg.measureSelectAll()       // the task-11 gate: select-all cost and dirty rows
 await window.avg.measureEditing(row)      // the task-12 check: does the editor survive a repaint
 await window.avg.measureClipboard(row, n) // the task-13 check: copy cost, and what a paste repaints
+await window.avg.measureStructure(row)    // the task-14 check: does an insert move the viewport
 window.avg.createGrid(count)              // explicit columns
 window.avg.minimalGrid()                  // AVGrid.create(el, { rows }) and nothing else
 window.avg.grid                           // the live AVGrid; .model, .render, .getState()
@@ -100,6 +101,14 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   computed column with a `render` and no row property, so it copies what it *shows*, and a paste
   aimed at it is dropped while the fields either side still land — after which it re-derives
   from whichever of them changed.
+- **Adding and deleting** — all four `can*` options are on, so there is a **+ add person**
+  button under the last row and a **+** at the right end of the header. ctrl+Insert inserts as
+  many rows as are selected, ctrl+Delete deletes them, and the shift variants do the same for
+  columns; ArrowDown or Tab off the end of the grid grows it by one row, ctrl+→ off the last
+  column adds one. The board passes `newRow` because its rows carry an `id` the grid cannot
+  invent and a `Full Name` derived from two other fields. The thing worth re-checking after any
+  change here is `measureStructure`: **scroll and focus must both survive an insert above the
+  viewport**, and they only do because `StructureModel` suppresses one focus revalidation.
 - **Auto-scroll while dragging** — drag a selection past any edge and the grid scrolls after
   it, faster the further past the edge the pointer goes, and keeps going while the pointer
   sits still. This is the one thing the pointer-event rewrite had to build by hand, so it is
