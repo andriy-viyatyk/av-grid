@@ -1,0 +1,154 @@
+/**
+ * The hub every other model hangs off.
+ *
+ * Ported from `AVGrid/model/AVGridModel.ts`. Three things replace the React machinery:
+ *
+ * | Reference | Here |
+ * |---|---|
+ * | `extends TComponentModel<State, Props>` | `extends Model<State>`, with `options` a plain field |
+ * | `useModel()` re-running each render | explicit setters, each calling the same handler |
+ * | `EffectsModel` | dissolved — the lifecycle is called directly, not observed |
+ *
+ * The state object holds only what a *repaint* depends on and the host may change: the sort,
+ * and (from task 12) the open editor. Everything derived lives on `data`.
+ */
+
+import { Model } from "../core/observable";
+import type { RenderGridModel } from "../render/RenderGridModel";
+import type { RerenderInfo } from "../render/types";
+import type { ResolvedOptions } from "../options";
+import type { CellContext, CellEdit, Column, SortColumn } from "../types";
+import { AVGridData } from "./AVGridData";
+import { AVGridEvents } from "./AVGridEvents";
+import { ColumnsModel } from "./ColumnsModel";
+import { RowsModel } from "./RowsModel";
+import { SortColumnModel } from "./SortColumnModel";
+
+export interface AVGridState<R = any> {
+    sort?: SortColumn;
+    cellEdit?: CellEdit<R>;
+}
+
+export class AVGridModels<R> {
+    readonly columns: ColumnsModel<R>;
+    readonly sortColumn: SortColumnModel<R>;
+    readonly rows: RowsModel<R>;
+
+    constructor(model: AVGridModel<R>) {
+        // Order matters: `columns` must exist before `rows`, because the first
+        // `updateColumnsData()` sends a data change that `RowsModel` reacts to.
+        this.columns = new ColumnsModel<R>(model);
+        this.sortColumn = new SortColumnModel<R>(model);
+        this.rows = new RowsModel<R>(model);
+    }
+}
+
+export class AVGridModel<R = any> extends Model<AVGridState<R>> {
+    options: ResolvedOptions<R>;
+    renderModel: RenderGridModel | null = null;
+
+    readonly data: AVGridData<R>;
+    readonly events = new AVGridEvents<R>();
+    readonly models: AVGridModels<R>;
+
+    /**
+     * Transient cross-model flags. Kept off `state` because a change to one never repaints
+     * on its own — whoever sets it also marks the cells it affects.
+     */
+    readonly flags: {
+        noScrollOnFocus: boolean;
+        /** The column being dragged to a new position, while a reorder is in flight. */
+        dragColumnKey?: string;
+        dragOverColumnKey?: string;
+    } = { noScrollOnFocus: false };
+
+    constructor(options: ResolvedOptions<R>) {
+        super({ sort: options.sort ?? undefined });
+        this.options = options;
+        this.data = new AVGridData<R>([], []);
+        this.models = new AVGridModels<R>(this);
+
+        // Prime the pipeline: columns first (rows are filtered against them), then rows.
+        this.models.columns.updateColumnsData(options.columns);
+        this.models.rows.updateRows();
+    }
+
+    // -----------------------------------------------------------------------
+    // Wiring
+    // -----------------------------------------------------------------------
+
+    setRenderModel = (renderModel: RenderGridModel | null): void => {
+        this.renderModel = renderModel;
+    };
+
+    /** Mark cells dirty. The whole performance story is in how narrow this argument is. */
+    update = (rerender?: RerenderInfo): void => {
+        this.renderModel?.update(rerender);
+    };
+
+    requestRepaint = (): void => {
+        this.renderModel?.requestRepaint();
+    };
+
+    // -----------------------------------------------------------------------
+    // Coordinates
+    // -----------------------------------------------------------------------
+
+    /**
+     * Grid row 0 is the header, so data row *n* is grid row *n + 1*. Every conversion in the
+     * library goes through these two, rather than scattering `± 1` across the views.
+     */
+    gridRowToDataRow = (gridRow: number): number => gridRow - 1;
+    dataRowToGridRow = (dataRow: number): number => dataRow + 1;
+
+    rowKeyAt = (dataRow: number): string => {
+        const row = this.data.rows[dataRow];
+        return row === undefined ? "" : this.options.getRowKey(row);
+    };
+
+    /** The context object handed to `render`, `onCellClass` and the cell callbacks. */
+    cellContext = (dataRow: number, colIndex: number): CellContext<R> | undefined => {
+        const row = this.data.rows[dataRow];
+        const column = this.data.columns[colIndex];
+        if (row === undefined || column === undefined) return undefined;
+
+        return {
+            value: (row as any)[column.key],
+            row,
+            column,
+            rowIndex: dataRow,
+            colIndex,
+            rowKey: this.options.getRowKey(row),
+        };
+    };
+
+    // -----------------------------------------------------------------------
+    // Host-facing setters — the explicit replacements for the reference's prop sync
+    // -----------------------------------------------------------------------
+
+    setRows = (rows: readonly R[]): void => {
+        this.options.rows = rows;
+        this.models.rows.updateRows();
+    };
+
+    setColumns = (columns: Column<R>[]): void => {
+        this.models.columns.setColumns(columns);
+    };
+
+    setSort = (sort: SortColumn | undefined): void => {
+        this.models.sortColumn.setSort(sort);
+    };
+
+    setSearchString = (searchString: string | undefined): void => {
+        if (this.options.searchString === searchString) return;
+        this.options.searchString = searchString;
+        this.models.rows.updateRows();
+    };
+
+    override dispose(): void {
+        this.events.clear();
+        this.data.onChange.clear();
+        this.renderModel = null;
+        super.dispose();
+    }
+}

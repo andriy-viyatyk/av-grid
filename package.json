@@ -29,8 +29,10 @@
     ],
     "scripts": {
         "dev": "vite",
-        "build": "tsc --noEmit && vite build",
-        "build:board": "vite build --outDir test-boards/RenderGridTest/lib --emptyOutDir false",
+        "build": "tsc --noEmit && vite build && node scripts/build-css.mjs",
+        "build:board": "npm run build:board:render && npm run build:board:grid",
+        "build:board:render": "vite build --outDir test-boards/RenderGridTest/lib --emptyOutDir false",
+        "build:board:grid": "vite build --outDir test-boards/AVGridBoard/lib --emptyOutDir false",
         "typecheck": "tsc --noEmit",
         "test": "vitest run",
         "test:watch": "vitest"

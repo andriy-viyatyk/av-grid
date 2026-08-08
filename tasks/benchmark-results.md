@@ -60,8 +60,53 @@ correctness half matters more than the speed half: swapping the element out woul
 destroyed anything living on it — focus, an open editor, a running transition — so task 12's
 in-cell editor would have lost focus whenever anything marked its cell dirty.
 
+## Task 9 — the grid layer — 2026-08-08
+
+The same gate, re-run through **the whole grid** rather than the engine alone: real
+`DataCell` / `HeaderCell` renderers, nine columns including a computed one, an element
+renderer, a boolean column and a formatted date column, plus `onCellClass` on every cell.
+Board: [`test-boards/AVGridBoard`](../test-boards/AVGridBoard/CLAUDE.md), viewport 577px tall
+(24 rows × 9 columns rendered).
+
+| Measure | Engine (task 5) | Grid (task 9) | |
+|---|---|---|---|
+| Data generation | 27.9 ms | 17.2 ms | different dataset |
+| **Time to first paint** | 5.6 ms | **8.0 ms** | ✅ gate < 100 ms |
+| Paint cost near the top | 1.04 ms | 0.906 ms | 300-step sample |
+| Paint cost near row 99,000 | 1.07 ms | 0.842 ms | 300-step sample |
+| **Flat-cost ratio** | 1.02× | **0.93×** | ✅ ≈ 1.0 |
+| Scroll from the top | 60.0 fps | 60.0 fps — median 16.8 ms, p95 17.2 ms | ✅ |
+| Scroll near row 99,000 | 60.0 fps | 60.0 fps — median 16.7 ms, p95 17.1 ms | ✅ |
+| Full repaint (`{ all: true }`) | 0.195 ms, 2 mutations | **0.5 ms, 0 mutations** | |
+| Sort 100k rows | — | 21 ms | filter → sort → mark dirty |
+
+**No regression.** A full-featured cell renderer costs about the same per paint as the
+benchmark's stub did, and the flat-cost property survives the grid layer intact — the whole
+point of measuring again.
+
+The ratio is quoted from a 300-step sample. **A 40-step sample is meaningless here:** a paint
+costs under a millisecond, so four consecutive 40-step runs gave ratios of 1.16×, 1.31×,
+1.10× and 0.99×. The harness now defaults to 300, and the board's `CLAUDE.md` says why.
+
+Two numbers that look wrong and are not:
+
+- **0 DOM mutations on a full repaint**, against the engine's 2. The grid renderers resolve
+  `p.previous` for every cell, so a repaint of 216 cells inserts and removes nothing at all.
+- **36 mutations** if the repaint is measured immediately after a scroll. Those are 4 overscan
+  rows × 9 columns left attached by the directional scroll path, which the full recompute
+  trims. Settle before measuring.
+
+**Hover**, the narrowest dirty set the grid produces today, was measured separately: moving
+the pointer between two rows repaints those two rows, mutates **zero** DOM nodes, and takes
+one paint.
+
+**Theming costs nothing.** Setting `--p-text` on the document root re-tinted every border and
+background with **0 paints** — the browser did all of it. That is the task-9 requirement, and
+it is only true because there is one static stylesheet and no JavaScript reads a colour.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
 |---|---|---|---|---|---|---|
 | 2026-08-08 | 5 | 5.6 ms | 1.02× | 60.0 / 60.0 | 0 | Baseline. Gate passed. |
+| 2026-08-08 | 9 | 8.0 ms | 0.93× | 60.0 / 60.0 | 0 | Whole grid, real cell renderers. No regression. |

@@ -1,0 +1,119 @@
+/* Board chrome only.
+ *
+ * The grid brings its own stylesheet — av-grid injects it — so there is deliberately nothing
+ * here that styles a cell. If the grid looks wrong on this board, the bug is in
+ * `src/styles/av-grid.css.ts`, not here. That is the point of the board.
+ */
+
+html, body {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+}
+
+.bar {
+    display: flex;
+    align-items: center;
+    gap: var(--p-gap-md, 8px);
+    padding: var(--p-space-md, 8px) var(--p-space-lg, 12px);
+    background: var(--p-bg-dark, #1e1e1e);
+    border-bottom: 1px solid var(--p-border, #3c3c3c);
+    flex: 0 0 auto;
+}
+
+.footer {
+    border-bottom: none;
+    border-top: 1px solid var(--p-border, #3c3c3c);
+}
+
+.field {
+    display: flex;
+    align-items: center;
+    gap: var(--p-gap-sm, 4px);
+}
+
+label {
+    color: var(--p-text-muted, #9aa0a6);
+    font-size: var(--p-font-sm, 12px);
+}
+
+input {
+    font: inherit;
+    width: 120px;
+    padding: var(--p-space-xs, 2px) var(--p-space-sm, 6px);
+    background: var(--p-bg, #1e1e1e);
+    color: var(--p-text, #ddd);
+    border: 1px solid var(--p-border, #3c3c3c);
+    border-radius: var(--p-radius-sm, 3px);
+}
+
+input[type="number"] { width: 90px; }
+
+button {
+    font: inherit;
+    padding: var(--p-space-sm, 6px) var(--p-space-lg, 12px);
+    border: 1px solid var(--p-accent, #0078d4);
+    background: var(--p-accent, #0078d4);
+    color: var(--p-accent-text, #fff);
+    border-radius: var(--p-radius-md, 4px);
+    cursor: pointer;
+}
+
+button:hover { filter: brightness(1.1); }
+button:active { filter: brightness(0.9); }
+button:disabled { opacity: 0.5; cursor: default; filter: none; }
+
+button.secondary {
+    background: transparent;
+    color: var(--p-text-muted, #9aa0a6);
+    border-color: var(--p-border, #3c3c3c);
+}
+
+.status {
+    color: var(--p-text-muted, #9aa0a6);
+    font-size: var(--p-font-sm, 12px);
+    margin-left: auto;
+}
+
+.results {
+    flex: 0 0 auto;
+    max-height: 40%;
+    overflow: auto;
+    padding: var(--p-space-md, 8px) var(--p-space-lg, 12px);
+    background: var(--p-panel, #252526);
+    border-bottom: 1px solid var(--p-border, #3c3c3c);
+}
+
+.results[hidden] { display: none !important; }
+
+.results table {
+    border-collapse: collapse;
+    font-size: var(--p-font-sm, 12px);
+    width: 100%;
+}
+
+.results th,
+.results td {
+    text-align: left;
+    padding: 3px 12px 3px 0;
+    white-space: nowrap;
+}
+
+.results th { color: var(--p-text-muted, #9aa0a6); font-weight: normal; }
+.results td.num { font-variant-numeric: tabular-nums; }
+
+.grid-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
+/* A host-supplied cell class, to prove `onCellClass` reaches the DOM. */
+.grid-host .flagged { color: var(--p-error, #f48771); }

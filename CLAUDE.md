@@ -25,12 +25,19 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phase 1 (the engine) is complete and the performance gate has passed.** Tasks 1–5 are done;
-task 6 (`AVGrid.create()`) is next.
+**Phases 1 and 2 are complete.** Tasks 1–9 are done; task 10 (focus, keyboard navigation and
+range selection) is next.
 
-100,000 rows × 20 columns in a real browser: first paint 5.6 ms, 60 fps scrolling at both the
-top and row 99,000, zero cell allocations while scrolling, and a **flat-cost ratio of 1.02×** —
-the number the whole project exists to produce. Full results and history in
+There is a working grid. `AVGrid.create(el, { rows })` renders a real one — columns, header
+labels, widths, row keys and data types all inferred — with header sorting, column resize and
+reorder, custom cell renderers, a search filter, and a stylesheet driven entirely by CSS
+custom properties.
+
+The performance thesis survived the grid layer. 100,000 rows in a real browser, through the
+*whole* grid rather than the engine alone: first paint 8.0 ms, 60 fps at both the top and row
+99,000, a **flat-cost ratio of 0.93×**, a full repaint of every visible cell in 0.5 ms doing
+**zero** DOM mutations, and a theme change costing **zero** paints. Full results, history, and
+the two measurements that mislead if taken carelessly, in
 [`tasks/benchmark-results.md`](tasks/benchmark-results.md).
 
 ## Reference implementation — Persephone
@@ -76,9 +83,31 @@ av-grid/
         goal.md                  ← the goal, scope, and API design principles
         plan.md                  ← the 20-task build order + decision log
         benchmark-results.md     ← performance history; append after render-path changes
+    scripts/
+        build-css.mjs            ← emits dist/av-grid.css from the stylesheet module
     src/
         index.ts                 ← public entry point
+        AVGrid.ts                ← AVGrid.create() — the façade wiring models to the engine
+        options.ts               ← AVGridOptions, the surface an agent writes by hand
+        validate.ts              ← loud validation + inference for the minimum call
         types.ts                 ← public type surface (Column, CellFocus, Filter, …)
+        gridUtils.ts             ← formatting, comparison, row filtering
+        column-width.ts          ← content-based width detection
+        model/                   ← grid state, ported from AVGrid/model/
+            AVGridModel.ts       ← the hub every other model hangs off
+            AVGridData.ts        ← derived data + batched change events
+            AVGridEvents.ts      ← the internal event bus
+            ColumnsModel.ts      ← visible columns, resize, reorder
+            RowsModel.ts         ← filter → sort pipeline
+            SortColumnModel.ts   ← sort state and its comparator
+        view/                    ← the DOM, rewritten rather than transliterated
+            DataCell.ts          ← the hot path; allocation-light
+            HeaderCell.ts        ← label, sort indicator, resize grip, filter funnel
+            GridInteractions.ts  ← every listener, all of them delegated from the root
+            cellDom.ts           ← setText / applyCellStyle, the two per-cell operations
+            icons.ts             ← SVG source strings
+        styles/
+            av-grid.css.ts       ← the whole stylesheet; single source of truth
         core/                    ← framework-free primitives replacing Persephone's React deps
             observable.ts        ← replaces TComponentModel / TComponentState
             events.ts            ← typed event channel
@@ -93,14 +122,15 @@ av-grid/
             RenderGrid.ts        ← the DOM shell: nine regions + rAF paint loop
             CellPool.ts          ← element recycling
     test-boards/                 ← Persephone boards used to run and debug the grid
-        RenderGridTest/          ← the 100k-row performance harness
+        RenderGridTest/          ← the engine alone: the 100k-row performance harness
+        AVGridBoard/             ← the whole grid: rendering, interaction, theming
     docs/api.md                  ← API reference (task 19)
     examples/                    ← runnable standalone examples (task 20)
 ```
 
 Tests sit next to their subject as `*.test.ts`. Everything runs in the node environment except
-`RenderGrid.test.ts`, which needs a DOM and opts into happy-dom with a per-file
-`// @vitest-environment happy-dom` docblock.
+`RenderGrid.test.ts` and `AVGrid.test.ts`, which need a DOM and opt into happy-dom with a
+per-file `// @vitest-environment happy-dom` docblock.
 
 ## Commands
 
@@ -108,8 +138,8 @@ Tests sit next to their subject as `*.test.ts`. Everything runs in the node envi
 npm test              # vitest, all tests
 npm run test:watch
 npm run typecheck     # tsc --noEmit, strict
-npm run build         # typecheck + vite lib build to dist/ (ESM + UMD)
-npm run build:board   # bundle src/ into test-boards/RenderGridTest/lib/
+npm run build         # typecheck + vite lib build to dist/ (ESM + UMD) + dist/av-grid.css
+npm run build:board   # bundle src/ into both boards' lib/
 ```
 
 ## Test boards — how to actually run the grid
@@ -118,24 +148,31 @@ The unit tests run under happy-dom, which does **no layout**. So a passing test 
 nothing about whether the grid renders or performs. That is what the boards under
 `test-boards/` are for: real browser, real layout, driveable through the Persephone MCP tools.
 
-[`test-boards/RenderGridTest/`](test-boards/RenderGridTest/CLAUDE.md) is the performance
-harness and the general-purpose debugger. To use it:
+| Board | What it is for |
+|---|---|
+| [`RenderGridTest/`](test-boards/RenderGridTest/CLAUDE.md) | The engine alone, with a stub cell renderer. The 100k-row performance gate. `window.bench` |
+| [`AVGridBoard/`](test-boards/AVGridBoard/CLAUDE.md) | The whole grid: `AVGrid.create()`, inference, sorting, resize, reorder, theming. `window.avg` |
 
 ```
-npm run build:board                     # its lib/ is a gitignored build artifact
-open_board { path: ".../test-boards/RenderGridTest" }
+npm run build:board                     # each lib/ is a gitignored build artifact
+open_board { path: ".../test-boards/AVGridBoard" }
 list_pages                              # find editor: "board-view" → pageId
-browser_evaluate { pageId, expression: "window.bench.runBenchmark()" }
+browser_evaluate { pageId, expression: "window.avg.runBenchmark(100000)" }
 browser_take_screenshot { pageId }       # verify visually — a11y snapshots hide layout bugs
 ```
+
+**Create a new board with the `create_board` MCP tool, then write your files into it.** Board
+trust is granted per path, and a board Persephone did not create renders a trust prompt
+instead of the page — `browser_evaluate` cannot reach it at all, which makes a hand-created
+board folder useless. `create_board` also refuses a name that already exists, so create first
+and populate second.
 
 After editing board files, apply the changes with **`board_refresh { pageId }`** — boards do
 not auto-reload. After editing `src/`, run `npm run build:board` first.
 
-Everything is on `window.bench` (`runBenchmark`, `measurePaintCost`, `measureScrollFps`,
-`scrollTo`, `grid`), so a whole session can run without clicking. `grid.stats` and
-`grid.pool.stats` expose paint timings and pool hit/miss counts; `grid.resetStats()` isolates a
-phase.
+Each board puts its whole harness on one global — `window.bench` and `window.avg` — so a
+session runs without clicking. Both expose paint timings and pool hit/miss counts, and a
+`resetStats()` that isolates a phase.
 
 **Add a board here for any subsystem that needs eyes on it** — selection, editing, filtering.
 Rewrite each board's `CLAUDE.md` to document that board once it works.
@@ -163,10 +200,10 @@ Rewrite each board's `CLAUDE.md` to document that board once it works.
 - **Ask before adding a feature** that is not in the scope section of
   [`tasks/goal.md`](tasks/goal.md#scope).
 
-## Two invariants that carry the performance
+## Three invariants that carry the performance
 
-Everything else is ordinary code. These two are not — both are easy to break with a change
-that looks like a cleanup, and breaking either one costs the project its reason to exist.
+Everything else is ordinary code. These three are not — each is easy to break with a change
+that looks like a cleanup, and breaking any one costs the project its reason to exist.
 
 **1. The scroll offset stays out of `inputChanged()`.** `RenderGridModel.inputChanged()`
 compares every input *except* the scroll offset, and carries a comment saying so. Scrolling is
@@ -191,3 +228,13 @@ const el = p.previous ?? p.recycle?.() ?? document.createElement("div");
 Dropping `previous` costs ~12× on full repaints and breaks in-cell editing; dropping `recycle`
 allocates on every scroll frame. Prefer `firstChild.nodeValue` over `textContent`, which
 allocates a text node per cell per frame.
+
+**3. Listeners go on the root, never on a cell.** `GridInteractions` binds ten listeners for
+the whole grid and resolves each event by reading `data-row` / `data-col` / `data-column-key`
+off the nearest cell. This is not a micro-optimization — it is a correctness requirement of
+pooling. An element that was a header cell one frame is a data cell the next, so a listener
+bound to a cell would have to be removed on every recycle, and any one missed would fire
+against the wrong column. For the same reason, **state that a handler wants to show goes on
+the model, not on the element**: a repaint reassigns `className`, so a class set directly by an
+event handler vanishes on the next frame. That is why the column-drag state lives on
+`model.flags` and `HeaderCell` reads it.

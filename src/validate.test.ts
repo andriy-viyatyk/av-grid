@@ -1,0 +1,173 @@
+import { describe, expect, it } from "vitest";
+import {
+    AVGridError,
+    inferColumns,
+    inferGetRowKey,
+    resolveOptions,
+    validateColumns,
+    validateSort,
+} from "./validate";
+
+const people = [
+    { id: 1, firstName: "Ada", active: true, score: 10 },
+    { id: 2, firstName: "Alan", active: false, score: 20 },
+];
+
+describe("inferColumns", () => {
+    it("builds a column per key of the sampled rows", () => {
+        const columns = inferColumns(people);
+        expect(columns.map((c) => c.key)).toEqual([
+            "id",
+            "firstName",
+            "active",
+            "score",
+        ]);
+    });
+
+    it("humanizes the key into a header label", () => {
+        expect(inferColumns(people)[1].name).toBe("First Name");
+        expect(inferColumns([{ user_name: "x" }])[0].name).toBe("User Name");
+        // Acronyms read badly title-cased — "Id" is a typo, "ID" is a column.
+        expect(inferColumns(people)[0].name).toBe("ID");
+    });
+
+    it("infers dataType from the sampled values", () => {
+        const columns = inferColumns(people);
+        expect(columns.find((c) => c.key === "active")?.dataType).toBe("boolean");
+        expect(columns.find((c) => c.key === "score")?.dataType).toBe("number");
+        expect(columns.find((c) => c.key === "firstName")?.dataType).toBeUndefined();
+    });
+
+    it("picks up keys that only later rows have", () => {
+        const columns = inferColumns([{ a: 1 }, { a: 2, b: 3 }]);
+        expect(columns.map((c) => c.key)).toEqual(["a", "b"]);
+    });
+
+    it("handles array rows, which the benchmark harness uses", () => {
+        const columns = inferColumns([
+            [1, "x"],
+            [2, "y"],
+        ]);
+        expect(columns.map((c) => c.key)).toEqual(["0", "1"]);
+        // 1-based labels, the way a spreadsheet numbers its columns.
+        expect(columns.map((c) => c.name)).toEqual(["1", "2"]);
+    });
+
+    it("returns nothing for no rows rather than throwing", () => {
+        expect(inferColumns([])).toEqual([]);
+    });
+});
+
+describe("inferGetRowKey", () => {
+    it("prefers an id-shaped property", () => {
+        const getRowKey = inferGetRowKey(people);
+        expect(getRowKey(people[0])).toBe("1");
+        expect(getRowKey(people[1])).toBe("2");
+    });
+
+    it("assigns a stable identity when there is no id", () => {
+        const rows = [{ a: 1 }, { a: 2 }];
+        const getRowKey = inferGetRowKey(rows);
+        const first = getRowKey(rows[0]);
+
+        expect(getRowKey(rows[1])).not.toBe(first);
+        // The identity must survive a re-sort, which reorders the same objects.
+        expect(getRowKey(rows[0])).toBe(first);
+    });
+});
+
+describe("validateColumns", () => {
+    it("names the fix when a key matches nothing in the data", () => {
+        expect(() => validateColumns([{ key: "nmae" }], people)).toThrow(
+            /Unknown column "nmae"\. Available columns: id, firstName, active, score\./,
+        );
+    });
+
+    it("allows a key absent from the data when the column is computed", () => {
+        expect(() =>
+            validateColumns([{ key: "total", render: () => "x" }], people),
+        ).not.toThrow();
+    });
+
+    it("rejects a duplicate key", () => {
+        expect(() =>
+            validateColumns([{ key: "id" }, { key: "id" }], people),
+        ).toThrow(/Duplicate column key "id"/);
+    });
+
+    it("rejects a column with no key, and says what one looks like", () => {
+        expect(() => validateColumns([{ name: "ID" } as any], people)).toThrow(
+            /columns\[0\] has no `key`.*\{ key: "name", name: "Name" \}/s,
+        );
+    });
+
+    it("throws AVGridError, so a host can catch it specifically", () => {
+        expect(() => validateColumns("nope", people)).toThrow(AVGridError);
+    });
+});
+
+describe("validateSort", () => {
+    const columns = [{ key: "id" }, { key: "name" }];
+
+    it("accepts a valid sort", () => {
+        expect(validateSort({ key: "id", direction: "asc" }, columns)).toEqual({
+            key: "id",
+            direction: "asc",
+        });
+    });
+
+    it("names the available columns for an unknown key", () => {
+        expect(() =>
+            validateSort({ key: "nmae", direction: "asc" }, columns),
+        ).toThrow(/Unknown column "nmae" in `sort`\. Available columns: id, name\./);
+    });
+
+    it("rejects a direction that is not asc or desc", () => {
+        expect(() =>
+            validateSort({ key: "id", direction: "up" as any }, columns),
+        ).toThrow(/must be "asc" or "desc"/);
+    });
+
+    it("treats null and undefined as unsorted", () => {
+        expect(validateSort(undefined, columns)).toBeUndefined();
+        expect(validateSort(null, columns)).toBeUndefined();
+    });
+});
+
+describe("resolveOptions", () => {
+    it("fills in every default from just rows", () => {
+        const resolved = resolveOptions({ rows: people });
+        expect(resolved.rowHeight).toBe(24);
+        expect(resolved.columns).toHaveLength(4);
+        expect(resolved.getRowKey(people[0])).toBe("1");
+    });
+
+    it("tells the caller what the minimum call looks like", () => {
+        expect(() => resolveOptions(undefined)).toThrow(
+            /AVGrid\.create\(el, \{ rows: \[\{ id: 1, name: "Ada" \}\] \}\)/,
+        );
+    });
+
+    it("suggests an empty array rather than a missing one", () => {
+        expect(() => resolveOptions({ rows: undefined })).toThrow(
+            /`rows` must be an array.*AVGrid\.create\(el, \{ rows: \[\] \}\)/s,
+        );
+    });
+
+    it("rejects a non-positive rowHeight", () => {
+        expect(() => resolveOptions({ rows: [], rowHeight: 0 })).toThrow(
+            /`rowHeight` must be a positive number/,
+        );
+    });
+
+    it("shows the expected shape when getRowKey is not a function", () => {
+        expect(() =>
+            resolveOptions({ rows: people, getRowKey: "id" as any }),
+        ).toThrow(/getRowKey: \(row\) => String\(row\.id\)/);
+    });
+
+    it("keeps an explicitly supplied getRowKey", () => {
+        const getRowKey = (row: any) => `k${row.id}`;
+        expect(resolveOptions({ rows: people, getRowKey }).getRowKey).toBe(getRowKey);
+    });
+});

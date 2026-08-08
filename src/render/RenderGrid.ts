@@ -35,7 +35,16 @@ import type { Unsubscribe } from "../core/observable";
 export interface RenderGridShellOptions extends RenderGridOptions {
     /** Extra class on the root element, for host styling. */
     className?: string;
-    /** CSS height for the root; when set the grid grows instead of filling its parent. */
+    /**
+     * Explicit CSS height for the root element.
+     *
+     * The grid measures its own root to decide what is visible, so that height has to be
+     * *definite* — a root whose height depends on its content has none, and the grid renders
+     * nothing at all. `AVGrid` sets this for you: `100%` when the container has a height of
+     * its own, a pixel fallback when it does not.
+     */
+    height?: string;
+    /** Cap the root's height and let it grow to its content below that, instead of filling. */
     growToHeight?: string;
     growToWidth?: string;
 }
@@ -363,7 +372,11 @@ export class RenderGrid {
         setStyle(this.root, "flex", "1 1 auto");
         setStyle(this.root, "position", "relative");
         setStyle(this.root, "overflow", "hidden");
-        setStyle(this.root, "height", growToHeight ? "unset" : "100px");
+        setStyle(
+            this.root,
+            "height",
+            this.options.height ?? (growToHeight ? "unset" : "100px"),
+        );
         setStyle(this.root, "max-height", growToHeight ?? "unset");
 
         setStyle(this.container, "overflow-y", "auto");
