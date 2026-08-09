@@ -596,6 +596,90 @@ export const css = `
     text-align: center;
 }
 
+/* --- Filter popover --------------------------------------------------------------------
+   The body of a filter popover: the checklist, then the two buttons. It sets a min-width and
+   lets the popover take its width from it, so a narrow column still gets a readable list. */
+.avg-filter-popover .avg-popover-content {
+    /* The content scrolls nothing itself — the list inside it does, and a scrollbar on both
+       would let the buttons scroll out of reach. */
+    overflow: hidden;
+}
+
+.avg-filter-content {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.avg-filter-list {
+    padding: 0 2px;
+}
+
+.avg-filter-buttons {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 6px;
+    border-top: solid 1px var(--avg-border-color);
+}
+
+.avg-button {
+    padding: 3px 12px;
+    font: inherit;
+    color: var(--avg-text);
+    background-color: transparent;
+    border: solid 1px var(--avg-border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.avg-button:hover:not(:disabled) {
+    border-color: var(--avg-accent);
+    color: var(--avg-accent);
+}
+
+.avg-button-primary {
+    color: var(--avg-bg);
+    background-color: var(--avg-accent);
+    border-color: var(--avg-accent);
+}
+
+.avg-button-primary:hover:not(:disabled) {
+    color: var(--avg-bg);
+    opacity: 0.85;
+}
+
+.avg-button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.avg-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    color: inherit;
+    background-color: transparent;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.avg-icon-button:hover {
+    color: var(--avg-accent);
+}
+
+/* Lit while its own popover is open — set from the model, so a repaint keeps it. */
+.avg-grid .avg-filter-button.avg-filter-open {
+    display: inline-flex;
+    color: var(--avg-accent);
+}
+
 .avg-grid .avg-empty {
     position: absolute;
     inset: 0;

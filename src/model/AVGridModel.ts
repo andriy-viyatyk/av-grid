@@ -86,6 +86,12 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
         /** The column being dragged to a new position, while a reorder is in flight. */
         dragColumnKey?: string;
         dragOverColumnKey?: string;
+        /**
+         * The open filter popover, if there is one. Structural rather than typed as `Popover`
+         * so the model layer keeps not importing the view layer — what the model needs is to
+         * light the right funnel and to be able to close it on `destroy()`.
+         */
+        filterPopover?: { columnKey: string; close: () => void };
     } = { noScrollOnFocus: false };
 
     constructor(options: ResolvedOptions<R>) {

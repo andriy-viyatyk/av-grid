@@ -50,6 +50,7 @@ await window.avg.measureClipboard(row, n) // the task-13 check: copy cost, and w
 await window.avg.measureStructure(row)    // the task-14 check: does an insert move the viewport
 await window.avg.measureFilter(count)    // the task-15 gate: filter down, narrow, back up, search
 await window.avg.measureFilterStorage()  // filters round-tripped through an injected store
+await window.avg.measureFilterPopover(count) // the task-16 gate: what a popover costs the grid
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`
@@ -143,6 +144,14 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   with a `formatValue` returning a token found nowhere else (`Grace~Thompson` matches 12,500
   rows with it and 0 without) — and note the board's eight first names and eight last names
   pair up into only eight combinations, so `Grace~Hopper` is not one of them.
+- **The filter popover** — click any header's funnel. `measureFilterPopover(count)` opens one on
+  a five-value column and on `score`, whose 100,000 values are nearly all distinct. Quote the
+  two right-hand numbers: opening a popover marks **1** thing on the grid and mutates **0** DOM
+  nodes either way, and the checklist holds **12** rows in both. The 113 ms on `score` is the
+  default provider collecting and sorting 100,000 distinct values — real work, not overhead, and
+  the worst case rather than the common one. **Re-create the grid before measuring a filter:**
+  run `measureFilter` straight after `runBenchmark` and it reports hundreds of DOM mutations,
+  because the benchmark leaves the grid sorted and its rows added to and deleted from.
 - **Filter persistence** — `measureFilterStorage()` runs against an in-memory store rather than
   `localStorage`, deliberately: the point of the injection is that the library never writes to
   the host's storage uninvited, and a board leaving keys behind would prove the opposite. It

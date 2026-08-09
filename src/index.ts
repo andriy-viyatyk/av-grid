@@ -44,6 +44,7 @@ export {
     readStoredFilters,
     writeStoredFilters,
     reviveFilters,
+    defaultFilterOptions,
 } from "./model/FiltersModel";
 export { FocusModel } from "./model/FocusModel";
 export type {
@@ -72,6 +73,14 @@ export type {
     VirtualListOptions,
     VirtualListValue,
 } from "./view/VirtualList";
+export { showFilterPopover } from "./view/FilterPopover";
+export type { ShowFilterPopoverOptions } from "./view/FilterPopover";
+export {
+    OptionsFilterContent,
+    OPTIONS_FILTER_MIN_WIDTH,
+} from "./view/OptionsFilterContent";
+export type { OptionsFilterContentOptions } from "./view/OptionsFilterContent";
+export { createButton, createIconButton } from "./view/Button";
 
 // --- helpers --------------------------------------------------------------
 

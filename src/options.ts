@@ -21,6 +21,7 @@ import type {
     DeleteColumnsEvent,
     DeleteRowsEvent,
     Filter,
+    GetFilterOptions,
     InvalidEditEvent,
     PersistFiltersOptions,
     SortColumn,
@@ -263,7 +264,18 @@ export interface AVGridOptions<R = any> {
      * precedence over `filters` above, which stays the default for a first visit.
      */
     persistFilters?: PersistFiltersOptions;
+    /**
+     * Supply the options a filter popover offers, instead of the column's distinct values.
+     *
+     * ```js
+     * onGetOptions: (columns, filters, columnKey, search) => fetchValues(columnKey, search)
+     * ```
+     *
+     * May return a promise. Receives the *other* applied filters, so options can cascade.
+     */
+    onGetOptions?: GetFilterOptions<R>;
     disableSorting?: boolean;
+    /** Take the funnel off every header. A column opts out on its own with `filterType: null`. */
     disableFiltering?: boolean;
 
     // -----------------------------------------------------------------------

@@ -42,6 +42,10 @@ import { renderDataCell } from "./view/DataCell";
 import { renderHeaderCell } from "./view/HeaderCell";
 import { GridInteractions } from "./view/GridInteractions";
 import { createDefaultEditor } from "./view/DefaultEditFormatter";
+import {
+    showFilterPopover,
+    type ShowFilterPopoverOptions,
+} from "./view/FilterPopover";
 import type { AVGridOptions } from "./options";
 import {
     AVGridError,
@@ -381,6 +385,24 @@ export class AVGrid<R = any> {
 
     clearFilters(): void {
         this.model.models.filters.clearFilters();
+    }
+
+    /**
+     * Open the filter popover for a column, and resolve when it closes.
+     *
+     * ```js
+     * const applied = await grid.showFilterPopover("status");   // undefined if dismissed
+     * ```
+     *
+     * The same call the header funnel makes. Anchors to that funnel by default; pass an
+     * `anchor` — an element or a `{ x, y }` point — to open it from a chip, a toolbar button or
+     * a context menu instead. The filter is already applied by the time this resolves.
+     */
+    showFilterPopover(
+        columnKey: string,
+        options?: ShowFilterPopoverOptions,
+    ): Promise<Filter | undefined> {
+        return showFilterPopover(this.model, columnKey, options);
     }
 
     /** Is a filter applied to this column? What the header's funnel indicator asks. */
@@ -726,6 +748,9 @@ export class AVGrid<R = any> {
         // Before the flag: an open editor commits on blur, and tearing the DOM down under it
         // would fire that blur with nothing left to write into.
         this.model.models.editing.cancelEdit();
+        // A popover lives on `document.body`, outside everything `render.destroy()` reaches, so
+        // it would outlive the grid it filters.
+        this.model.flags.filterPopover?.close();
         this.destroyed = true;
 
         this.dataSubscription.unsubscribe();

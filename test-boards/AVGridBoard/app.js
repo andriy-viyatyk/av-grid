@@ -796,6 +796,86 @@ async function measureFilterStorage() {
     };
 }
 
+/**
+ * Task 16's gate: what does opening a filter popover over 100,000 rows cost, and does the
+ * checklist inside it stay flat-cost when the column has tens of thousands of distinct values?
+ *
+ * Three measurements, because they fail for different reasons:
+ *
+ * - **open** — the default option provider makes one pass over every row to collect the
+ *   distinct values, so this scales with the data and is expected to.
+ * - **wide** — the same, on a column whose values are nearly all distinct (`score`), which is
+ *   the case that would have put 100,000 rows in a popover before `VirtualList` existed. The
+ *   DOM row count is the number that matters, not the option count.
+ * - **grid** — how many cells the grid itself repainted while all this happened. Opening a
+ *   popover marks the header once, for the funnel; the answer must not grow with the rows.
+ */
+async function measureFilterPopover(count = 100000) {
+    if (grid.getState().sourceRowCount !== count) createGrid(count);
+    grid.clearFilters();
+    await scrollTo(0);
+    await settle(4);
+
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirty = 0;
+    model.update = (info) => {
+        dirty += 1;
+        return originalUpdate.call(model, info);
+    };
+
+    const listRows = () =>
+        document.querySelectorAll(".avg-filter-popover .avg-list-item[data-index]").length;
+
+    const openOn = async (columnKey) => {
+        dirty = 0;
+        grid.render.resetStats();
+        const t0 = performance.now();
+        const closed = grid.showFilterPopover(columnKey);
+        const ms = performance.now() - t0;
+        await settle(3);
+        const result = {
+            ms: Number(ms.toFixed(2)),
+            domRows: listRows(),
+            gridDirty: dirty,
+            gridMutations: grid.render.stats.cellsAppended + grid.render.stats.cellsRemoved,
+        };
+        document.querySelector('.avg-filter-popover [data-action="clear"]').click();
+        await closed;
+        await settle(2);
+        return result;
+    };
+
+    // Five distinct values over 100k rows.
+    const open = await openOn("status");
+    // ~100k distinct values over the same rows — the case the virtualized list exists for.
+    const wide = await openOn("score");
+
+    // Typing in the search box re-asks the provider and re-renders the list. Measured on the
+    // wide column, which is where it is expensive.
+    const closed = grid.showFilterPopover("score");
+    await settle(3);
+    const search = document.querySelector(".avg-filter-popover .avg-list-search");
+    const t0 = performance.now();
+    search.value = "123";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    const searchMs = performance.now() - t0;
+    await settle(3);
+    const searchRows = listRows();
+    document.querySelector('.avg-filter-popover [data-action="clear"]').click();
+    await closed;
+
+    model.update = originalUpdate;
+    await settle(2);
+
+    return {
+        count,
+        open,
+        wide,
+        search: { ms: Number(searchMs.toFixed(2)), domRows: searchRows },
+    };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -1165,6 +1245,7 @@ window.avg = {
     measureStructure,
     measureFilter,
     measureFilterStorage,
+    measureFilterPopover,
     measureSort,
     scrollTo,
     settle,

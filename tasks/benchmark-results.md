@@ -495,6 +495,51 @@ full repaint 0.2 ms / 0 mutations, drag 2 cells per move at both ends. (A single
 reported 10.2 ms; repeated runs settle immediately, so the cold number is page warm-up, not the
 grid.)
 
+## Task 16 — the filter popover — 2026-08-09
+
+Harness entry `window.avg.measureFilterPopover(count)`. The question this task has to answer is
+not how fast a popover opens — it is whether opening one over 100,000 rows costs the *grid*
+anything, and whether a column with 100,000 distinct values puts 100,000 rows in a checklist.
+
+100,000 rows:
+
+| Opening the popover on… | Time | Rows in the DOM | Grid marks | Grid mutations |
+|---|---|---|---|---|
+| `status` — 5 distinct values | **4.4 ms** | 5 | **1** | **0** |
+| `score` — ~100,000 distinct values | 113 ms | **12** | **1** | **0** |
+| Typing in the search box, on `score` | 31 ms | 12 | — | — |
+
+**The two right-hand columns are the gate.** Opening a popover marks exactly one thing on the
+grid — the header row, so the funnel lights — and mutates nothing, whether the column has five
+values or a hundred thousand. And the checklist holds **12 rows** in both cases: that is
+`VirtualList` earning the reason it was built as task 14b rather than as part of this one.
+
+The 113 ms is the default option provider making one pass over every row and then sorting the
+result, and it is honest work rather than overhead — measured directly on the same data:
+
+| Collecting 100,000 distinct values | |
+|---|---|
+| `Set` over 100,000 rows | 11.1 ms |
+| Sorting 100,000 values | 19.7 ms |
+| Building 100,000 labels | 10.6 ms |
+
+The rest is `formatDisplayValue` per option (the labels have to read as the cells do) and the
+list's own item mapping. A column with a hundred thousand distinct values is a column nobody
+filters by picking from a list, so this is the worst case, not the common one — `status` is,
+and that is 4.4 ms. A host with a better answer supplies `onGetOptions` and this code never
+runs.
+
+The 100k gate was re-run because `HeaderCell` is on the render path — it now toggles one more
+class per header cell per paint. No regression: first paint 4.9 ms, flat ratio **0.92×**, 60.0 /
+60.0 fps, full repaint 0.2 ms with 0 mutations, drag 2 cells per move at both ends, and
+`measureFilter` unchanged on a fresh grid (down 3.5 ms, up 0.1 ms, 0 mutations either way).
+
+> **A measurement that misleads.** `measureFilter` reported 430–480 DOM mutations when run
+> straight after `runBenchmark`, which looks exactly like a task-16 regression and is not: the
+> benchmark leaves the grid sorted and its rows added to and deleted from, so filtering there
+> genuinely reorders what is on screen. Re-run against a fresh grid it is 0 mutations again, as
+> in task 15. Re-create the grid before measuring a filter.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -509,3 +554,4 @@ grid.)
 | 2026-08-08 | 14b | — | — | 60.0 | 0 | `VirtualList`. 100,000 options: mount **4.4 ms**, **11 rows** in the DOM, flat ratio **1.00×**, select-all 9.0 ms in **1 repaint**. Separate engine instance, so no grid gate re-run. |
 | 2026-08-08 | 14a | — | — | — | — | `Popover`. Not on the render path. Verified in the browser: flip, clamp, height cap with a scrolling body, follow-on-scroll, Escape, outside click, focus restored, resize drag exact. |
 | 2026-08-09 | 15 | 2.9–6.0 ms | 0.84× | 60.0 / 60.0 | 0 | Filters model + row filtering. 100k → 40,000 in **5.9 ms**, back up in **0.0 ms**, **1 repaint** and **0 mutations** either way, 60 fps filtered. Searching a computed column costs **+8.7%**. |
+| 2026-08-09 | 16 | 4.9 ms | 0.92× | 60.0 / 60.0 | 0 | Filter popover + options body. Opening one over 100k rows marks **1** thing on the grid and mutates **0** DOM nodes; a column with 100,000 distinct values holds **12** rows in the checklist. |

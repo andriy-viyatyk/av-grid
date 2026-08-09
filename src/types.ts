@@ -126,7 +126,16 @@ export interface Column<R = any> {
     isStatusColumn?: boolean;
 
     rowCompare?: RowCompare<R>;
-    filterType?: FilterType;
+    /**
+     * Which filter body the header funnel opens. Defaults to `"options"` — every column is
+     * filterable unless you say otherwise; pass `null` to take the funnel off this one, or
+     * `disableFiltering: true` to take it off all of them.
+     *
+     * The reference made this opt-in per column, so a grid whose author had not thought about
+     * filtering had none. Here the default is on, because the author is usually an agent and a
+     * missing funnel is invisible.
+     */
+    filterType?: FilterType | null;
 
     /** Coerce/reject an edited value. Return the value to commit. */
     validate?: (column: Column<R>, row: R, value: any) => any;
@@ -199,6 +208,28 @@ export interface OptionsFilter extends Filter {
     type?: "options";
     value?: OptionsFilterValue | readonly any[];
 }
+
+/**
+ * Supplies the options a filter popover offers. May return a promise — the list shows a
+ * loading row until it resolves, and a response overtaken by a newer one is discarded.
+ *
+ * ```js
+ * onGetOptions: async (columns, filters, columnKey, search) =>
+ *     (await fetch(`/values/${columnKey}?q=${search ?? ""}`)).json()
+ * ```
+ *
+ * `filters` is the *other* applied filters, never this column's own, so a host can offer
+ * cascading options — only the values still reachable. `search` is what the user has typed into
+ * the popover's search box; ignore it and the list narrows the returned options itself.
+ *
+ * Omit this entirely and the column's distinct values are used, already cascaded.
+ */
+export type GetFilterOptions<R = any> = (
+    columns: Column<R>[],
+    filters: Filter[],
+    columnKey: string,
+    search?: string,
+) => DisplayOption[] | Promise<DisplayOption[]>;
 
 // ---------------------------------------------------------------------------
 // Filter persistence

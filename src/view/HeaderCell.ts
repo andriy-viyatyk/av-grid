@@ -115,14 +115,26 @@ export function renderHeaderCell<R>(
         el.removeAttribute("title");
     }
 
-    // --- filter funnel (inert until task 16 wires the popover to it)
+    // --- filter funnel
+    // Filterable by default: `filterType: null` takes the funnel off one column, and
+    // `disableFiltering` off all of them. Status columns — the checkbox — have nothing to
+    // filter by.
     const filterable =
-        Boolean(column.filterType) && !model.options.disableFiltering;
+        column.filterType !== null &&
+        !column.isStatusColumn &&
+        !model.options.disableFiltering;
     structure.filter.style.display = filterable ? "" : "none";
     const filtered = model.options.filters?.some(
         (f) => f.columnKey === String(column.key),
     );
     structure.filter.classList.toggle("avg-column-filtered", Boolean(filtered));
+    // Lit while its own popover is open, so a user who scrolled sideways can still see which
+    // column they are filtering. On the model, never set by the click handler — a repaint
+    // reassigns `className`, and a class set on the element would vanish with the next frame.
+    structure.filter.classList.toggle(
+        "avg-filter-open",
+        model.flags.filterPopover?.columnKey === key,
+    );
 
     applyCellStyle(el, p.style);
     return el;

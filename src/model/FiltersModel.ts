@@ -17,9 +17,11 @@
  * passing `persistFilters` at all is the host's consent to write.
  */
 
+import { defaultCompare, filterRows, formatDisplayValue } from "../gridUtils";
 import { validateFilters } from "../validate";
 import type {
     AnyFilter,
+    Column,
     DisplayOption,
     Filter,
     FilterStorage,
@@ -160,6 +162,69 @@ function sameOption(a: any, b: any): boolean {
     return a.value === b.value;
 }
 
+/**
+ * The distinct values of one column, as options — what the popover shows when the host has not
+ * said otherwise.
+ *
+ * Ported from the reference's *host* implementation (`GridEditor.onGetOptions`), which every
+ * Persephone grid had to write for itself. Here it is the default, so `filterType: "options"`
+ * needs no host code at all — an `onGetOptions` option remains for a host whose values do not
+ * live in the rows.
+ *
+ * The options **cascade**: they are computed over the rows the *other* filters and the search
+ * box have already left, so a value that would select nothing is never offered. Two divergences
+ * from the reference, both deliberate: the grid's `searchString` narrows them too (it hides
+ * rows just as a filter does), and `search` matches the option *labels* rather than being fed
+ * back in as a row search, which is what the popover's search box means by it.
+ */
+export function defaultFilterOptions<R>(
+    rows: readonly R[],
+    columns: Column<R>[],
+    filters: readonly Filter[],
+    columnKey: string,
+    search?: string,
+    searchString?: string,
+): DisplayOption[] {
+    const column = columns.find((c) => String(c.key) === columnKey);
+    const others = filters.filter((f) => f.columnKey !== columnKey);
+
+    const distinct = new Set<any>();
+    for (const row of filterRows(rows, columns, searchString, others)) {
+        // The same rule the row filter matches by: a computed column has no row property, so
+        // its distinct values are the ones it displays.
+        distinct.add(
+            column?.formatValue ? column.formatValue(column, row) : (row as any)?.[columnKey],
+        );
+    }
+
+    const values = Array.from(distinct);
+    values.sort(defaultCompare());
+
+    const options = values.map<DisplayOption>((value) => ({
+        value,
+        // Only when true. An option becomes the filter's value, which is what `getFilters()`
+        // hands back and what persistence writes — `italic: false` on every one of them is
+        // noise in both.
+        ...(value === undefined || value === null ? { italic: true } : undefined),
+        // Named rather than blank: a row reading `(null)` is a value you can choose, an empty
+        // row is a rendering bug. `(empty)` for the empty string is applied by the list body,
+        // which is where the same rule has to hold for host-supplied options too.
+        label:
+            value === undefined
+                ? "(undefined)"
+                : value === null
+                  ? "(null)"
+                  : // The column's own formatting, so an option reads exactly as the cells it
+                    // will keep — a date option that said `Tue Jan 02 2024 00:00:00 GMT+…`
+                    // against cells reading `1/2/2024` is the same value twice over.
+                    formatDisplayValue(value, column?.displayFormat),
+    }));
+
+    if (!search) return options;
+    const lower = search.toLowerCase();
+    return options.filter((o) => o.label.toLowerCase().includes(lower));
+}
+
 function sameFilter(a: Filter, b: Filter): boolean {
     if (a === b) return true;
     if (!b || a.columnKey !== b.columnKey || a.type !== b.type) return false;
@@ -223,6 +288,43 @@ export class FiltersModel<R> {
     /** Does this column have a filter on it? The header cell's funnel reads this. */
     isFiltered(columnKey: string): boolean {
         return this.filters.some((f) => f.columnKey === columnKey);
+    }
+
+    /**
+     * The filter on this column, or a blank normalized one — what the popover opens onto.
+     *
+     * A column with no filter yet still has a `columnName`, a `type` and a `displayFormat`, so
+     * the popover never has to reach back to the column set to find out what it is editing.
+     */
+    filterOrDefault(columnKey: string): Filter {
+        const existing = this.filterFor(columnKey);
+        return existing ?? this.validate([{ columnKey }])[0];
+    }
+
+    /**
+     * The options to offer for one column — the host's `onGetOptions`, or the distinct values
+     * of the column when there is none.
+     *
+     * Handed the *other* filters, never this column's own: a checklist that excluded the values
+     * you had already unticked could never be used to tick them back on.
+     */
+    getOptions(
+        columnKey: string,
+        search?: string,
+    ): DisplayOption[] | Promise<DisplayOption[]> {
+        const columns = this.model.data.columns;
+        const others = this.filters.filter((f) => f.columnKey !== columnKey);
+        const host = this.model.options.onGetOptions;
+        return host
+            ? host(columns, others, columnKey, search)
+            : defaultFilterOptions(
+                  this.model.options.rows,
+                  columns,
+                  this.filters,
+                  columnKey,
+                  search,
+                  this.model.options.searchString,
+              );
     }
 
     setFilters = (filters: readonly Filter[] | undefined): void => {

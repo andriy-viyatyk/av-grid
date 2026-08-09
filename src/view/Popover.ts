@@ -214,6 +214,18 @@ export class Popover<T = void> {
         resolve?.(result);
     };
 
+    /**
+     * Set the size explicitly, as a resize drag does — for content that only knows how big it
+     * wants to be once it has loaded. `undefined` hands the size back to the content.
+     *
+     * The viewport clamp still applies: a size taller than the room available is capped and the
+     * content scrolls, so this can be asked for optimistically.
+     */
+    setSize(size: PopoverSize | undefined): void {
+        this.manualSize = size;
+        this.reposition();
+    }
+
     /** Drop the popover for good. Closes it first, so no listener outlives it. */
     destroy(): void {
         this.close();

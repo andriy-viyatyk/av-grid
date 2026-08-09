@@ -25,17 +25,24 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1, 2 and 3 are complete, and phase 4 is under way.** Tasks 1–14 are done, along with the
+**Phases 1, 2 and 3 are complete, and phase 4 is under way.** Tasks 1–16 are done, including the
 two primitives the filter UI needed and the library did not have — **14a `Popover`** and **14b
-`VirtualList`**, built fresh rather than ported from UIKit — and **15, the filters model**. Next
-is task 16: the filter popover and its options body, which is where all three meet.
+`VirtualList`**, built fresh rather than ported from UIKit. Next is task 17: the filter bar.
+
+**Filtering works from the header.** Every column carries a funnel (`filterType: null` takes it
+off one, `disableFiltering` off all of them); clicking it opens a searchable checklist of the
+column's distinct values, cascaded against the other filters, with select-all, Apply and Clear.
+The option list is supplied by the library unless a host passes `onGetOptions`, which may return
+a promise. Opening one over 100,000 rows marks **one** thing on the grid and mutates **zero** DOM
+nodes, and a column with 100,000 distinct values puts **12** rows in the checklist — `VirtualList`
+earning its keep.
 
 **Filters apply, persist and round-trip.** `grid.applyFilter({ columnKey: "status", value:
 ["open"] })` narrows 100,000 rows to 40,000 in **5.9 ms with one repaint and zero DOM
 mutations**, and clearing it costs **0.0 ms** because an unfiltered pass returns the same array
 it was given. `persistFilters: { name }` remembers the filters across a reload through an
 injected store — `localStorage` by default, never written to unless asked — reviving `Date`
-values without losing the labels around them. There is no filter *UI* yet: that is task 16.
+values without losing the labels around them.
 
 **Both primitives are done.** `Popover` anchors to an element or a point, flips instead of
 clipping, caps its height to the space available and scrolls, dismisses on Escape or an outside
@@ -73,7 +80,9 @@ focus-recentre that was moving the viewport 261 px behind the user's back. Task 
 cheap direction and the expensive one: filtering 100k rows down costs **5.9 ms, one repaint and
 zero mutations**, filtering back up costs nothing at all, and closing the computed-column search
 gap left over from task 13 costs **+8.7%** on a full-text search — measured, because it puts a
-host callback inside the row loop. Full results, history,
+host callback inside the row loop. Task 16's is about what a popover costs the grid *behind* it:
+opening one over 100,000 rows marks **1** cell dirty and mutates **0** DOM nodes whether the
+column has five distinct values or a hundred thousand. Full results, history,
 and the measurements that mislead if taken carelessly, in
 [`tasks/benchmark-results.md`](tasks/benchmark-results.md).
 
@@ -149,6 +158,9 @@ av-grid/
             CellSelect.ts        ← the dropdown editor, for a column with `options`
             DefaultEditFormatter.ts ← which of the two a cell gets
             HeaderCell.ts        ← label, sort indicator, resize grip, filter funnel
+            FilterPopover.ts     ← showFilterPopover(): dispatch on filterType, resolve on close
+            OptionsFilterContent.ts ← the checklist body: search, select-all, Apply, Clear
+            Button.ts            ← the two buttons the filter UI needs, and nothing else
             Popover.ts           ← the floating panel: anchor, flip, clamp, dismiss, resize
             VirtualList.ts       ← virtualized checklist: search, select-all, keyboard
             SelectColumn.ts      ← the checkbox column, as an ordinary Column

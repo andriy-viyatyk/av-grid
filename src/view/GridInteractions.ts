@@ -17,6 +17,7 @@
 import type { AVGridModel } from "../model/AVGridModel";
 import type { RenderGrid } from "../render/RenderGrid";
 import { SELECT_COLUMN_KEY } from "./SelectColumn";
+import { showFilterPopover } from "./FilterPopover";
 
 /** How close to a header's right edge a pointer must be to start a resize. */
 const RESIZE_GRIP_PX = 11;
@@ -537,10 +538,23 @@ export class GridInteractions<R> {
             const filterButton = (e.target as Element | null)?.closest?.(
                 '[data-type="filter-button"]',
             );
-            // The funnel opens a popover in task 16; until then it must not sort the column
-            // out from under the click.
+            // The funnel opens the filter popover, and must not sort the column out from under
+            // the click on its way there.
             if (filterButton) {
                 e.stopPropagation();
+                const columnKey = header.el.getAttribute("data-column-key");
+                // A second click on the funnel of the popover already open closes it, rather
+                // than reopening it — `Popover` exempts its own anchor from outside-dismissal
+                // precisely so this decision is made here.
+                if (columnKey) {
+                    if (this.model.flags.filterPopover?.columnKey === columnKey) {
+                        this.model.flags.filterPopover.close();
+                    } else {
+                        void showFilterPopover(this.model, columnKey, {
+                            anchor: filterButton,
+                        });
+                    }
+                }
                 return;
             }
             const key = header.el.getAttribute("data-column-key");
