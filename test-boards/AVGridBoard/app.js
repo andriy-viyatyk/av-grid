@@ -123,6 +123,9 @@ function createGrid(count = Number(el("rows").value) || 1000, useColumns = true)
         onColumnsReorder: (from, to) => live(`reorder: ${from} → ${to}`),
         selectColumn: true,
         onSelectionChange: (keys) => live(`selected: ${keys.length} rows`),
+        // Task 17. Takes no space until something is filtered, so it costs the other checks
+        // nothing to leave it on.
+        filterBar: true,
         editable: true,
         // The grid writes the value itself; this is the notification. The `#` column is
         // readonly and `full` is computed, so both refuse to open.
@@ -876,6 +879,85 @@ async function measureFilterPopover(count = 100000) {
     };
 }
 
+/**
+ * Task 17 — the filter bar.
+ *
+ * Two questions, and only the second is a number. **Does the bar cost the grid anything?** It
+ * lives outside the grid root, so applying a filter from a chip must repaint exactly what
+ * applying it from the API repaints, and no more. **Does it land where it says?** The popover a
+ * chip opens is anchored to the chip, which is the one thing no unit test can check — happy-dom
+ * gives every element a zero rect, so all 32 of them run on stubbed geometry.
+ */
+async function measureFilterBar(count = 100000) {
+    if (grid.getState().sourceRowCount !== count) createGrid(count);
+    grid.clearFilters();
+    await settle(3);
+
+    const bar = grid.getFilterBar().element;
+    const chips = () => Array.from(bar.querySelectorAll(".avg-filter-chip"));
+
+    // Hidden with nothing filtered, and taking no height from the grid.
+    const hidden = {
+        chips: chips().length,
+        barHeight: bar.getBoundingClientRect().height,
+    };
+
+    grid.render.resetStats();
+    const t0 = performance.now();
+    grid.setFilters([
+        { columnKey: "status", value: ["open"] },
+        { columnKey: "team", value: ["platform"] },
+    ]);
+    const applyMs = performance.now() - t0;
+    await settle(3);
+
+    const shown = {
+        chips: chips().length,
+        labels: chips().map((c) => c.querySelector(".avg-filter-chip-values").textContent),
+        barHeight: Number(bar.getBoundingClientRect().height.toFixed(1)),
+        applyMs: Number(applyMs.toFixed(2)),
+        gridMutations: grid.render.stats.cellsAppended + grid.render.stats.cellsRemoved,
+    };
+
+    // Open the first chip's popover and check it landed under the chip it belongs to.
+    const body = chips()[0].querySelector(".avg-filter-chip-body");
+    body.click();
+    await settle(4);
+    const popover = document.querySelector(".avg-filter-popover");
+    const chipRect = body.getBoundingClientRect();
+    const popRect = popover?.getBoundingClientRect();
+    const anchored = popRect
+        ? {
+              below: Number((popRect.top - chipRect.bottom).toFixed(1)),
+              alignedLeft: Number((popRect.left - chipRect.left).toFixed(1)),
+              insideViewport:
+                  popRect.left >= 0 &&
+                  popRect.top >= 0 &&
+                  popRect.right <= window.innerWidth &&
+                  popRect.bottom <= window.innerHeight,
+              chipLit: chips()[0].classList.contains("avg-filter-chip-open"),
+          }
+        : null;
+    grid.model.flags.filterPopover?.close();
+    await settle(3);
+
+    // The remove-all button, from the bar rather than from the API.
+    grid.render.resetStats();
+    const t1 = performance.now();
+    bar.querySelector('[data-action="clear-all"]').click();
+    const clearMs = performance.now() - t1;
+    await settle(3);
+
+    const cleared = {
+        chips: chips().length,
+        rows: grid.getVisibleRows().length,
+        clearMs: Number(clearMs.toFixed(2)),
+        gridMutations: grid.render.stats.cellsAppended + grid.render.stats.cellsRemoved,
+    };
+
+    return { count, hidden, shown, anchored, cleared };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -1246,6 +1328,7 @@ window.avg = {
     measureFilter,
     measureFilterStorage,
     measureFilterPopover,
+    measureFilterBar,
     measureSort,
     scrollTo,
     settle,

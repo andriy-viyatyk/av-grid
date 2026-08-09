@@ -9,7 +9,7 @@
  */
 
 import { Subscription } from "../core/events";
-import type { Column } from "../types";
+import type { Column, Filter } from "../types";
 
 export interface CellEventData<R = any> {
     row: R;
@@ -65,6 +65,15 @@ export class AVGridEvents<R> {
     readonly onRowsDeleted = new Subscription<{ rowKeys: string[] }>();
     readonly onSortColumn = new Subscription<{ columnKey: string }>();
 
+    /**
+     * The applied filters changed, however that happened.
+     *
+     * The host has `onFiltersChange` for this; the filter bar cannot use it, because a host that
+     * passes its own would find the bar had eaten it. So the bar listens here — this is the
+     * internal bus, and there is no limit on how many things subscribe to it.
+     */
+    readonly onFiltersChanged = new Subscription<Filter[]>();
+
     /** Drop every listener. Called from `grid.destroy()`. */
     clear(): void {
         for (const group of [this.cell, this.content] as unknown as Array<
@@ -79,5 +88,6 @@ export class AVGridEvents<R> {
         this.onRowsAdded.clear();
         this.onRowsDeleted.clear();
         this.onSortColumn.clear();
+        this.onFiltersChanged.clear();
     }
 }

@@ -51,6 +51,7 @@ await window.avg.measureStructure(row)    // the task-14 check: does an insert m
 await window.avg.measureFilter(count)    // the task-15 gate: filter down, narrow, back up, search
 await window.avg.measureFilterStorage()  // filters round-tripped through an injected store
 await window.avg.measureFilterPopover(count) // the task-16 gate: what a popover costs the grid
+await window.avg.measureFilterBar(count)  // the task-17 check: chip cost, and where a chip's popover lands
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`
@@ -152,6 +153,16 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   the worst case rather than the common one. **Re-create the grid before measuring a filter:**
   run `measureFilter` straight after `runBenchmark` and it reports hundreds of DOM mutations,
   because the benchmark leaves the grid sorted and its rows added to and deleted from.
+- **The filter bar** — the board runs with `filterBar: true`, so applied filters appear as chips
+  above the grid and the bar vanishes when there are none. `measureFilterBar(count)` reports chip
+  count, bar height, DOM mutations for apply and clear, and — the part no unit test can reach —
+  where the popover a chip opens actually lands relative to that chip. Quote **0 mutations** for
+  a filter change while the bar is already up; the ~20 on the first filter and the last removal
+  are the grid resizing by the bar's 32 px, not the filter. Two traps: the option list a chip
+  reopens is **cascaded**, so with `team: platform` already applied the `Status` list offers only
+  `open` and a script ticking `closed` finds nothing; and clicking a chip whose popover is already
+  open **closes** it, so a script that left one open from a previous step toggles it shut instead
+  of reopening it.
 - **Filter persistence** — `measureFilterStorage()` runs against an in-memory store rather than
   `localStorage`, deliberately: the point of the injection is that the library never writes to
   the host's storage uninvited, and a board leaving keys behind would prove the opposite. It

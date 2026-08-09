@@ -690,6 +690,137 @@ export const css = `
     color: var(--avg-accent);
 }
 
+/* --- Filter bar ------------------------------------------------------------------------
+   The bar can be mounted anywhere on the page, not only above its grid, so it carries its own
+   copy of the token block for the same reason .avg-popover does: it cannot count on inheriting
+   from a .avg-grid ancestor because it may not have one. */
+.avg-filter-bar {
+    --avg-font-family: var(--p-font-family, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+    --avg-font-size: var(--p-font-base, 13px);
+    --avg-text: var(--p-text, #202020);
+    --avg-text-muted: var(--p-text-muted, #767676);
+    --avg-bg: var(--p-bg, #ffffff);
+    --avg-accent: var(--p-accent, #0078d4);
+    --avg-border-color: color-mix(in srgb, var(--avg-text) 22%, transparent);
+    --avg-header-bg: color-mix(in srgb, var(--avg-text) 7%, var(--avg-bg));
+    --avg-hover-bg: color-mix(in srgb, var(--avg-text) 6%, transparent);
+
+    box-sizing: border-box;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 4px;
+    font-family: var(--avg-font-family);
+    font-size: var(--avg-font-size);
+    color: var(--avg-text);
+    background-color: var(--avg-header-bg);
+    border-bottom: solid 1px var(--avg-border-color);
+}
+
+/* No filters, no bar — not an empty strip of chrome, and no height taken from the grid. */
+.avg-filter-bar.avg-filter-bar-empty {
+    display: none;
+}
+
+.avg-filter-bar-chips {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+}
+
+.avg-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    background-color: var(--avg-bg);
+    border: solid 1px var(--avg-border-color);
+    border-radius: 10px;
+}
+
+.avg-filter-chip-open,
+.avg-filter-chip:hover {
+    border-color: var(--avg-accent);
+}
+
+.avg-filter-chip-body {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    padding: 1px 2px 1px 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.avg-filter-chip-name {
+    flex: 0 0 auto;
+    color: var(--avg-text-muted);
+}
+
+/* The one part that may not fit: the label is already truncated to a character budget, and
+   this catches what a wide font or a long single value gets past it. */
+.avg-filter-chip-values {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.avg-filter-chip-caret {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 0 2px;
+    color: var(--avg-text-muted);
+}
+
+.avg-filter-chip-open .avg-filter-chip-caret {
+    color: var(--avg-accent);
+}
+
+.avg-filter-chip-remove {
+    flex: 0 0 auto;
+    margin-right: 2px;
+    border-left: solid 1px var(--avg-border-color);
+    border-radius: 0;
+    color: var(--avg-text-muted);
+}
+
+.avg-filter-bar-clear {
+    flex: 0 0 auto;
+    color: var(--avg-text-muted);
+}
+
+.avg-filter-bar .avg-icon-button > svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* --- Filter bar mounted by the grid ------------------------------------------------------
+   filterBar: true puts the bar and the grid in a column, and the grid takes what is left.
+   The grid's own height is written inline by the engine, so it is set to auto here and the
+   flex line decides it — a percentage would resolve against the wrapper and overflow by
+   exactly the height of the bar. */
+.avg-grid-wrap {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    /* The same flex the engine writes on the grid root, because the wrapper takes the root's
+       place as the host's child and has to fill it the same way. Without this the wrapper is a
+       flex item at its default 0 1 auto, sizes itself to the grid's intrinsic width, and a
+       grid that used to fill a flex-row container renders in a column down the left. */
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+}
+
+.avg-grid-wrap > .avg-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 .avg-grid .avg-empty {
     position: absolute;
     inset: 0;

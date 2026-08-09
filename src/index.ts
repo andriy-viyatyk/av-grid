@@ -80,6 +80,8 @@ export {
     OPTIONS_FILTER_MIN_WIDTH,
 } from "./view/OptionsFilterContent";
 export type { OptionsFilterContentOptions } from "./view/OptionsFilterContent";
+export { FilterBar, optionsFilterValues } from "./view/FilterBar";
+export type { FilterBarOptions } from "./view/FilterBar";
 export { createButton, createIconButton } from "./view/Button";
 
 // --- helpers --------------------------------------------------------------

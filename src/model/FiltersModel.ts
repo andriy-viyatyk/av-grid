@@ -398,6 +398,9 @@ export class FiltersModel<R> {
         writeStoredFilters(this.filters, this.model.options.persistFilters);
         this.model.models.rows.updateRows();
         this.model.options.onFiltersChange?.(this.getFilters());
+        // The filter bar redraws from this. Internal, and separate from the host callback above,
+        // so a host passing `onFiltersChange` does not displace the bar's own subscription.
+        this.model.events.onFiltersChanged.send(this.getFilters());
         // The header row carries the funnel state, and `updateRows` has already marked
         // everything — but a frozen grid short-circuits that, so mark it explicitly.
         this.model.update({ rows: [0] });

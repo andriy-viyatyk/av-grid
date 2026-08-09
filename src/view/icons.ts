@@ -33,6 +33,14 @@ export const uncheckedIcon = svg(
 /** The drag grip in the corner of a resizable popover. */
 export const resizeHandleIcon = svg(`<path d="M13 6 6 13M13 10.5l-2.5 2.5"/>`);
 
+/** Remove — on a filter chip, and on the filter bar's "remove all". */
+export const closeIcon = svg(`<path d="M4 4l8 8M12 4l-8 8"/>`);
+
+/** A filter chip's disclosure: down when its popover is shut, up while it is open. */
+export const chevronDownIcon = svg(`<path d="M4 6.5 8 10.5l4-4"/>`);
+
+export const chevronUpIcon = svg(`<path d="M4 10.5 8 6.5l4 4"/>`);
+
 /** The header checkbox when some rows are selected but not all. */
 export const indeterminateIcon = svg(
     `<rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.5"/><path d="M4.5 8h7"/>`,

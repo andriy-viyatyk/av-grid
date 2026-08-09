@@ -25,9 +25,18 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1, 2 and 3 are complete, and phase 4 is under way.** Tasks 1–16 are done, including the
+**Phases 1, 2 and 3 are complete, and phase 4 is nearly done.** Tasks 1–17 are done, including the
 two primitives the filter UI needed and the library did not have — **14a `Popover`** and **14b
-`VirtualList`**, built fresh rather than ported from UIKit. Next is task 17: the filter bar.
+`VirtualList`**, built fresh rather than ported from UIKit. Next is task 17a: `CellSelect` rebuilt
+on those two primitives.
+
+**Applied filters show as removable chips.** `filterBar: true` puts a bar above the grid, or
+`AVGrid.createFilterBar(el, { grid })` puts one anywhere — both make the same object, and a grid
+can have any number of them, all live. A chip reads `Status: open,pending (+3)`; clicking its body
+reopens the popover *anchored to the chip*, its ✕ removes that filter and the ✕ at the right end
+removes them all. The bar takes no space at all until something is filtered. Every filter change
+while the bar is up mutates **zero** DOM nodes; the bar appearing or going away costs one row of
+cells, because it changes the grid's height by 32 px.
 
 **Filtering works from the header.** Every column carries a funnel (`filterType: null` takes it
 off one, `disableFiltering` off all of them); clicking it opens a searchable checklist of the
@@ -153,6 +162,7 @@ av-grid/
             EditingModel.ts      ← in-cell editing: open, commit, cancel, validate
             StructureModel.ts    ← rows and columns added and deleted
         view/                    ← the DOM, rewritten rather than transliterated
+            FilterBar.ts         ← removable chips: edit from one, remove one, remove all
             DataCell.ts          ← the hot path; allocation-light
             CellInput.ts         ← the text editor; owned by EditingModel, never pooled
             CellSelect.ts        ← the dropdown editor, for a column with `options`
@@ -303,6 +313,13 @@ writes `top` and `left`; nothing writes `position`. A cell class that forgets it
 flow, which looks correct at the top of a list — the inline width forces a wrap — and shows an
 empty band everywhere below, while every benchmark stays green, because a paint costs the same
 whether or not the row ended up where it was told. `VirtualList` shipped that way in task 14b.
+
+The same trap one level out: **anything inserted between the host and the grid root inherits the
+root's sizing contract, not just its position.** The engine writes `flex: 1 1 auto` on the root,
+so a wrapper that takes the root's place as the host's child must carry it too — task 17's filter
+bar wrapper did not, fell back to the flex default of `0 1 auto`, and sized itself to the grid's
+*intrinsic* width, rendering a full-page grid as a narrow column down the left of its host. Green
+suite, green benchmark: a paint costs the same whatever width the grid ended up.
 
 **3. Listeners go on the root, never on a cell.** `GridInteractions` binds ten listeners for
 the whole grid and resolves each event by reading `data-row` / `data-col` / `data-column-key`

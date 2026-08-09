@@ -46,6 +46,7 @@ import {
     showFilterPopover,
     type ShowFilterPopoverOptions,
 } from "./view/FilterPopover";
+import { FilterBar } from "./view/FilterBar";
 import type { AVGridOptions } from "./options";
 import {
     AVGridError,
@@ -121,6 +122,10 @@ export class AVGrid<R = any> {
     private addRowButton?: HTMLButtonElement;
     private addColumnButton?: HTMLButtonElement;
 
+    /** The flex column holding the bar and the grid — present only with `filterBar`. */
+    private readonly wrapper?: HTMLDivElement;
+    private filterBar?: FilterBar<R>;
+
     /**
      * Create a grid inside `container`.
      *
@@ -134,6 +139,42 @@ export class AVGrid<R = any> {
         return new AVGrid<R>(container, options);
     }
 
+    /**
+     * Mount a filter bar for an existing grid, wherever you want it.
+     *
+     * ```js
+     * const grid = AVGrid.create("#grid", { rows });
+     * const bar = AVGrid.createFilterBar("#toolbar", { grid });
+     * bar.destroy();   // or leave it — grid.destroy() does not own this one
+     * ```
+     *
+     * The alternative to `filterBar: true`, which puts one directly above the grid. Both make
+     * the same object, and a grid can have any number of bars watching it — they all show the
+     * same filters and any of them can edit them.
+     */
+    static createFilterBar<R = any>(
+        container: HTMLElement | string,
+        options: { grid: AVGrid<R>; className?: string; name?: string },
+    ): FilterBar<R> {
+        const host = resolveContainer(container);
+        if (!options?.grid?.model) {
+            throw new AVGridError(
+                `AVGrid.createFilterBar(container, { grid }): \`grid\` must be the grid this ` +
+                    `bar filters — what AVGrid.create() returned.`,
+            );
+        }
+        if (options.grid.model.options.injectStyles !== false) {
+            injectStyles(host.ownerDocument);
+        }
+        const bar = new FilterBar<R>({
+            model: options.grid.model,
+            className: options.className,
+            name: options.name,
+        });
+        host.appendChild(bar.element);
+        return bar;
+    }
+
     private constructor(container: HTMLElement | string, options: AVGridOptions<R>) {
         const host = resolveContainer(container);
         const resolved = resolveOptions<R>(options);
@@ -142,12 +183,25 @@ export class AVGrid<R = any> {
 
         this.model = new AVGridModel<R>(resolved);
 
+        // With a bar, the grid renders into a flex column instead of straight into the host, so
+        // that the bar can take a strip off the top and the grid the rest. The wrapper carries
+        // the definite height the engine needs; the grid root then takes `auto` and lets the
+        // flex line size it, because `100%` would resolve against the wrapper and overflow by
+        // exactly the height of the bar.
+        if (resolved.filterBar) {
+            this.wrapper = host.ownerDocument.createElement("div");
+            this.wrapper.className = "avg-grid-wrap";
+            if (!resolved.growToHeight) {
+                this.wrapper.style.height = resolveHeight(host);
+            }
+            host.appendChild(this.wrapper);
+        }
         const renderCell: RenderCellFunc = (p) =>
             p.row === 0
                 ? renderHeaderCell(this.model, p)
                 : renderDataCell(this.model, p);
 
-        this.render = new RenderGrid(host, {
+        this.render = new RenderGrid(this.wrapper ?? host, {
             name: resolved.name,
             className: ["avg-grid", resolved.className].filter(Boolean).join(" "),
             // Functions, not numbers: the counts change with every sort, filter and
@@ -162,7 +216,11 @@ export class AVGrid<R = any> {
             overscanRow: resolved.overscanRow ?? DEFAULT_OVERSCAN_ROW,
             overscanColumn: resolved.overscanColumn ?? DEFAULT_OVERSCAN_COLUMN,
             fitToWidth: resolved.fitToWidth,
-            height: resolved.growToHeight ? undefined : resolveHeight(host),
+            height: resolved.growToHeight
+                ? undefined
+                : this.wrapper
+                  ? "auto"
+                  : resolveHeight(host),
             growToHeight: resolved.growToHeight,
             growToWidth: resolved.growToWidth,
         });
@@ -178,9 +236,16 @@ export class AVGrid<R = any> {
         if (!resolved.growToHeight && host.clientHeight === 0) {
             requestAnimationFrame(() => {
                 if (this.destroyed || host.clientHeight === 0) return;
-                this.render.root.style.height = "100%";
+                // The wrapper when there is one: it is what has the definite height, and the
+                // grid inside it is sized by the flex line rather than by its own style.
+                (this.wrapper ?? this.render.root).style.height = "100%";
                 this.render.model.checkSize();
             });
+        }
+
+        if (resolved.filterBar && this.wrapper) {
+            this.filterBar = new FilterBar<R>({ model: this.model });
+            this.wrapper.insertBefore(this.filterBar.element, this.render.root);
         }
 
         // The model layer opens editors without importing the view layer; this is the seam.
@@ -204,6 +269,16 @@ export class AVGrid<R = any> {
     /** The grid's root element. Style it, or read `data-*` off its cells in a test. */
     get element(): HTMLElement {
         return this.render.root;
+    }
+
+    /**
+     * The bar `filterBar: true` created, if there is one.
+     *
+     * Bars from `AVGrid.createFilterBar()` are not here — the caller holds those, and owns
+     * destroying them.
+     */
+    getFilterBar(): FilterBar<R> | undefined {
+        return this.filterBar;
     }
 
     // -----------------------------------------------------------------------
@@ -656,6 +731,7 @@ export class AVGrid<R = any> {
         if ("selectColumn" in options) {
             this.model.models.columns.updateColumnsData(this.model.options.columns);
         }
+        if ("filterBar" in options) this.syncFilterBar();
         if ("selected" in options) this.setSelected(options.selected);
         // An editor left open on a grid that is no longer editable would commit on its next
         // blur, writing a value the host has just said it does not accept.
@@ -757,6 +833,9 @@ export class AVGrid<R = any> {
         this.interactions.destroy();
         this.model.setRenderModel(null);
         this.render.destroy();
+        this.filterBar?.destroy();
+        this.filterBar = undefined;
+        this.wrapper?.remove();
         this.model.dispose();
     }
 
@@ -777,6 +856,36 @@ export class AVGrid<R = any> {
      * and they carry no listener of their own: the click is resolved from the root like every
      * other, so there is one teardown and no element with a handler bound to it.
      */
+    /**
+     * Add or remove the built-in filter bar to match the option.
+     *
+     * Only inside the wrapper the constructor made: turning the bar *on* later would mean
+     * re-parenting a live grid — moving a scrolled, focused, possibly mid-edit element into a
+     * new box — to save a call to `AVGrid.createFilterBar()`, which does the same job without
+     * touching the grid at all.
+     */
+    private syncFilterBar(): void {
+        const wanted = Boolean(this.model.options.filterBar);
+        if (wanted === Boolean(this.filterBar)) return;
+
+        if (!wanted) {
+            this.filterBar?.destroy();
+            this.filterBar = undefined;
+            return;
+        }
+        if (!this.wrapper) {
+            console.warn(
+                `av-grid: setOptions({ filterBar: true }) — this grid was created without one, ` +
+                    `so there is nowhere above it to put a bar. Pass filterBar at create(), or ` +
+                    `mount one yourself with AVGrid.createFilterBar(el, { grid }).`,
+            );
+            this.model.options.filterBar = false;
+            return;
+        }
+        this.filterBar = new FilterBar<R>({ model: this.model });
+        this.wrapper.insertBefore(this.filterBar.element, this.render.root);
+    }
+
     private syncAffordances(): void {
         const doc = this.render.root.ownerDocument;
         const { canAddRows, canAddColumns, addRowLabel } = this.model.options;

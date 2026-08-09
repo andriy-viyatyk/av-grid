@@ -277,6 +277,22 @@ export interface AVGridOptions<R = any> {
     disableSorting?: boolean;
     /** Take the funnel off every header. A column opts out on its own with `filterType: null`. */
     disableFiltering?: boolean;
+    /**
+     * Show a bar of removable filter chips directly above the grid.
+     *
+     * ```js
+     * AVGrid.create(el, { rows, filterBar: true });
+     * ```
+     *
+     * The bar takes no space until something is filtered. To put it somewhere else — a toolbar,
+     * a panel of its own — leave this off and call `AVGrid.createFilterBar(el, { grid })`
+     * instead; a grid can have any number of bars, mounted either way.
+     *
+     * Read at `create()`: the grid wraps itself in a flex column to make room, which is not
+     * something to do to a page later. `setOptions({ filterBar: false })` still takes the bar
+     * away, and `true` puts it back on a grid that was created with one.
+     */
+    filterBar?: boolean;
 
     // -----------------------------------------------------------------------
     // Callbacks

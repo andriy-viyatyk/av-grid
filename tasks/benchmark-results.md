@@ -574,6 +574,56 @@ fps, full repaint 0 mutations, drag 2 cells per move.
 > genuinely reorders what is on screen. Re-run against a fresh grid it is 0 mutations again, as
 > in task 15. Re-create the grid before measuring a filter.
 
+## Task 17 — the filter bar — 2026-08-09
+
+Harness entry `window.avg.measureFilterBar(count)`. The bar lives *outside* the grid root, so
+there is only one performance question worth asking: does having it cost the grid anything a
+filter applied through the API would not?
+
+100,000 rows, two filters applied and then cleared:
+
+| | Time | Chips | Bar height | Grid mutations |
+|---|---|---|---|---|
+| Nothing filtered | — | 0 | **0 px** | — |
+| Two filters applied | 4.9 ms | 2 | 32 px | 20 |
+| A third filter, or a chip's value changed | 3–6 ms | — | 32 px | **0** |
+| One of two removed | 4.8 ms | 1 | 32 px | **0** |
+| Cleared from the bar's remove-all | 0.2 ms | 0 | **0 px** | 20 |
+
+**The 20s are the bar appearing and disappearing, not the filter.** The bar takes 32 px off the
+grid, which is a resize, and 20 cells is one row's worth at this width. Every filter change while
+the bar is already up mutates **nothing** — task 15's "0 mutations per filter" is intact, and the
+only two moments that cost anything are the first filter and the last removal.
+
+Anchoring, which is the part no unit test can check — happy-dom returns a zero rect for
+everything, so all 32 of the new tests run on stubbed geometry:
+
+| Popover opened from a chip | |
+|---|---|
+| Below the chip by | 4 px |
+| Left edge offset from the chip's | 3 px |
+| Inside the viewport | yes |
+| Chip lit and caret turned over | yes |
+
+The 100k gate was re-run with the bar on, because a wrapper element now sits between the host and
+the grid root: first paint 9.5 ms, flat ratio **0.70×**, 60.0 / 60.0 fps, full repaint 0.1 ms with
+0 mutations, drag 2 cells per move at both ends, editing and structure unchanged. (First paint is
+higher than task 16's 4.9 ms because the grid is measured full-width here — ten columns visible
+rather than five — not because of the bar.)
+
+### The layout bug the numbers could not see, again
+
+The bar's wrapper had `display: flex; flex-direction: column` and no `flex` of its own. The engine
+writes `flex: 1 1 auto` on the grid root; the wrapper had taken the root's place as the host's
+child without taking its sizing contract, so in a flex-row host it fell back to the default
+`0 1 auto`, sized itself to the grid's *intrinsic* width, and rendered a full-page grid as a
+689 px column down the left of a 1,477 px host.
+
+Every one of the 572 tests was green over it, and so was `measureFilterBar` — a paint costs the
+same whatever width the grid ended up. It was caught by looking at the board, which is now twice
+in two tasks: **anything inserted between a host and the grid root inherits the root's sizing
+contract, not just its position.**
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -589,3 +639,4 @@ fps, full repaint 0 mutations, drag 2 cells per move.
 | 2026-08-08 | 14a | — | — | — | — | `Popover`. Not on the render path. Verified in the browser: flip, clamp, height cap with a scrolling body, follow-on-scroll, Escape, outside click, focus restored, resize drag exact. |
 | 2026-08-09 | 15 | 2.9–6.0 ms | 0.84× | 60.0 / 60.0 | 0 | Filters model + row filtering. 100k → 40,000 in **5.9 ms**, back up in **0.0 ms**, **1 repaint** and **0 mutations** either way, 60 fps filtered. Searching a computed column costs **+8.7%**. |
 | 2026-08-09 | 16 | 4.9 ms | 0.92× | 60.0 / 60.0 | 0 | Filter popover + options body. Opening one over 100k rows marks **1** thing on the grid and mutates **0** DOM nodes; a column with 100,000 distinct values holds **12** rows in the checklist. |
+| 2026-08-09 | 17 | 9.5 ms | 0.70× | 60.0 / 60.0 | 0 | Filter bar. Every filter change while the bar is up mutates **0** DOM nodes; the bar appearing or disappearing costs one row of cells, because it takes 32 px off the grid. First paint is measured full-width here, not slower. |
