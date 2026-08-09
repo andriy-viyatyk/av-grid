@@ -624,6 +624,35 @@ same whatever width the grid ended up. It was caught by looking at the board, wh
 in two tasks: **anything inserted between a host and the grid root inherits the root's sizing
 contract, not just its position.**
 
+## Task 17a — the cell dropdown — 2026-08-09
+
+Harness entry `window.avg.measureCellSelect(count, optionCount)`. The plan's gate is *"a column
+with 10,000 options opens instantly"*, and the number that makes that true is the DOM row count,
+not the milliseconds — the milliseconds here are four settle frames either way.
+
+100,000 rows, opening the editor on a `status` cell:
+
+| Options behind the cell | DOM rows in the list | Grid mutations | Popover height |
+|---|---|---|---|
+| 5 (an enumeration — what a status column really holds) | **5** | **0** | 158 px |
+| 10,000 | **13** | **0** | 322 px, capped |
+
+Picking a row: value written, edit closed, popover gone, **0** grid mutations. Keyboard, end to
+end: the search box has the focus on open, typing `option 77` narrows 10,000 options to 13 rows,
+ArrowDown moves the highlight, Enter commits and focus lands back in the grid.
+
+The two things a native `<select>` could not do, which is why this was worth a task at all:
+
+| | |
+|---|---|
+| Popover background / board background | `rgb(31,31,31)` / `rgb(31,31,31)` — the same |
+| Font | the grid's, not the platform's control font |
+| Anchored below the cell by | 1 px, left edges aligned, inside the viewport |
+
+The 100k gate was re-run: first paint 5.3 ms, flat ratio **0.91×**, 60.0 / 60.0 fps, full repaint
+0.1 ms with 0 mutations, drag 2 cells per move at both ends, and the task-12 editing gate intact —
+1 cell marked on open, 1 on commit, 0 mutations while editing, same element after a repaint.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -639,4 +668,5 @@ contract, not just its position.**
 | 2026-08-08 | 14a | — | — | — | — | `Popover`. Not on the render path. Verified in the browser: flip, clamp, height cap with a scrolling body, follow-on-scroll, Escape, outside click, focus restored, resize drag exact. |
 | 2026-08-09 | 15 | 2.9–6.0 ms | 0.84× | 60.0 / 60.0 | 0 | Filters model + row filtering. 100k → 40,000 in **5.9 ms**, back up in **0.0 ms**, **1 repaint** and **0 mutations** either way, 60 fps filtered. Searching a computed column costs **+8.7%**. |
 | 2026-08-09 | 16 | 4.9 ms | 0.92× | 60.0 / 60.0 | 0 | Filter popover + options body. Opening one over 100k rows marks **1** thing on the grid and mutates **0** DOM nodes; a column with 100,000 distinct values holds **12** rows in the checklist. |
+| 2026-08-09 | 17a | 5.3 ms | 0.91× | 60.0 / 60.0 | 0 | Cell dropdown on `Popover` + `VirtualList`. A column with **10,000 options** puts **13** rows in the DOM and mutates **0** grid cells; the list is themed by the same `--p-*` tokens as the grid, which the native `<select>` never was. |
 | 2026-08-09 | 17 | 9.5 ms | 0.70× | 60.0 / 60.0 | 0 | Filter bar. Every filter change while the bar is up mutates **0** DOM nodes; the bar appearing or disappearing costs one row of cells, because it takes 32 px off the grid. First paint is measured full-width here, not slower. |

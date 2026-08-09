@@ -39,6 +39,14 @@ export interface CellEditor {
     element: HTMLElement;
     /** Put the caret in the control. Called once, after the element is in the document. */
     focus: () => void;
+    /**
+     * Release anything the editor owns beyond `element`, which the model removes itself.
+     *
+     * Needed once an editor stopped being a single element: the dropdown mounts a popover on
+     * `document.body`, outside the grid's DOM entirely, and removing the cell's element would
+     * leave it — and its document listeners — behind.
+     */
+    destroy?: () => void;
 }
 
 /** What an editor factory is given. Everything it needs to read, write and end the edit. */
@@ -483,8 +491,12 @@ export class EditingModel<R> {
     };
 
     private detachEditor(): void {
-        this.editor?.element.remove();
+        const editor = this.editor;
+        // Cleared first: `destroy()` can close a popover whose dismissal handler calls back in
+        // here, and the guard that stops the re-entry is this model no longer having an editor.
         this.editor = undefined;
+        editor?.destroy?.();
+        editor?.element.remove();
     }
 
     /** One cell — never a row, never the viewport. */

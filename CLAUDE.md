@@ -25,10 +25,16 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1, 2 and 3 are complete, and phase 4 is nearly done.** Tasks 1–17 are done, including the
-two primitives the filter UI needed and the library did not have — **14a `Popover`** and **14b
-`VirtualList`**, built fresh rather than ported from UIKit. Next is task 17a: `CellSelect` rebuilt
-on those two primitives.
+**Phases 1–4 are complete.** Tasks 1–17a are done, including the two primitives the filter UI
+needed and the library did not have — **14a `Popover`** and **14b `VirtualList`**, built fresh
+rather than ported from UIKit. Next is phase 5: task 18, `getState()` / introspection / `destroy()`.
+
+**The cell dropdown is the library's own DOM now.** A column with `options` opens a themed,
+virtualized list instead of a native `<select>`, whose popup the platform drew and the `--p-*`
+contract could never reach. **10,000 options put 13 rows in the DOM and mutate zero grid cells**;
+typing over a cell seeds the list's search box instead of the cell's value, a picked option keeps
+its type — `20` commits as the number, which the stringifying `<select>` could not manage — and
+Escape or a click elsewhere cancels rather than committing.
 
 **Applied filters show as removable chips.** `filterBar: true` puts a bar above the grid, or
 `AVGrid.createFilterBar(el, { grid })` puts one anywhere — both make the same object, and a grid

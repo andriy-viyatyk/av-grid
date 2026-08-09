@@ -958,6 +958,108 @@ async function measureFilterBar(count = 100000) {
     return { count, hidden, shown, anchored, cleared };
 }
 
+/**
+ * Task 17a — the cell dropdown, rebuilt on `Popover` + `VirtualList`.
+ *
+ * The gate is the one the plan states: a column with 10,000 options opens instantly. What makes
+ * that true is the same thing that makes the filter popover true — the list is virtualized — so
+ * the number to read is `domRows`, not `ms`. Two other things are checked because they are what
+ * the native `<select>` could not do and no unit test can see:
+ *
+ * - **themed** — the list is this library's DOM, so it inherits the board's `--p-*` tokens. The
+ *   check is that the popover's background is the board's, not the platform's white.
+ * - **anchored** — the list opens flush under the cell it edits, and inside the viewport, which
+ *   happy-dom's zero rects cannot answer.
+ *
+ * `gridMutations` is the same question `measureFilterPopover` asks: opening a dropdown must not
+ * make the grid behind it rebuild anything.
+ */
+async function measureCellSelect(count = 100000, optionCount = 10000) {
+    if (grid.getState().sourceRowCount !== count) createGrid(count);
+    grid.clearFilters();
+    await scrollTo(0);
+    await settle(4);
+
+    const col = grid.model.data.columns.findIndex((c) => c.key === "status");
+    const column = grid.model.data.columns[col];
+    const smallOptions = column.options;
+
+    const listRows = () =>
+        document.querySelectorAll(".avg-cell-select-popover .avg-list-item[data-index]").length;
+
+    const openAt = async (row) => {
+        grid.render.resetStats();
+        const t0 = performance.now();
+        grid.startEdit(row, col);
+        await settle(4);
+        const ms = performance.now() - t0;
+
+        const popover = document.querySelector(".avg-cell-select-popover");
+        const editor = grid.element.querySelector(".avg-cell-select");
+        const cellRect = editor?.getBoundingClientRect();
+        const popRect = popover?.getBoundingClientRect();
+
+        return {
+            ms: Number(ms.toFixed(2)),
+            domRows: listRows(),
+            gridMutations: grid.render.stats.cellsAppended + grid.render.stats.cellsRemoved,
+            anchored: popRect
+                ? {
+                      below: Number((popRect.top - cellRect.bottom).toFixed(1)),
+                      alignedLeft: Number((popRect.left - cellRect.left).toFixed(1)),
+                      insideViewport:
+                          popRect.left >= 0 &&
+                          popRect.top >= 0 &&
+                          popRect.right <= window.innerWidth &&
+                          popRect.bottom <= window.innerHeight,
+                  }
+                : null,
+            themed: popover
+                ? {
+                      background: getComputedStyle(popover).backgroundColor,
+                      boardBackground: getComputedStyle(document.body).backgroundColor,
+                      fontFamily: getComputedStyle(popover).fontFamily.split(",")[0],
+                  }
+                : null,
+        };
+    };
+
+    // The enumeration case — what a status column really holds.
+    const small = await openAt(10);
+    grid.cancelEdit();
+    await settle(3);
+
+    // The gate: ten thousand options behind one cell.
+    column.options = Array.from({ length: optionCount }, (_v, i) => `option ${i}`);
+    const wide = await openAt(11);
+
+    // Picking, from the list rather than from the API.
+    const before = grid.model.data.rows[11].status;
+    const rowEl = document.querySelector(
+        '.avg-cell-select-popover .avg-list-item[data-index="4"]',
+    );
+    const pickedLabel = rowEl?.textContent;
+    grid.render.resetStats();
+    rowEl?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle(3);
+
+    const picked = {
+        label: pickedLabel,
+        wrote: grid.model.data.rows[11].status,
+        changed: grid.model.data.rows[11].status !== before,
+        stillEditing: grid.isEditing(),
+        popoverGone: !document.querySelector(".avg-cell-select-popover"),
+        gridMutations: grid.render.stats.cellsAppended + grid.render.stats.cellsRemoved,
+    };
+
+    column.options = smallOptions;
+    grid.model.data.rows[11].status = before;
+    grid.refresh();
+    await settle(3);
+
+    return { count, optionCount, small, wide, picked };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -1329,6 +1431,7 @@ window.avg = {
     measureFilterStorage,
     measureFilterPopover,
     measureFilterBar,
+    measureCellSelect,
     measureSort,
     scrollTo,
     settle,

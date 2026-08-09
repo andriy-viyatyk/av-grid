@@ -339,8 +339,54 @@ export const css = `
     background-color: var(--avg-cell-bg);
 }
 
-.avg-grid select.avg-cell-editor {
-    padding-left: 1px;
+/*
+ * The dropdown editor's closed state: the current value and a caret, filling the cell exactly
+ * as the text editor does. It is a div rather than a select because the list it opens is drawn
+ * by this library and themed by the same tokens as the grid — a native popup is drawn by the
+ * platform and ignores every one of them.
+ */
+.avg-grid .avg-cell-select {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow: hidden;
+    cursor: default;
+    user-select: none;
+}
+
+.avg-grid .avg-cell-select-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.avg-grid .avg-cell-select-caret {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    color: var(--avg-text-muted);
+}
+
+.avg-grid .avg-cell-select-caret > svg {
+    width: 12px;
+    height: 12px;
+}
+
+/* Wide enough to read whatever the column's width happens to be — matchAnchorWidth sets the
+   width inline from the cell, and a 60px column would otherwise open a 60px list. */
+.avg-cell-select-popover {
+    min-width: 160px;
+}
+
+.avg-cell-select-popover .avg-popover-content {
+    /* The list scrolls, not the panel around it — two scrollbars on one column of options. */
+    overflow: hidden;
+}
+
+.avg-cell-select-list {
+    padding: 0 2px;
 }
 
 /* The hover tint is suppressed over an open editor — see the ::after rule above. */

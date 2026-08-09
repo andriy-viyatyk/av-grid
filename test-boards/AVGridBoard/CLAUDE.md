@@ -52,6 +52,7 @@ await window.avg.measureFilter(count)    // the task-15 gate: filter down, narro
 await window.avg.measureFilterStorage()  // filters round-tripped through an injected store
 await window.avg.measureFilterPopover(count) // the task-16 gate: what a popover costs the grid
 await window.avg.measureFilterBar(count)  // the task-17 check: chip cost, and where a chip's popover lands
+await window.avg.measureCellSelect(count, options) // the task-17a gate: 10,000 options behind one cell
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`
@@ -163,6 +164,13 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   `open` and a script ticking `closed` finds nothing; and clicking a chip whose popover is already
   open **closes** it, so a script that left one open from a previous step toggles it shut instead
   of reopening it.
+- **The cell dropdown** — `measureCellSelect(count, optionCount)` opens the editor on the `Status`
+  column twice: once with the five options the column really has, once with `optionCount` of them
+  swapped in. Read `domRows` (13 either way) rather than `ms`, which is four settle frames whatever
+  the list holds. It also reports `themed`, comparing the popover's background with the board's —
+  the check that exists because a native `<select>` would fail it. One trap: the driver mutates
+  `grid.model.data.columns[i].options` and puts the column back afterwards, so a script that stops
+  halfway leaves 10,000 options behind; `board_refresh` clears it.
 - **Filter persistence** — `measureFilterStorage()` runs against an in-memory store rather than
   `localStorage`, deliberately: the point of the injection is that the library never writes to
   the host's storage uninvited, and a board leaving keys behind would prove the opposite. It

@@ -12,7 +12,7 @@ import type { RerenderInfo } from "../render/types";
  * row object, and how many cells a commit marks dirty. Whether the editor *looks* like a cell
  * is a question for the board, and is answered there.
  */
-function withLayout<T>(fn: () => T): T {
+function installLayout(): () => void {
     const originalCreate = document.createElement.bind(document);
     document.createElement = ((tag: string) => {
         const el = originalCreate(tag) as HTMLElement;
@@ -24,11 +24,17 @@ function withLayout<T>(fn: () => T): T {
         });
         return el;
     }) as typeof document.createElement;
+    return () => {
+        document.createElement = originalCreate;
+    };
+}
 
+function withLayout<T>(fn: () => T): T {
+    const restore = installLayout();
     try {
         return fn();
     } finally {
-        document.createElement = originalCreate;
+        restore();
     }
 }
 
@@ -90,8 +96,35 @@ function editor(g: AVGrid<Row>): HTMLInputElement | null {
     return g.element.querySelector('input[data-type="cell-editor"]');
 }
 
-function selectEditor(g: AVGrid<Row>): HTMLSelectElement | null {
-    return g.element.querySelector('select[data-type="cell-editor"]');
+function selectEditor(g: AVGrid<Row>): HTMLElement | null {
+    return g.element.querySelector('.avg-cell-select[data-type="cell-editor"]');
+}
+
+/** The dropdown's list lives on `document.body`, not inside the grid — it is a popover. */
+function dropdownRows(): HTMLElement[] {
+    return Array.from(
+        document.querySelectorAll<HTMLElement>(
+            ".avg-cell-select-popover .avg-list-item[data-index]",
+        ),
+    ).sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index));
+}
+
+/**
+ * A paint with a measurable viewport in force, for the dropdown: its list is built *during*
+ * the paint, and a `RenderGrid` that measures zero renders no rows at all.
+ */
+async function paintWithLayout(g: AVGrid<Row>): Promise<void> {
+    const restore = installLayout();
+    try {
+        await paint(g);
+        // Two more frames: the paint builds the editor, a microtask focuses it and opens the
+        // popover, and the list inside it paints its rows on the frame after that.
+        await Promise.resolve();
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+    } finally {
+        restore();
+    }
 }
 
 /** A key on the grid root — which is where every key that is not inside the editor arrives. */
@@ -211,15 +244,15 @@ describe("opening an editor", () => {
         const g = grid();
         g.focusCell(0, 3);
         key(g, { key: "F2", code: "F2" });
-        await paint(g);
+        await paintWithLayout(g);
 
         const select = selectEditor(g);
         expect(select).not.toBeNull();
-        expect(Array.from(select!.options).map((o) => o.value)).toEqual([
+        expect(select!.textContent).toContain("open");
+        expect(dropdownRows().map((r) => r.textContent)).toEqual([
             "open",
             "closed",
         ]);
-        expect(select!.value).toBe("open");
     });
 
     it("marks one cell dirty, not the row", () => {
@@ -411,14 +444,13 @@ describe("committing and cancelling", () => {
         const g = grid();
         g.focusCell(0, 3);
         key(g, { key: "F2", code: "F2" });
-        await paint(g);
+        await paintWithLayout(g);
 
-        const select = selectEditor(g)!;
-        select.value = "closed";
-        select.dispatchEvent(new Event("change", { bubbles: true }));
+        dropdownRows()[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
         expect(g.isEditing()).toBe(false);
         expect(g.getRows()[0].status).toBe("closed");
+        expect(document.querySelector(".avg-cell-select-popover")).toBeNull();
     });
 });
 
