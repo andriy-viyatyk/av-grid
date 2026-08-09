@@ -319,11 +319,11 @@ export class RenderGrid {
         this.syncRegion("stickyBottomRight", info.stickyBottomRight);
 
         // Hiding the container resets its scrollTop to 0 while the model keeps the real
-        // offset; put it back once the content is there to scroll.
-        if (
-            this.container.scrollTop !== this.model.offset.y ||
-            this.container.scrollLeft !== this.model.offset.x
-        ) {
+        // offset; put it back once the content is there to scroll. Only then — a container
+        // whose position merely differs from the model's is a container the user has just
+        // scrolled, whose event has not been delivered yet, and writing our offset back there
+        // undoes the scroll. See `restoreScroll`.
+        if (this.model.scrollNeedsRestore) {
             this.model.restoreScroll();
         }
 
@@ -397,6 +397,16 @@ export class RenderGrid {
         setStyle(this.container, "overflow-y", "auto");
         setStyle(this.container, "overflow-x", this.options.fitToWidth ? "hidden" : "auto");
         setStyle(this.container, "outline", "none");
+        // Scroll anchoring off, on both the scroller and the content it scrolls.
+        //
+        // Chromium picks a node near the top of the viewport and keeps *it* still when content
+        // above it changes size — which in a virtualized list is every frame, because the rows
+        // above the viewport are the ones being recycled away. The browser then "corrects" the
+        // scroll position back, silently undoing part of the user's scroll: a list that moves
+        // every other frame and shows a blank band in between. Found in a filter popover with
+        // 100,000 options; the fix belongs here, where every RenderGrid gets it.
+        setStyle(this.container, "overflow-anchor", "none");
+        setStyle(this.area, "overflow-anchor", "none");
         setStyle(this.container, "max-height", growToHeight ?? "unset");
         setStyle(this.container, "max-width", growToWidth ?? "unset");
 

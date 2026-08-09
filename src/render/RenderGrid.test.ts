@@ -233,6 +233,46 @@ describe("scrolling and the cell pool", () => {
         expect(cellsIn(grid.area).length).toBe(11 * 6);
     });
 
+    it("does not write its own offset back over a scroll it has not been told about", async () => {
+        const { grid } = track(createGrid());
+
+        grid.container.scrollTop = 40;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // The scroll the paint has not heard about yet. A real one arrives exactly like this:
+        // the event is delivered a frame after the position changed, sometimes after that
+        // frame's rAF callbacks — so a paint runs with the container ahead of the model.
+        grid.container.scrollTop = 200;
+        grid.model.requestRepaint();
+        await nextFrame();
+
+        // The user's position stands. Putting the model's older offset back here undoes the
+        // scroll, and since that write fires a scroll event of its own the two take turns:
+        // a list that scrolls every other frame and shows a blank band in between.
+        expect(grid.container.scrollTop).toBe(200);
+    });
+
+    it("puts the position back after the grid was hidden and reshown", async () => {
+        const { grid, host } = track(createGrid());
+
+        grid.container.scrollTop = 200;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // `display: none` zeroes the container's scrollTop behind the model's back — the one
+        // case where the container is wrong and the model is right.
+        giveLayout(host.firstElementChild as HTMLElement, 0, 0);
+        grid.model.checkSize();
+        grid.container.scrollTop = 0;
+
+        giveLayout(host.firstElementChild as HTMLElement, 500, 200);
+        grid.model.checkSize();
+        await nextFrame();
+
+        expect(grid.container.scrollTop).toBe(200);
+    });
+
     it("stops allocating cell elements once the pool has warmed", async () => {
         const { grid, created, recycled } = track(createGrid());
         expect(created.length).toBe(11 * 6);

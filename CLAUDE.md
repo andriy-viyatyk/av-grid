@@ -298,6 +298,12 @@ Dropping `previous` costs ~12× on full repaints and breaks in-cell editing; dro
 allocates on every scroll frame. Prefer `firstChild.nodeValue` over `textContent`, which
 allocates a text node per cell per frame.
 
+And whatever a renderer returns, **the stylesheet has to position it absolutely**. The engine
+writes `top` and `left`; nothing writes `position`. A cell class that forgets it lays out in
+flow, which looks correct at the top of a list — the inline width forces a wrap — and shows an
+empty band everywhere below, while every benchmark stays green, because a paint costs the same
+whether or not the row ended up where it was told. `VirtualList` shipped that way in task 14b.
+
 **3. Listeners go on the root, never on a cell.** `GridInteractions` binds ten listeners for
 the whole grid and resolves each event by reading `data-row` / `data-col` / `data-column-key`
 off the nearest cell. This is not a micro-optimization — it is a correctness requirement of

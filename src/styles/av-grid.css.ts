@@ -537,6 +537,16 @@ export const css = `
     user-select: none;
 }
 
+/* The engine positions its rows; it does not position them *absolutely* — that is the
+   stylesheet's job, exactly as it is for .avg-data-cell. Without this the rows lay out in
+   flow, which looks right at the top of the list only because each row's inline width fills the
+   container and forces a wrap, and then shows an empty band everywhere below: the top the
+   engine wrote is ignored, so scrolling reveals content nobody positioned. Scoped to the grid
+   region, so the select-all row above it stays in flow. */
+.avg-list-grid .avg-list-item {
+    position: absolute;
+}
+
 .avg-list-all {
     display: flex;
     flex: 0 0 auto;

@@ -534,6 +534,40 @@ class per header cell per paint. No regression: first paint 4.9 ms, flat ratio *
 60.0 fps, full repaint 0.2 ms with 0 mutations, drag 2 cells per move at both ends, and
 `measureFilter` unchanged on a fresh grid (down 3.5 ms, up 0.1 ms, 0 mutations either way).
 
+### Three defects the numbers could not see — found by scrolling the list
+
+All three surfaced from one report: *open the filter popover on a column with many options,
+scroll down, and the list is empty below the first screenful.* Every benchmark above was green
+while all three were live, which is the point of the entry.
+
+1. **The list rows were never positioned absolutely.** The engine writes `top`/`left` on a cell;
+   making it `position: absolute` is the stylesheet's job, and `.avg-list-item` — unlike
+   `.avg-data-cell` — never said so. The rows laid out in flow, which *looks* correct at the top
+   of a list because each row's inline width fills the container and forces a wrap, and shows
+   nothing at all below: the `top` the engine wrote was ignored, so scrolling revealed content
+   nobody had positioned. Shipped in task 14b, and `measureList` had been measuring paint cost
+   and frame rate over it happily ever since — it never asked where a row *was*.
+2. **The paint wrote its own scroll offset back over the user's.** `RenderGrid.render()`
+   restored `model.offset` onto the container whenever the two differed. But a scroll event is
+   delivered a frame *after* the position changes, so a paint routinely runs with the container
+   ahead of the model — and the write undoes the scroll, then fires a scroll event of its own,
+   so the two take turns. Measured: **half of all scrolls reverted**. Now gated on a flag set
+   only when the container was actually hidden, which is the case the restore was written for.
+3. **Chromium's scroll anchoring fought the virtualization.** The browser keeps a node near the
+   top of the viewport still when content above it resizes — which in a virtualized list is
+   every frame. `overflow-anchor: none` on the scroller and its content, in the engine, where
+   every `RenderGrid` gets it.
+
+And a fourth, smaller: `VirtualList` never passed `overscanRow`, so it took the engine's default
+of **0** and drew exactly the rows that fit. The grid has always passed 4; the list now does too.
+
+After the fixes, scrolling to any offset in a 100,000-option list — including the last one,
+2,399,745 px down — lands on rows that fill the viewport, and **no scroll is lost at any step
+size** (24 px, 120 px, 240 px, 20 steps each). Re-measured: opening on `status` 3.0 ms, on
+`score` 77.5 ms, still **1 grid mark / 0 grid mutations**; the standalone list holds flat ratio
+1.03× at 60 fps; and the 100k gate is unchanged — first paint 4.7 ms, flat ratio 0.90×, 60/60
+fps, full repaint 0 mutations, drag 2 cells per move.
+
 > **A measurement that misleads.** `measureFilter` reported 430–480 DOM mutations when run
 > straight after `runBenchmark`, which looks exactly like a task-16 regression and is not: the
 > benchmark leaves the grid sorted and its rows added to and deleted from, so filtering there

@@ -59,6 +59,15 @@ export interface VirtualListOptions {
     /** Shown in place of the rows when nothing matches. */
     emptyLabel?: string;
     rowHeight?: number;
+    /**
+     * Rows drawn beyond the viewport, in the direction of travel. Defaults to 4.
+     *
+     * Not a tuning knob — without it the list draws exactly the rows that fit, and a paint
+     * happens on the frame *after* the scroll, so every scrolled frame shows a blank band as
+     * tall as that frame's scroll. The grid has always passed 4; this list was the one caller
+     * that took the engine's default of 0.
+     */
+    overscanRow?: number;
     className?: string;
     /** Fired on every selection change, with the values in the order they were selected. */
     onChange?: (values: VirtualListValue[], items: VirtualListItem[]) => void;
@@ -76,6 +85,8 @@ export interface VirtualListOptions {
 }
 
 const DEFAULT_ROW_HEIGHT = 24;
+/** Enough to cover a fast wheel notch's worth of scroll before the next paint lands. */
+const DEFAULT_OVERSCAN_ROW = 4;
 
 const CHECKED = `<span class="avg-list-box avg-checked">${checkedIcon}</span>`;
 const UNCHECKED = `<span class="avg-list-box">${uncheckedIcon}</span>`;
@@ -167,6 +178,7 @@ export class VirtualList {
             rowCount: () => this.filtered.length,
             columnCount: 1,
             rowHeight: options.rowHeight ?? DEFAULT_ROW_HEIGHT,
+            overscanRow: options.overscanRow ?? DEFAULT_OVERSCAN_ROW,
             // One column, the full width of the body. `fitToWidth` also drops the horizontal
             // whitespace allowance the grid keeps for a resizable last column.
             columnWidth: () => "100%",
