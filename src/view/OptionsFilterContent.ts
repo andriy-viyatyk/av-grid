@@ -50,7 +50,7 @@ export interface OptionsFilterContentOptions<R> {
 }
 
 /** Search box, select-all row, buttons and padding — everything that is not a list row. */
-const CHROME_HEIGHT = 34 + 25 + 41 + 8;
+const CHROME_HEIGHT = 30 + 25 + 41 + 8;
 const ROW_HEIGHT = 24;
 /** Below this the list is not worth opening; above it, it is taller than most anchors' room. */
 const MIN_HEIGHT = 180;

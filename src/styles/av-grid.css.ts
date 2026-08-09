@@ -502,11 +502,18 @@ export const css = `
     color: var(--avg-text);
 }
 
+/* Width stated rather than stretched. An input in a flex column does not fill it: its width:auto
+   resolves to the intrinsic size a text field has, so align-items:stretch never applies and the
+   box sits at ~120px however wide the popover is. The calc is the two 4px margins. */
 .avg-list-search {
     flex: 0 0 auto;
+    box-sizing: border-box;
+    width: calc(100% - 8px);
     margin: 4px;
-    padding: 3px 6px;
+    padding: 1px 6px;
+    /* After the shorthand, which would otherwise reset it. */
     font: inherit;
+    line-height: 18px;
     color: var(--avg-text);
     background-color: transparent;
     border: solid 1px var(--avg-border-color);
@@ -514,8 +521,14 @@ export const css = `
     outline: none;
 }
 
-.avg-list-search:focus {
+/* The 1px border is the focus indicator. A host's own :focus-visible ring would sit outside it
+   at whatever width that host chose — 2px on a Persephone board — and a bare .avg-list-search
+   ties with a bare :focus-visible on specificity, so it loses on source order. Scoped to the
+   list to outrank it, and both states named because the host may style either. */
+.avg-list .avg-list-search:focus,
+.avg-list .avg-list-search:focus-visible {
     border-color: var(--avg-accent);
+    outline: none;
 }
 
 .avg-list-body {
@@ -737,7 +750,7 @@ export const css = `
     max-width: 100%;
     background-color: var(--avg-bg);
     border: solid 1px var(--avg-border-color);
-    border-radius: 10px;
+    border-radius: 4px;
 }
 
 .avg-filter-chip-open,
