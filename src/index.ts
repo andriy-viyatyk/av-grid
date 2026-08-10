@@ -18,7 +18,11 @@
 // --- the grid -------------------------------------------------------------
 
 export { AVGrid } from "./AVGrid";
-export type { AVGridStateSnapshot } from "./AVGrid";
+export type {
+    AVGridStateSnapshot,
+    ColumnStateSnapshot,
+    ViewportSnapshot,
+} from "./AVGrid";
 export type { AVGridOptions, ResolvedOptions } from "./options";
 export { AVGridError } from "./validate";
 export {

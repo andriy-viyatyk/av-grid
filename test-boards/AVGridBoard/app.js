@@ -1060,6 +1060,118 @@ async function measureCellSelect(count = 100000, optionCount = 10000) {
     return { count, optionCount, small, wide, picked };
 }
 
+/**
+ * Task 18's gate: create and destroy a grid `cycles` times and watch the heap.
+ *
+ * Every grid gets the full surface — filter bar, checkbox column, add buttons, an applied
+ * filter, a focused cell, an open editor — so anything that keeps a listener, an observer, a
+ * popover or a pooled cell alive has somewhere to hide.
+ *
+ * **`heapKb` is the weakest number here and is reported last on purpose.** Without a forced
+ * GC — which needs `--js-flags=--expose-gc` — `usedJSHeapSize` measures garbage that has not
+ * been swept, so it sawtooths: consecutive runs of this very function have come back at
+ * +45 KB and −15 KB a cycle. It is a smoke signal, not evidence.
+ *
+ * The two numbers that *are* evidence:
+ *
+ * - **`domNodes`** — exact, no flag needed. Anything the library left attached shows up.
+ * - **`collected`** — a `WeakRef` is kept to every destroyed grid, then the heap is put under
+ *   real allocation pressure to provoke a collection. A grid still reachable from anywhere —
+ *   a document listener, a pending frame, a module-level registry — cannot be collected, so
+ *   this counts what actually became garbage rather than what the allocator happens to hold.
+ */
+async function measureTeardown(cycles = 100, rowCount = 2000) {
+    const built = buildRows(rowCount);
+    const host = el("grid-host");
+    grid?.destroy();
+    host.textContent = "";
+
+    const gc = window.gc ?? null;
+    const heap = () => performance.memory?.usedJSHeapSize ?? 0;
+    const nodes = () => document.querySelectorAll("*").length;
+
+    const make = () => {
+        const g = AVGrid.create(host, {
+            rows: built.rows,
+            editable: true,
+            filterBar: true,
+            selectColumn: true,
+            canAddRows: true,
+            canAddColumns: true,
+        });
+        g.applyFilter({ columnKey: "status", value: ["open"] });
+        g.focusCell(0, 1);
+        g.startEdit(0, 1);
+        return g;
+    };
+
+    // One full cycle before the baseline: the first grid injects the shared stylesheet and
+    // warms every module-level cache, and counting that as growth would be a false positive.
+    make().destroy();
+    await settle(3);
+    gc?.();
+    await settle(2);
+
+    const startNodes = nodes();
+    const startHeap = heap();
+    const startedAt = performance.now();
+
+    const refs = [];
+    let latest = null;
+    for (let i = 0; i < cycles; i++) {
+        latest = make();
+        latest.destroy();
+        refs.push(new WeakRef(latest));
+    }
+    // **This line is load-bearing.** Without it the last grid stays reachable from this
+    // binding and `collected` reads 99/100 forever — a harness artefact that looks exactly
+    // like a one-object leak, and cost a while to tell apart from one.
+    latest = null;
+
+    const ms = performance.now() - startedAt;
+    await settle(3);
+    gc?.();
+
+    // Heap first, before the pressure loop below allocates hundreds of megabytes of its own
+    // and makes the number meaningless.
+    const endNodes = nodes();
+    const endHeap = heap();
+
+    // No --expose-gc in a board, so provoke a collection the only way a page can: allocate
+    // enough that the engine has to sweep. ~60 × 8 MB, released as it goes.
+    if (!gc) {
+        for (let i = 0; i < 60; i++) {
+            const junk = new Array(1e6).fill(i);
+            if (junk[999999] === -1) console.log("unreachable");
+            await nextFrame();
+        }
+    }
+    await settle(2);
+
+    const collected = refs.filter((r) => r.deref() === undefined).length;
+
+    grid = null;
+    createGrid();
+
+    return {
+        cycles,
+        rowCount,
+        msPerCycle: Number((ms / cycles).toFixed(3)),
+        domNodes: { start: startNodes, end: endNodes, leaked: endNodes - startNodes },
+        collected: `${collected}/${cycles}`,
+        heapKb: heap()
+            ? {
+                  start: Math.round(startHeap / 1024),
+                  end: Math.round(endHeap / 1024),
+                  growthPerCycleKb: Number(
+                      ((endHeap - startHeap) / 1024 / cycles).toFixed(2),
+                  ),
+                  gcForced: Boolean(gc),
+              }
+            : "unavailable — run Chrome with --enable-precise-memory-info",
+    };
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -1432,6 +1544,7 @@ window.avg = {
     measureFilterPopover,
     measureFilterBar,
     measureCellSelect,
+    measureTeardown,
     measureSort,
     scrollTo,
     settle,

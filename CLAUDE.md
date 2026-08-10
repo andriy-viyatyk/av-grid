@@ -25,9 +25,23 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1–4 are complete.** Tasks 1–17a are done, including the two primitives the filter UI
-needed and the library did not have — **14a `Popover`** and **14b `VirtualList`**, built fresh
-rather than ported from UIKit. Next is phase 5: task 18, `getState()` / introspection / `destroy()`.
+**Phases 1–5 are all but complete.** Tasks 1–18 are done, including the two primitives the filter
+UI needed and the library did not have — **14a `Popover`** and **14b `VirtualList`**, built fresh
+rather than ported from UIKit. What is left is documentation: task 19 (`docs/api.md`) and task 20
+(`examples/`).
+
+**`getState()` answers "what is going on" in one line, and it survives `JSON.stringify`.** Every
+field is plain data — the columns are flattened to key/name/width plus sorted, filtered, editable
+and `hasRender` / `hasOptions`, because it used to hand back the live `Column[]` with its functions
+on it. There are no row objects anywhere: counts, keys and indices only, so logging a 100,000-row
+grid stays readable and puts no host data in the line. A `viewport` block reports the window the
+engine believes is on screen and the size it thinks it has, `width: 0` being the answer to the
+commonest integration failure.
+
+**`destroy()` releases everything, and there is now a test that proves it.** 100 create/destroy
+cycles of a fully-loaded grid leak **0 DOM nodes** and leave **100/100 grids collectable**, at
+6.5 ms a cycle. Afterwards a mutator warns once and does nothing while the getters still answer —
+`getState().destroyed` is `true`, which is exactly when a post-mortem wants it.
 
 **The cell dropdown is the library's own DOM now.** A column with `options` opens a themed,
 virtualized list instead of a native `<select>`, whose popup the platform drew and the `--p-*`

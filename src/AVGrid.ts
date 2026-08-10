@@ -55,7 +55,15 @@ import {
     validateColumns,
     validateSort,
 } from "./validate";
-import type { CellEdit, CellFocus, Column, Filter, SortColumn } from "./types";
+import type {
+    Alignment,
+    CellEdit,
+    CellFocus,
+    Column,
+    DataType,
+    Filter,
+    SortColumn,
+} from "./types";
 import type { GridSelection } from "./model/FocusModel";
 import type { CopyMode } from "./model/CopyPasteModel";
 import type { AVGridDataChangeEvent } from "./model/AVGridData";
@@ -82,18 +90,84 @@ function resolveHeight(host: HTMLElement): string {
     return host.clientHeight > 0 ? "100%" : FALLBACK_HEIGHT;
 }
 
+/**
+ * One column, as the grid currently has it — not the `Column` the host wrote.
+ *
+ * The declared column carries functions (`render`, `validate`, `options`) and is the live
+ * array the grid sorts and resizes; neither belongs in something meant to be logged. This is
+ * the flattened, serializable answer, with the *current* width rather than the declared one.
+ * `getColumns()` returns the real thing.
+ */
+export interface ColumnStateSnapshot {
+    key: string;
+    name: string;
+    /** The width the grid is drawing it at, after any resize. */
+    width: number | `${number}%`;
+    dataType?: DataType;
+    align?: Alignment;
+    /** Set when this is the sort column. */
+    sorted?: "asc" | "desc";
+    filtered: boolean;
+    /** Would a double-click open an editor here? `editable` and `readonly` together. */
+    editable: boolean;
+    /** A non-data column — the checkbox column is the one the library adds. */
+    isStatusColumn?: boolean;
+    /** A custom cell renderer is installed. Worth knowing when a cell shows the unexpected. */
+    hasRender: boolean;
+    /** The column has `options`, so it edits through the dropdown rather than a text box. */
+    hasOptions: boolean;
+}
+
+/**
+ * What the engine believes is on screen. The first question worth asking when a grid renders
+ * blank or shows a band of nothing, and there is nowhere else to read it.
+ *
+ * Row and column indices are inclusive and count *data* rows, so `firstRow` is 0 at the top
+ * — the header is not in here. Both are `-1` when nothing is rendered at all.
+ *
+ * `firstColumn` is the first *scrolling* column, so a grid with a checkbox column reports 1
+ * rather than 0: columns pinned to the left are always on screen and are not part of the
+ * window that scrolling moves.
+ */
+export interface ViewportSnapshot {
+    firstRow: number;
+    lastRow: number;
+    firstColumn: number;
+    lastColumn: number;
+    scrollTop: number;
+    scrollLeft: number;
+    /** The measured size of the grid root. `0` here is why a grid renders blank. */
+    width: number;
+    height: number;
+}
+
+/**
+ * Everything the grid thinks is going on, in one plain object.
+ *
+ * Every field survives `JSON.stringify` — no functions, no row objects, no DOM — because the
+ * point of this is `console.log(grid.getState())` mid-debug, and a snapshot that printed
+ * 100,000 rows would answer nothing. Payloads stay behind the accessor that returns them:
+ * `getSelected()`, `getVisibleRows()`, `getColumns()`.
+ */
 export interface AVGridStateSnapshot<R = any> {
-    columns: Column<R>[];
+    /** The library version this grid was built by — the same string as `AVGrid.version`. */
+    version: string;
+    /** The `name` option, if one was given. Which grid this is, when a page has several. */
+    name?: string;
+    destroyed: boolean;
     /** Rows currently displayed — after filtering and sorting. */
     rowCount: number;
     /** Rows given to the grid, before filtering. */
     sourceRowCount: number;
+    /** Visible columns, including the checkbox column when there is one. */
+    columnCount: number;
+    columns: ColumnStateSnapshot[];
     sort?: SortColumn;
     searchString?: string;
     /** The applied column filters, normalized. Empty when nothing is filtered. */
     filters: Filter[];
     rowHeight: number;
-    /** The focused cell and its range selection. */
+    /** The focused cell and its range selection. Keys and indices, not rows. */
     focus?: CellFocus<R>;
     /**
      * How many rows are checkbox-selected, and whether that is all of them.
@@ -104,7 +178,8 @@ export interface AVGridStateSnapshot<R = any> {
     selectedCount: number;
     allSelected: boolean;
     /** The cell being edited, if any. Present only while an editor is open. */
-    editing?: { rowKey: string; columnKey: string };
+    editing?: { rowKey: string; columnKey: string; changed: boolean };
+    viewport: ViewportSnapshot;
 }
 
 export class AVGrid<R = any> {
@@ -117,6 +192,10 @@ export class AVGrid<R = any> {
     private readonly interactions: GridInteractions<R>;
     private readonly dataSubscription: { unsubscribe: () => void };
     private destroyed = false;
+    /** Warn once per grid, not once per stale call — a dead timer can fire a lot. */
+    private warnedAfterDestroy = false;
+    /** The deferred re-measure the constructor schedules when the host is not laid out yet. */
+    private sizeCheckRaf?: number;
 
     /** The two add affordances, present only while the matching option is on. */
     private addRowButton?: HTMLButtonElement;
@@ -234,7 +313,8 @@ export class AVGrid<R = any> {
         // that case the fallback height was chosen against a measurement of zero; re-check
         // once layout has happened and fill the container after all.
         if (!resolved.growToHeight && host.clientHeight === 0) {
-            requestAnimationFrame(() => {
+            this.sizeCheckRaf = requestAnimationFrame(() => {
+                this.sizeCheckRaf = undefined;
                 if (this.destroyed || host.clientHeight === 0) return;
                 // The wrapper when there is one: it is what has the definite height, and the
                 // grid inside it is sized by the flex line rather than by its own style.
@@ -304,6 +384,7 @@ export class AVGrid<R = any> {
                 `grid.setRows(rows): rows must be an array. Pass [] to empty the grid.`,
             );
         }
+        if (!this.alive("grid.setRows()")) return;
         this.model.setRows(rows);
     }
 
@@ -312,6 +393,7 @@ export class AVGrid<R = any> {
     }
 
     setColumns(columns: Column<R>[]): void {
+        if (!this.alive("grid.setColumns()")) return;
         this.model.setColumns(
             validateColumns<R>(columns, this.model.options.rows, this.knownColumnKeys()),
         );
@@ -346,11 +428,13 @@ export class AVGrid<R = any> {
                 `grid.addRows(rows, index?): rows must be an array of row objects.`,
             );
         }
+        if (!this.alive("grid.addRows()")) return [];
         return this.model.models.structure.addRows(rows, index, true);
     }
 
     /** Add one blank row, built by `options.newRow`, and focus it. */
     addRow(index?: number): R | undefined {
+        if (!this.alive("grid.addRow()")) return undefined;
         return this.model.models.structure.addBlankRows(1, index)[0];
     }
 
@@ -362,16 +446,19 @@ export class AVGrid<R = any> {
                     `what getRowKey returns, not row objects or indices.`,
             );
         }
+        if (!this.alive("grid.deleteRows()")) return false;
         return this.model.models.structure.deleteRows([...rowKeys], true);
     }
 
     /** Delete the rows the *cell* selection covers. What ctrl+Delete does. */
     deleteSelectedRows(): boolean {
+        if (!this.alive("grid.deleteSelectedRows()")) return false;
         return this.model.models.structure.deleteSelectedRows();
     }
 
     /** Insert columns, at an index into `getColumns()`. Omit the index to append. */
     addColumns(columns: Column<R>[], index?: number): Column<R>[] {
+        if (!this.alive("grid.addColumns()")) return [];
         return this.model.models.structure.addColumns(
             validateColumns<R>(
                 columns,
@@ -384,10 +471,12 @@ export class AVGrid<R = any> {
 
     /** Add one blank column, built by `options.newColumn`. */
     addColumn(index?: number): Column<R> | undefined {
+        if (!this.alive("grid.addColumn()")) return undefined;
         return this.model.models.structure.addBlankColumns(1, index)[0];
     }
 
     deleteColumns(columnKeys: readonly string[]): boolean {
+        if (!this.alive("grid.deleteColumns()")) return false;
         return this.model.models.structure.deleteColumns([...columnKeys]);
     }
 
@@ -401,6 +490,7 @@ export class AVGrid<R = any> {
 
     /** Set or clear the sort. Pass `undefined` for unsorted. */
     setSort(sort: SortColumn | undefined): void {
+        if (!this.alive("grid.setSort()")) return;
         this.model.setSort(
             validateSort(sort ?? undefined, this.model.data.columns),
         );
@@ -411,6 +501,7 @@ export class AVGrid<R = any> {
     }
 
     setSearchString(searchString: string | undefined): void {
+        if (!this.alive("grid.setSearchString()")) return;
         this.model.setSearchString(searchString);
     }
 
@@ -436,6 +527,7 @@ export class AVGrid<R = any> {
      * `onFiltersChange` straight back cannot loop.
      */
     setFilters(filters: readonly Filter[] | undefined): void {
+        if (!this.alive("grid.setFilters()")) return;
         this.model.setFilters(filters);
     }
 
@@ -451,14 +543,17 @@ export class AVGrid<R = any> {
      * selection means "no filter", not "no rows".
      */
     applyFilter(filter: Filter): void {
+        if (!this.alive("grid.applyFilter()")) return;
         this.model.models.filters.applyFilter(filter);
     }
 
     removeFilter(columnKey: string): void {
+        if (!this.alive("grid.removeFilter()")) return;
         this.model.models.filters.removeFilter(columnKey);
     }
 
     clearFilters(): void {
+        if (!this.alive("grid.clearFilters()")) return;
         this.model.models.filters.clearFilters();
     }
 
@@ -477,6 +572,7 @@ export class AVGrid<R = any> {
         columnKey: string,
         options?: ShowFilterPopoverOptions,
     ): Promise<Filter | undefined> {
+        if (!this.alive("grid.showFilterPopover()")) return Promise.resolve(undefined);
         return showFilterPopover(this.model, columnKey, options);
     }
 
@@ -513,6 +609,7 @@ export class AVGrid<R = any> {
 
     /** Replace the selection. Accepts an array or a `Set`; `undefined` clears it. */
     setSelected(selected: Iterable<string> | undefined): void {
+        if (!this.alive("grid.setSelected()")) return;
         this.model.models.selected.setSelected(selected);
     }
 
@@ -521,15 +618,18 @@ export class AVGrid<R = any> {
     }
 
     toggleSelected(rowKey: string): void {
+        if (!this.alive("grid.toggleSelected()")) return;
         this.model.models.selected.toggleSelected(rowKey);
     }
 
     /** Select every *displayed* row — so on a filtered grid, what the user can see. */
     selectAll(): void {
+        if (!this.alive("grid.selectAll()")) return;
         this.model.models.selected.selectAll();
     }
 
     clearSelected(): void {
+        if (!this.alive("grid.clearSelected()")) return;
         this.model.models.selected.clearSelected();
     }
 
@@ -549,6 +649,7 @@ export class AVGrid<R = any> {
      * a boolean — booleans toggle instead, through `Space`, `Enter` or a double-click.
      */
     startEdit(rowIndex: number, colIndex: number): void {
+        if (!this.alive("grid.startEdit()")) return;
         this.model.models.editing.openEdit(rowIndex, colIndex);
     }
 
@@ -564,11 +665,13 @@ export class AVGrid<R = any> {
 
     /** Write the editor's value and close it. */
     commitEdit(): void {
+        if (!this.alive("grid.commitEdit()")) return;
         this.model.models.editing.commitEdit();
     }
 
     /** Close the editor, discarding what was typed. */
     cancelEdit(): void {
+        if (!this.alive("grid.cancelEdit()")) return;
         this.model.models.editing.cancelEdit();
     }
 
@@ -577,6 +680,7 @@ export class AVGrid<R = any> {
      * all happen. Returns whether anything was written.
      */
     setCellValue(rowIndex: number, colIndex: number, value: any): boolean {
+        if (!this.alive("grid.setCellValue()")) return false;
         return this.model.models.editing.editCellAt(rowIndex, colIndex, value);
     }
 
@@ -600,6 +704,7 @@ export class AVGrid<R = any> {
      * `https:` nor `localhost` falls back to `execCommand` and may still fail.
      */
     copySelection(mode: CopyMode = "copy"): Promise<boolean> {
+        if (!this.alive("grid.copySelection()")) return Promise.resolve(false);
         return this.model.models.copyPaste.copySelection(mode);
     }
 
@@ -616,6 +721,7 @@ export class AVGrid<R = any> {
      * neither does `pasteText`.
      */
     paste(): Promise<boolean> {
+        if (!this.alive("grid.paste()")) return Promise.resolve(false);
         return this.model.models.copyPaste.paste();
     }
 
@@ -633,11 +739,13 @@ export class AVGrid<R = any> {
      * through the same validation and `onEdit` call that typing does.
      */
     pasteText(text: string): boolean {
+        if (!this.alive("grid.pasteText()")) return false;
         return this.model.models.copyPaste.pasteText(text);
     }
 
     /** Copy the selection, then clear it — ctrl+X. Clears nothing unless the grid is editable. */
     cut(): Promise<boolean> {
+        if (!this.alive("grid.cut()")) return Promise.resolve(false);
         return this.model.models.copyPaste.cut();
     }
 
@@ -660,15 +768,18 @@ export class AVGrid<R = any> {
 
     /** Set the focus directly. Indices are optional — keys alone are enough. */
     setFocus(focus: CellFocus<R> | undefined): void {
+        if (!this.alive("grid.setFocus()")) return;
         this.model.models.focus.setFocus(focus);
     }
 
     clearFocus(): void {
+        if (!this.alive("grid.clearFocus()")) return;
         this.model.models.focus.clearFocus();
     }
 
     /** Focus one cell by index into the *displayed* rows, discarding any selection. */
     focusCell(rowIndex: number, colIndex: number, withScroll = false): void {
+        if (!this.alive("grid.focusCell()")) return;
         this.model.models.focus.focusCell(rowIndex, colIndex, withScroll);
     }
 
@@ -679,6 +790,7 @@ export class AVGrid<R = any> {
         endRowIndex: number,
         endColIndex: number,
     ): void {
+        if (!this.alive("grid.selectRange()")) return;
         this.model.models.focus.selectRange(
             startRowIndex,
             startColIndex,
@@ -694,6 +806,7 @@ export class AVGrid<R = any> {
 
     /** Give the grid keyboard focus, so arrow keys reach it without a click first. */
     focus(): void {
+        if (!this.alive("grid.focus()")) return;
         this.model.focusGrid();
     }
 
@@ -707,7 +820,7 @@ export class AVGrid<R = any> {
      * set late.
      */
     setOptions(options: Partial<AVGridOptions<R>>): void {
-        if (this.destroyed) return;
+        if (!this.alive("grid.setOptions()")) return;
 
         // Order matters: columns first, because row filtering matches against them.
         if ("columns" in options && options.columns) this.setColumns(options.columns);
@@ -770,26 +883,87 @@ export class AVGrid<R = any> {
     // Introspection
     // -----------------------------------------------------------------------
 
+    /** Has `destroy()` been called? */
+    isDestroyed(): boolean {
+        return this.destroyed;
+    }
+
     /**
-     * A plain, serializable answer to "what does the grid think is going on". Task 18 adds
-     * selection and focus to it.
+     * A plain, serializable answer to "what does the grid think is going on".
+     *
+     * ```js
+     * console.log(grid.getState());       // the whole picture, in one line
+     * JSON.stringify(grid.getState());    // and it survives this
+     * ```
+     *
+     * Safe to call on a destroyed grid: it answers `destroyed: true` and reports the last
+     * state the grid held, which is usually what a post-mortem wants.
      */
     getState(): AVGridStateSnapshot<R> {
         const edit = this.model.models.editing.edit;
+        const sort = this.model.state.get().sort;
+        const { getColumnWidth } = this.model.models.columns;
+        const editable = Boolean(this.model.options.editable);
+
         return {
-            editing: edit
-                ? { rowKey: edit.rowKey, columnKey: String(edit.columnKey) }
-                : undefined,
-            columns: this.model.options.columns,
+            version: AVGrid.version,
+            name: this.model.options.name,
+            destroyed: this.destroyed,
             rowCount: this.model.data.rows.length,
             sourceRowCount: this.model.options.rows.length,
-            sort: this.model.state.get().sort,
+            columnCount: this.model.data.columns.length,
+            columns: this.model.data.columns.map((column, index) => {
+                const key = String(column.key);
+                return {
+                    key,
+                    name: column.name ?? key,
+                    width: getColumnWidth(index),
+                    dataType: column.dataType,
+                    align: column.align,
+                    sorted: sort?.key === key ? sort.direction : undefined,
+                    filtered: this.model.models.filters.isFiltered(key),
+                    editable:
+                        editable && !column.readonly && !column.isStatusColumn,
+                    isStatusColumn: column.isStatusColumn,
+                    hasRender: Boolean(column.render),
+                    hasOptions: Boolean(column.options),
+                };
+            }),
+            sort,
             searchString: this.model.options.searchString,
             filters: this.model.models.filters.getFilters(),
             rowHeight: this.model.options.rowHeight,
             focus: this.model.models.focus.focus,
             selectedCount: this.model.models.selected.count,
             allSelected: this.model.models.selected.allSelected,
+            editing: edit
+                ? {
+                      rowKey: edit.rowKey,
+                      columnKey: String(edit.columnKey),
+                      changed: Boolean(edit.changed),
+                  }
+                : undefined,
+            viewport: this.viewportState(),
+        };
+    }
+
+    private viewportState(): ViewportSnapshot {
+        const { visible } = this.render.model.renderInfo.current;
+        const { offset, size } = this.render.model;
+        const rowCount = this.model.data.rows.length;
+        // `visible` is in grid rows, where 0 is the header, and is inclusive at both ends.
+        // An empty grid leaves it all-zero, which converts to a first row of -1 — right by
+        // accident, but say so rather than leave it to arithmetic.
+        const firstRow = rowCount ? Math.max(0, visible.top - 1) : -1;
+        return {
+            firstRow,
+            lastRow: rowCount ? Math.min(rowCount - 1, visible.bottom - 1) : -1,
+            firstColumn: visible.left,
+            lastColumn: visible.right,
+            scrollTop: offset.y,
+            scrollLeft: offset.x,
+            width: size.width ?? 0,
+            height: size.height ?? 0,
         };
     }
 
@@ -799,10 +973,12 @@ export class AVGrid<R = any> {
 
     /** Repaint every visible cell. The escape hatch for data mutated in place. */
     refresh(): void {
+        if (!this.alive("grid.refresh()")) return;
         this.model.update({ all: true });
     }
 
     scrollToRow(row: number, align: RowAlign = "nearest"): Promise<void> {
+        if (!this.alive("grid.scrollToRow()")) return Promise.resolve();
         // Callers count data rows; the engine counts grid rows, where 0 is the header.
         return this.render.model.scrollToRow(
             this.model.dataRowToGridRow(row),
@@ -811,6 +987,7 @@ export class AVGrid<R = any> {
     }
 
     scrollToCell(row: number, col: number): Promise<void> {
+        if (!this.alive("grid.scrollToCell()")) return Promise.resolve();
         return this.render.model.scrollTo(this.model.dataRowToGridRow(row), col);
     }
 
@@ -818,7 +995,24 @@ export class AVGrid<R = any> {
     // Teardown
     // -----------------------------------------------------------------------
 
-    /** Release everything: listeners, observers, pooled DOM. Safe to call twice. */
+    /**
+     * Release everything: listeners, observers, pooled DOM, timers. Safe to call twice.
+     *
+     * ```js
+     * grid.destroy();          // the host element is empty again
+     * grid.isDestroyed();      // true
+     * ```
+     *
+     * Nothing outside the grid holds a reference to it afterwards — no module-level registry,
+     * no document listener, no pending frame — so the whole object graph is collectable as
+     * one. The one thing left behind is the injected `<style>`, which is shared by every grid
+     * in the document and content-identical, so removing it would break the others.
+     *
+     * Anything that would *change* the grid after this warns once and does nothing, rather
+     * than throwing: a stale callback firing during a framework's unmount should not take the
+     * unmount with it. Reads still answer — `getState()` and the getters report the last
+     * state the grid held, which is usually what a post-mortem wants.
+     */
     destroy(): void {
         if (this.destroyed) return;
         // Before the flag: an open editor commits on blur, and tearing the DOM down under it
@@ -829,6 +1023,11 @@ export class AVGrid<R = any> {
         this.model.flags.filterPopover?.close();
         this.destroyed = true;
 
+        if (this.sizeCheckRaf !== undefined) {
+            cancelAnimationFrame(this.sizeCheckRaf);
+            this.sizeCheckRaf = undefined;
+        }
+
         this.dataSubscription.unsubscribe();
         this.interactions.destroy();
         this.model.setRenderModel(null);
@@ -836,7 +1035,30 @@ export class AVGrid<R = any> {
         this.filterBar?.destroy();
         this.filterBar = undefined;
         this.wrapper?.remove();
+        this.addRowButton?.remove();
+        this.addRowButton = undefined;
+        this.addColumnButton?.remove();
+        this.addColumnButton = undefined;
         this.model.dispose();
+    }
+
+    /**
+     * Guard for anything that changes the grid. `false` means "destroyed — do nothing".
+     *
+     * The model already ignores updates once disposed, so an unguarded call is harmless; what
+     * it is not is *visible*. This makes the no-op say so, once.
+     */
+    private alive(method: string): boolean {
+        if (!this.destroyed) return true;
+        if (!this.warnedAfterDestroy) {
+            this.warnedAfterDestroy = true;
+            console.warn(
+                `av-grid: ${method} was called on a grid that has been destroyed. ` +
+                    `It did nothing. Create a new grid with AVGrid.create() — a destroyed ` +
+                    `one cannot be revived.`,
+            );
+        }
+        return false;
     }
 
     // -----------------------------------------------------------------------

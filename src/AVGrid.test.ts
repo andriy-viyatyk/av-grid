@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AVGrid } from "./AVGrid";
+import { version } from "./index";
 import { AVGRID_STYLE_ID } from "./styles/av-grid.css";
 import type { AVGridOptions } from "./options";
 
@@ -437,12 +440,133 @@ describe("getState", () => {
         await settle();
 
         expect(grid.getState()).toMatchObject({
+            version: AVGrid.version,
+            destroyed: false,
             rowCount: 3,
             sourceRowCount: 3,
+            columnCount: 1,
             sort: { key: "name", direction: "desc" },
             searchString: "a",
             rowHeight: 24,
         });
+    });
+
+    it("survives JSON.stringify — no functions, no rows, no DOM", async () => {
+        const grid = create({
+            rows: people,
+            editable: true,
+            selectColumn: true,
+            columns: [
+                { key: "name", name: "Name", render: (c: any) => String(c.value) },
+                { key: "active", options: [true, false], readonly: true },
+            ],
+        });
+        grid.applyFilter({ columnKey: "name", value: ["Ada"] });
+        grid.focusCell(0, 1);
+        grid.setSelected(["1"]);
+        await settle();
+
+        // The real check: a round-trip through JSON is lossless. A live `Column` in here
+        // would drop its functions silently and hand back something that looks fine.
+        const state = grid.getState();
+        expect(JSON.parse(JSON.stringify(state))).toEqual(
+            JSON.parse(JSON.stringify(state)),
+        );
+        expect(JSON.stringify(state)).not.toContain("function");
+    });
+
+    it("flattens the columns, with the state each one is in", async () => {
+        const grid = create({
+            rows: people,
+            editable: true,
+            columns: [
+                { key: "name", name: "Name", width: 120, dataType: "string" },
+                { key: "active", readonly: true, options: [true, false] },
+            ],
+        });
+        grid.setSort({ key: "name", direction: "asc" });
+        grid.applyFilter({ columnKey: "active", value: [true] });
+        await settle();
+
+        expect(grid.getState().columns).toEqual([
+            {
+                key: "name",
+                name: "Name",
+                width: 120,
+                dataType: "string",
+                align: undefined,
+                sorted: "asc",
+                filtered: false,
+                editable: true,
+                isStatusColumn: undefined,
+                hasRender: false,
+                hasOptions: false,
+            },
+            {
+                key: "active",
+                name: "active",
+                width: expect.any(Number),
+                // Undefined, not "boolean": a dataType is only inferred for columns the grid
+                // inferred whole. A declared column is reported exactly as declared.
+                dataType: undefined,
+                align: undefined,
+                sorted: undefined,
+                filtered: true,
+                editable: false,
+                isStatusColumn: undefined,
+                hasRender: false,
+                hasOptions: true,
+            },
+        ]);
+    });
+
+    it("reports the window the engine believes is on screen", async () => {
+        const grid = create({ rows: people, columns: [{ key: "name" }] });
+        await settle();
+
+        // 300px of viewport at 24px a row, so all three rows are in it. The header is grid
+        // row 0 and is deliberately not counted: `firstRow` is a data row.
+        expect(grid.getState().viewport).toMatchObject({
+            firstRow: 0,
+            lastRow: 2,
+            firstColumn: 0,
+            scrollTop: 0,
+            scrollLeft: 0,
+        });
+    });
+
+    it("says so when there is nothing to show", async () => {
+        const grid = create({ rows: [], columns: [{ key: "name" }] });
+        await settle();
+        expect(grid.getState().viewport).toMatchObject({ firstRow: -1, lastRow: -1 });
+    });
+
+    it("reports the open edit, and whether it has been touched", async () => {
+        const grid = create({
+            rows: people,
+            editable: true,
+            columns: [{ key: "name" }],
+        });
+        await settle();
+        grid.startEdit(0, 0);
+
+        expect(grid.getState().editing).toEqual({
+            rowKey: "1",
+            columnKey: "name",
+            changed: false,
+        });
+    });
+});
+
+describe("version", () => {
+    it("is the one string, everywhere", () => {
+        // The classic drift: three copies of a version, two of them stale after a release.
+        const pkg = JSON.parse(
+            readFileSync(resolve(process.cwd(), "package.json"), "utf8"),
+        ) as { version: string };
+
+        expect(AVGrid.version).toBe(pkg.version);
+        expect(version).toBe(pkg.version);
     });
 });
 
@@ -548,5 +672,119 @@ describe("destroy", () => {
         cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
         expect(onCellClick).not.toHaveBeenCalled();
+    });
+
+    it("says it is destroyed, and still answers getState()", () => {
+        const grid = create({ rows: people, columns: [{ key: "name" }] });
+
+        expect(grid.isDestroyed()).toBe(false);
+        grid.destroy();
+
+        expect(grid.isDestroyed()).toBe(true);
+        // A post-mortem is exactly when this gets called, so it must not throw.
+        expect(grid.getState()).toMatchObject({ destroyed: true, sourceRowCount: 3 });
+    });
+
+    it("warns once and does nothing when a stale callback writes to it", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const onEdit = vi.fn();
+        const rows = [...people];
+        const grid = create({ rows, editable: true, columns: [{ key: "name" }], onEdit });
+        grid.destroy();
+
+        grid.setRows([]);
+        grid.setSort({ key: "name", direction: "asc" });
+        expect(grid.setCellValue(0, 0, "Zed")).toBe(false);
+        expect(grid.addRows([{ id: 9, name: "Nine", active: true }])).toEqual([]);
+
+        // The host's own array is untouched, and no callback fired against a dead grid.
+        expect(rows).toHaveLength(3);
+        expect(onEdit).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0]?.[0])).toContain("has been destroyed");
+        warn.mockRestore();
+    });
+
+    it("closes an open editor and its popover before tearing the DOM down", async () => {
+        const grid = create({
+            rows: people,
+            editable: true,
+            columns: [{ key: "name", options: ["Ada", "Grace"] }],
+        });
+        await settle();
+        grid.startEdit(0, 0);
+        await settle();
+
+        grid.destroy();
+
+        expect(grid.isEditing()).toBe(false);
+        expect(document.querySelector(".avg-popover")).toBeNull();
+        expect(document.querySelector(".avg-cell-editor")).toBeNull();
+    });
+
+    /**
+     * The plan's gate: create and destroy a grid 100 times and watch memory stay flat.
+     *
+     * A DOM emulator cannot weigh a heap, so what is checked here is the thing that would
+     * *make* it climb — something outside the grid still pointing at it. Every listener and
+     * every node the library adds is counted, and after 100 cycles both must be back where
+     * they started. The heap measurement itself is a board job: `window.avg.measureTeardown()`.
+     */
+    it("leaves nothing behind after 100 create/destroy cycles", async () => {
+        const listeners = new Map<string, number>();
+        const count = (target: string, delta: number) => (e: string) =>
+            listeners.set(`${target}:${e}`, (listeners.get(`${target}:${e}`) ?? 0) + delta);
+
+        const patch = (target: Document | Window, name: string) => {
+            const add = target.addEventListener.bind(target);
+            const remove = target.removeEventListener.bind(target);
+            const tally = { add: count(name, 1), remove: count(name, -1) };
+            target.addEventListener = ((t: string, ...rest: any[]) => {
+                tally.add(t);
+                return (add as any)(t, ...rest);
+            }) as any;
+            target.removeEventListener = ((t: string, ...rest: any[]) => {
+                tally.remove(t);
+                return (remove as any)(t, ...rest);
+            }) as any;
+            return () => {
+                target.addEventListener = add;
+                target.removeEventListener = remove;
+            };
+        };
+
+        const restore = [patch(document, "document"), patch(window, "window")];
+        // The style element is shared by every grid in the document and is meant to outlive
+        // them, so it is put in place before the baseline rather than counted as a leak.
+        const baselineNodes = (() => {
+            const first = create({ rows: people, columns: [{ key: "name" }] });
+            first.destroy();
+            grids.pop();
+            return document.querySelectorAll("*").length;
+        })();
+
+        for (let i = 0; i < 100; i++) {
+            const host = document.createElement("div");
+            document.body.append(host);
+            const grid = withLayout(() =>
+                AVGrid.create(host, {
+                    rows: people,
+                    editable: true,
+                    filterBar: true,
+                    selectColumn: true,
+                    canAddRows: true,
+                    columns: [{ key: "name" }, { key: "active" }],
+                }),
+            );
+            grid.applyFilter({ columnKey: "name", value: ["Ada"] });
+            grid.focusCell(0, 0);
+            grid.destroy();
+            host.remove();
+        }
+        await settle();
+        restore.forEach((r) => r());
+
+        expect(document.querySelectorAll("*").length).toBe(baselineNodes);
+        expect([...listeners].filter(([, n]) => n !== 0)).toEqual([]);
     });
 });

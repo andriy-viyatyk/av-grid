@@ -653,6 +653,60 @@ The 100k gate was re-run: first paint 5.3 ms, flat ratio **0.91×**, 60.0 / 60.0
 0.1 ms with 0 mutations, drag 2 cells per move at both ends, and the task-12 editing gate intact —
 1 cell marked on open, 1 on commit, 0 mutations while editing, same element after a repaint.
 
+## Task 18 — introspection and teardown — 2026-08-10
+
+Harness entry `window.avg.measureTeardown(cycles, rowCount)`. The plan's gate is *"creating and
+destroying a grid 100 times in a loop shows flat memory"*. Each cycle builds a grid with the whole
+surface on it — filter bar, checkbox column, both add buttons, an applied filter, a focused cell
+and an open editor — and destroys it.
+
+| | 100 cycles, 2,000 rows |
+|---|---|
+| Time per cycle | 6.5 ms |
+| DOM nodes leaked | **0** (27 before, 27 after) |
+| Grids collected | **100 / 100** |
+
+### `usedJSHeapSize` was the wrong instrument
+
+The obvious way to measure this is a heap delta, and it does not work. Without
+`--js-flags=--expose-gc` a page cannot force a collection, so `usedJSHeapSize` reports whatever
+garbage has not been swept yet. Four consecutive runs of the *same* measurement:
+
+| Run | Heap growth per cycle |
+|---|---|
+| 1 | +45.3 KB |
+| 2 | **−15.5 KB** |
+| 3 | +39.1 KB |
+| 4 | +19.0 KB |
+
+A number that comes back negative on a leak test is not measuring a leak. It is measuring the
+allocator's mood, and a real leak of a few kilobytes a cycle would be invisible underneath it.
+
+What answers the actual question — *is anything still reachable?* — is a `WeakRef` to every
+destroyed grid plus enough allocation pressure to provoke a sweep. Something still pointing at a
+grid, from a document listener or a pending frame or a module-level registry, keeps it alive and
+uncollected. It reads 100/100, and it earned its keep on the first run: it read **99/100** until
+the harness stopped holding the last grid in its own loop binding — an artefact that looks exactly
+like a one-object leak and took a bisect to tell apart from one. The line that fixes it carries a
+comment saying so.
+
+### Two teardown gaps it found
+
+Neither survived past the next frame, so neither was a leak in the strict sense — but both are
+what the 100-cycle test exists to catch, and both are now closed:
+
+- **The constructor's deferred re-measure was never cancelled.** When the host is not laid out yet
+  the grid schedules a `requestAnimationFrame` to re-check its height; `destroy()` did not cancel
+  it, so every destroyed grid held itself alive for one more frame.
+- **The two add-affordance buttons outlived the grid.** They are `addOverlay` children of a render
+  *region*, not of the root, so `render.destroy()` removing the root did not take them with it.
+
+The render path was not touched, but the gate was re-run anyway: first paint 8.0 ms, flat ratio
+**0.88×**, 60.0 / 60.0 fps, full repaint 0.10 ms with **0** mutations, drag 2 cells per move at
+both ends. Select-all reported 10 mutations *inside the full benchmark run* and **0** on its own —
+the cold cell pool left by the preceding scroll phase, the same artefact task 17a saw, not a cost
+of anything in this task.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -670,3 +724,4 @@ The 100k gate was re-run: first paint 5.3 ms, flat ratio **0.91×**, 60.0 / 60.0
 | 2026-08-09 | 16 | 4.9 ms | 0.92× | 60.0 / 60.0 | 0 | Filter popover + options body. Opening one over 100k rows marks **1** thing on the grid and mutates **0** DOM nodes; a column with 100,000 distinct values holds **12** rows in the checklist. |
 | 2026-08-09 | 17a | 5.3 ms | 0.91× | 60.0 / 60.0 | 0 | Cell dropdown on `Popover` + `VirtualList`. A column with **10,000 options** puts **13** rows in the DOM and mutates **0** grid cells; the list is themed by the same `--p-*` tokens as the grid, which the native `<select>` never was. |
 | 2026-08-09 | 17 | 9.5 ms | 0.70× | 60.0 / 60.0 | 0 | Filter bar. Every filter change while the bar is up mutates **0** DOM nodes; the bar appearing or disappearing costs one row of cells, because it takes 32 px off the grid. First paint is measured full-width here, not slower. |
+| 2026-08-10 | 18 | 8.0 ms | 0.88× | 60.0 / 60.0 | 0 | Introspection and teardown. 100 create/destroy cycles: **0 DOM nodes leaked**, **100/100 grids collected**, 6.5 ms a cycle. `getState()` is JSON-serializable throughout. Render path untouched; gate re-run for the record. |

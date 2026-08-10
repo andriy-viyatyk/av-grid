@@ -188,7 +188,11 @@ describe("opening an editor", () => {
 
         expect(g.isEditing()).toBe(true);
         expect(editor(g)?.value).toBe("Row 3");
-        expect(g.getState().editing).toEqual({ rowKey: "3", columnKey: "name" });
+        expect(g.getState().editing).toEqual({
+            rowKey: "3",
+            columnKey: "name",
+            changed: false,
+        });
     });
 
     it("opens on Enter, and on a double-click", async () => {
