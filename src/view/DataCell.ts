@@ -24,10 +24,34 @@ import type { RenderCellParams, RenderedCell } from "../render/types";
 import type { AVGridModel } from "../model/AVGridModel";
 import type { CellContext, Column } from "../types";
 import { columnDisplayValue, formatDisplayValue, gridBoolean } from "../gridUtils";
-import { checkIcon } from "./icons";
+import { checkedIcon, checkIcon, uncheckedIcon } from "./icons";
 import { applyCellStyle, setText } from "./cellDom";
 
 type ContentMode = "text" | "bool" | "html" | "node" | "editor";
+
+/**
+ * The shapes a boolean cell takes, as constant markup.
+ *
+ * A boolean shows a tick or nothing — never the word "false". On an **editable** column the tick
+ * is wrapped in a checkbox, which is the only way to change a boolean with the pointer: there is
+ * no text editor to open. Under the pointer the wrapper shows a framed box instead, so the thing
+ * to click is visible before it is clicked.
+ *
+ * **The box is in the DOM whether or not the cell is hovered, and that is the whole point.** The
+ * first version emitted it only for the hovered cell, which meant the hit target did not exist
+ * until the frame *after* the pointer arrived — so clicking a checkbox the moment you reached it
+ * landed on an empty cell, and marking a column of records cost two clicks each: one to conjure
+ * the box, one to use it. Only the glyph inside the wrapper is hovered now. An unchecked cell at
+ * rest is therefore an empty 16×16 wrapper: invisible, and already under the pointer.
+ *
+ * `data-type` is what `GridInteractions` resolves the click by; the element carries no listener
+ * of its own, because it is pooled.
+ */
+const TICK = `<span class="avg-check-icon">${checkIcon}</span>`;
+const BOX_ON = `<span class="avg-bool-box avg-checked" data-type="bool-toggle">${TICK}</span>`;
+const BOX_OFF = `<span class="avg-bool-box" data-type="bool-toggle"></span>`;
+const BOX_ON_HOVERED = `<span class="avg-bool-box avg-checked" data-type="bool-toggle">${checkedIcon}</span>`;
+const BOX_OFF_HOVERED = `<span class="avg-bool-box" data-type="bool-toggle">${uncheckedIcon}</span>`;
 
 const mode = new WeakMap<HTMLElement, ContentMode>();
 
@@ -150,16 +174,25 @@ export function renderDataCell<R>(
             el.appendChild(rendered);
         }
     } else if (column.dataType === "boolean") {
-        // A boolean column shows a check or nothing — never the word "false".
         setMode(el, "bool");
         const checked = gridBoolean(value);
-        const wanted = checked ? checkIcon : "";
-        if (el.innerHTML !== wanted) el.innerHTML = wanted;
-        if (checked) {
-            (el.firstElementChild as HTMLElement | null)?.classList.add(
-                "avg-check-icon",
-            );
+        // The glyph is chosen per *cell*, not per row: a row-wide swap would frame a box in every
+        // boolean column at once when only one of them is under the pointer. `hovered.col` is
+        // already tracked and the hovered row is already repainted on every hover move, so this
+        // costs two comparisons rather than a repaint. Every branch is a constant, so a cell
+        // whose state did not change compares equal and is not touched at all.
+        let wanted: string;
+        if (!editing.canEdit(column)) {
+            wanted = checked ? TICK : "";
+        } else if (
+            model.data.hovered.row === dataRow &&
+            model.data.hovered.col === p.col
+        ) {
+            wanted = checked ? BOX_ON_HOVERED : BOX_OFF_HOVERED;
+        } else {
+            wanted = checked ? BOX_ON : BOX_OFF;
         }
+        if (el.innerHTML !== wanted) el.innerHTML = wanted;
     } else {
         setMode(el, "text");
         setText(el, displayText(column, row, value));

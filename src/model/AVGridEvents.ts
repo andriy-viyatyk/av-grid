@@ -22,11 +22,23 @@ export interface CellMouseEventData<R = any> extends CellEventData<R> {
     e: MouseEvent;
 }
 
+export interface CellMouseDownEventData<R = any> extends CellMouseEventData<R> {
+    /**
+     * Was this cell already the focused one when the pointer went down?
+     *
+     * Resolved by the sender rather than by a listener, because `FocusModel` subscribes first
+     * and moves the focus onto this very cell — by the time `EditingModel` is called the answer
+     * is always yes. The reference got it free: its focus was a React prop, so it still held the
+     * pre-click value while the handler ran.
+     */
+    wasFocused: boolean;
+}
+
 class CellEvents<R = any> {
     readonly onClick = new Subscription<CellMouseEventData<R>>();
     readonly onDoubleClick = new Subscription<CellMouseEventData<R>>();
     /** A pointer went down on a cell. Carries `shiftKey` and `button`, so it decides the anchor. */
-    readonly onMouseDown = new Subscription<CellMouseEventData<R>>();
+    readonly onMouseDown = new Subscription<CellMouseDownEventData<R>>();
     readonly onContextMenu = new Subscription<CellMouseEventData<R>>();
 
     /**

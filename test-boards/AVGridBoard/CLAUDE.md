@@ -102,6 +102,9 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   opens a dropdown *and* has a custom `render` — the two coexist. `Active` is a boolean, so
   Space and Enter toggle it across the whole selection instead of opening anything. `#` is
   readonly and `Full Name` is computed, so neither opens. Delete clears the selected cells.
+  `Full Name` is also the check that a commit repaints the **row** and not just the edited cell:
+  edit `Last Name` and it must change with it, without the row being hovered afterwards. Note
+  that `measureEditing`'s `dirtyCellsOnCommit` counts `cells + rows`, so its `1` is one *row*.
 - **Clipboard** — ctrl+C copies the selected range as tab-separated text, ctrl+shift+C adds a
   header row, ctrl+V pastes into the selection, ctrl+X copies and clears. Copy and paste ride
   the browser's own clipboard events, so they need no permission — which also means they are

@@ -84,7 +84,11 @@ There is a working grid. `AVGrid.create(el, { rows })` renders a real one — co
 labels, widths, row keys and data types all inferred — with header sorting, column resize and
 reorder, custom cell renderers, a search filter, cell focus, full keyboard navigation, range
 selection by drag or by shift, row selection through a checkbox column, in-cell editing
-(`editable: true`), Excel-compatible clipboard copy/cut/paste, rows and columns added and
+(`editable: true`, opened by a press on the cell that already has the focus — so a cold cell
+takes two clicks and a focused one takes a single click, as the reference did; an editable boolean
+cell carries a checkbox that toggles on the first click, and only the box toggles — the cell
+around it just selects; Tab and the vertical arrows commit and move on, while the horizontal ones
+stay with the caret), Excel-compatible clipboard copy/cut/paste, rows and columns added and
 deleted by button, keyboard or API, column filters applied through the API, and a stylesheet
 driven entirely by CSS custom properties.
 
@@ -350,3 +354,14 @@ against the wrong column. For the same reason, **state that a handler wants to s
 the model, not on the element**: a repaint reassigns `className`, so a class set directly by an
 event handler vanishes on the next frame. That is why the column-drag state lives on
 `model.flags` and `HeaderCell` reads it.
+
+The consequence that bites hardest: **an affordance *inside* a cell must be resolved on
+`pointerdown`, never on `click`.** A real click holds the button for ~100 ms, and any state the
+press itself changes — the focus it moves, the hover it triggers — repaints the cell in between
+and rewrites its content, replacing the element the press landed on. The browser then dispatches
+`click` on the nearest surviving ancestor, which is the cell, and the affordance is nowhere in the
+event's path. That is what made the boolean checkbox need two clicks: the first one appeared to do
+nothing, and the second worked only because by then nothing was left to change. It cannot be
+caught by dispatching `pointerdown`/`pointerup`/`click` in one task, which is what a test does —
+there has to be a frame in the middle, as there is in every real press. `click` is safe against
+the cell itself, because `data-row` / `data-col` are re-read from whatever element survived.

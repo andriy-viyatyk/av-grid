@@ -298,7 +298,15 @@ export const css = `
     display: none;
 }
 
-.avg-grid .avg-select-box {
+/*
+ * The row-selection checkbox, and the one an editable boolean cell carries. Both keep their 16x16
+ * box even when empty, which for the boolean is what makes the first click on it land: the hit
+ * target does not wait to be revealed. Neither is conditional on hover — the glyph inside a
+ * boolean's box is chosen in the render path, where the grid already knows which cell the pointer
+ * is on.
+ */
+.avg-grid .avg-select-box,
+.avg-grid .avg-bool-box {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -308,7 +316,8 @@ export const css = `
     cursor: pointer;
 }
 
-.avg-grid .avg-select-box.avg-checked {
+.avg-grid .avg-select-box.avg-checked,
+.avg-grid .avg-bool-box.avg-checked {
     color: var(--avg-accent);
 }
 
@@ -398,6 +407,9 @@ export const css = `
 /* ---------------------------------------------------------------- pieces */
 
 .avg-grid .avg-check-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 16px;
     height: 16px;
     flex: 0 0 auto;

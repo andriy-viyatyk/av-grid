@@ -97,6 +97,7 @@ export class EditingModel<R> {
         this.model = model;
         this.model.events.content.onKeyDown.subscribe(this.onContentKeyDown);
         this.model.events.cell.onDoubleClick.subscribe(this.onCellDoubleClick);
+        this.model.events.cell.onMouseDown.subscribe(this.onCellMouseDown);
     }
 
     // -----------------------------------------------------------------------
@@ -199,13 +200,15 @@ export class EditingModel<R> {
         this.editRow = -1;
         this.editCol = -1;
 
-        // Silent, because the `markCell` below repaints this very cell anyway — the editor is
-        // leaving it and the value is arriving, and that is one repaint, not two.
+        // Silent, because the `markRow` below covers it — the editor is leaving this cell and
+        // the value is arriving in it, and that is one repaint, not two.
         if (commit && edit.changed) {
             this.editCellAt(dataRow, colIndex, edit.value, true);
         }
 
-        this.markCell(dataRow, colIndex);
+        // The row rather than the cell even when nothing was committed: one repaint either way,
+        // and getting it wrong on the commit path is what left computed columns stale.
+        this.markRow(dataRow);
         this.closing = false;
 
         if (focusGrid) this.model.focusGrid();
@@ -303,7 +306,7 @@ export class EditingModel<R> {
             this.model.data.change();
         }
 
-        if (!silent) this.markCell(dataRow, colIndex);
+        if (!silent) this.markRow(dataRow);
         return true;
     };
 
@@ -353,6 +356,24 @@ export class EditingModel<R> {
             }
         }
         if (changed) this.model.update({ all: true });
+    };
+
+    /**
+     * Flip one boolean cell — the checkbox a hovered, editable boolean cell shows.
+     *
+     * Deliberately *not* `toggleBooleans`: the pointer is on one cell and means that one, even
+     * when a range happens to be selected around it. The keyboard is where "flip all of these"
+     * lives, because that is where a selection is the thing being acted on.
+     */
+    toggleBooleanCell = (dataRow: number, colIndex: number): void => {
+        const column = this.model.data.columns[colIndex];
+        const row = this.model.data.rows[dataRow];
+        if (row === undefined || !this.canEdit(column)) return;
+        if (column.dataType !== "boolean") return;
+
+        this.editCellAt(dataRow, colIndex, !gridBoolean((row as any)[column.key]));
+        // The click landed on a span inside the cell, and the grid's keys arrive on the root.
+        this.model.focusGrid();
     };
 
     /**
@@ -499,7 +520,7 @@ export class EditingModel<R> {
         editor?.element.remove();
     }
 
-    /** One cell — never a row, never the viewport. */
+    /** One cell — never a row, never the viewport. For an editor opening, which changes one. */
     private markCell(dataRow: number, colIndex: number): void {
         if (dataRow < 0 || colIndex < 0) return;
         this.model.update({
@@ -507,9 +528,54 @@ export class EditingModel<R> {
         });
     }
 
+    /**
+     * One row — what a *written* value marks, rather than the one cell that was written.
+     *
+     * A computed column reads the whole row, so editing "lastName" changes what a "fullName"
+     * cell should say. Marking only the edited cell left the computed one showing the old value
+     * until something else happened to repaint it — hovering the row, most visibly, which is a
+     * bug that looks like the grid needing to be poked. There is no way to know which other
+     * cells a host's `render` or `formatValue` depends on, and a row is the widest thing an edit
+     * to one of its values can affect, so a row is what gets marked.
+     *
+     * The cost is a row instead of a cell: ~10 cells against 1, still nothing beside the
+     * viewport, and it stays flat as the grid grows because a row is a row at 100,000 as at 20.
+     */
+    private markRow(dataRow: number): void {
+        if (dataRow < 0) return;
+        this.model.update({ rows: [this.model.dataRowToGridRow(dataRow)] });
+    }
+
     // -----------------------------------------------------------------------
     // Input
     // -----------------------------------------------------------------------
+
+    /**
+     * A press on the cell that already had the focus opens the editor — the reference's
+     * behaviour, and the one a spreadsheet trains people to expect: the first click focuses a
+     * cell, the second one edits it. A double-click therefore still works on a cold cell,
+     * because its second press lands on a cell the first press focused.
+     *
+     * On mousedown rather than click so the caret is in the input before the button comes back
+     * up, and so this decision is made before `GridInteractions` arms a range drag.
+     */
+    private onCellMouseDown = (data: {
+        e: MouseEvent;
+        rowIndex: number;
+        colIndex: number;
+        col: Column<R>;
+        wasFocused: boolean;
+    }): void => {
+        if (!data.wasFocused || data.e.button !== 0) return;
+        // Any modifier means the press is doing something else: shift extends the range, ctrl
+        // and meta are the host's or the platform's.
+        if (data.e.shiftKey || data.e.ctrlKey || data.e.altKey || data.e.metaKey) return;
+        if (!this.canEdit(data.col) || data.col.dataType === "boolean") return;
+        // Already open on this cell — a press inside the editor, or the second half of a
+        // double-click. Re-opening would commit and rebuild it, losing the caret.
+        if (this.isEditingCell(data.rowIndex, data.colIndex)) return;
+        this.openEdit(data.rowIndex, data.colIndex);
+    };
 
     private onCellDoubleClick = (data: {
         rowIndex: number;
@@ -521,6 +587,9 @@ export class EditingModel<R> {
             this.toggleBooleans(false);
             return;
         }
+        // The press that began this double-click already opened it, on the cell its predecessor
+        // focused. Only a boolean, above, still has work to do here.
+        if (this.isEditingCell(data.rowIndex, data.colIndex)) return;
         this.openEdit(data.rowIndex, data.colIndex);
     };
 

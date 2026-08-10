@@ -38,14 +38,22 @@ export function createCellInput<R>(ctx: EditorContext<R>): CellEditor {
                 ctx.cancel();
                 break;
             case "Tab":
-                // Commit, then let the grid move the focus one cell — the grid's own Tab
+            case "ArrowUp":
+            case "ArrowDown":
+                // Commit, then let the grid move the focus one cell — the grid's own key
                 // handling, reached directly because the event came from an input.
+                //
+                // A cell editor is a single-line input, so the vertical arrows have nothing to
+                // do inside it and the horizontal ones have everything: left and right move the
+                // caret through the text, up and down move to the next record. That split is
+                // the reference's, and it is what makes a column editable at typing speed —
+                // otherwise Tab is the only way out and every row ends with a reach for Enter.
                 e.preventDefault();
                 ctx.commitAndPass(e);
                 break;
             default:
-                // Everything else belongs to the caret: arrows move within the text, Home and
-                // End go to its ends, and the grid must not also act on them.
+                // Everything else belongs to the caret: the horizontal arrows move within the
+                // text, Home and End go to its ends, and the grid must not also act on them.
                 e.stopPropagation();
                 break;
         }

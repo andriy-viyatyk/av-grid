@@ -1319,7 +1319,7 @@ function renderResults(r) {
         ${row(
             "Commit the edit",
             `${r.editing.commitMs.toFixed(3)} ms`,
-            `${r.editing.dirtyCellsOnCommit} cells marked · editor survived repaint: ${r.editing.sameElementAfterRepaint}`,
+            `${r.editing.dirtyCellsOnCommit} row marked · editor survived repaint: ${r.editing.sameElementAfterRepaint}`,
         )}
         ${row(
             "Copy 1,000 rows × 2 columns",

@@ -241,12 +241,21 @@ export class GridInteractions<R> {
         // follows is still delivered, and is what toggles the checkbox.
         if (context.column.isStatusColumn) return;
 
+        // Read before sending: `FocusModel` listens too, and moves the focus onto this cell.
+        const focus = this.model.models.focus.focus;
+        const wasFocused = Boolean(
+            focus &&
+                focus.rowKey === context.rowKey &&
+                String(focus.columnKey) === String(context.column.key),
+        );
+
         this.model.events.cell.onMouseDown.send({
             e,
             row: context.row,
             col: context.column,
             rowIndex: cell.row,
             colIndex: cell.col,
+            wasFocused,
         });
 
         if (e.button !== 0) return;
@@ -255,6 +264,26 @@ export class GridInteractions<R> {
         // grid and highlights whatever is around it. The grid's own cells set `user-select:
         // none`, but the page outside them does not.
         e.preventDefault();
+
+        // The checkbox in an editable boolean cell, resolved on the press rather than on the
+        // click — because by the time the click arrives the box is often a different element.
+        // A real press holds the button for ~100ms, and the focus this press just moved (plus
+        // the hover glyph swap) repaints the cell in between, rewriting its content. The
+        // browser then dispatches `click` on the nearest surviving ancestor, the cell itself,
+        // and the box is nowhere in the event's path. The second click worked because by then
+        // nothing was left to change. In a pooled grid the press is the only reliable signal.
+        const toggle = (e.target as Element | null)?.closest?.(
+            '[data-type="bool-toggle"]',
+        );
+        if (toggle && this.root.contains(toggle)) {
+            this.model.models.editing.toggleBooleanCell(cell.row, cell.col);
+            return;
+        }
+
+        // That press opened an editor on the cell that already had focus. Arming a range drag
+        // now would extend the selection under the pointer while the user is placing a caret in
+        // the input that is about to appear beneath it.
+        if (this.model.models.editing.isEditingCell(cell.row, cell.col)) return;
 
         this.selecting = true;
         this.lastSelectRow = cell.row;

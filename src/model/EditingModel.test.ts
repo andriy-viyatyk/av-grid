@@ -142,6 +142,22 @@ function doubleClick(el: Element | null): void {
     el?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
 }
 
+/**
+ * A press and its release on a cell. `MouseEvent` because happy-dom has no `PointerEvent`
+ * constructor, and the release because a press that is never let go leaves the range drag it
+ * armed listening on `window` — which is not a state a real pointer can be left in.
+ */
+function press(el: Element | null, init: MouseEventInit = {}): void {
+    pressAndHold(el, init);
+    window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+}
+
+function pressAndHold(el: Element | null, init: MouseEventInit = {}): void {
+    el?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0, ...init }),
+    );
+}
+
 /** Type into the open editor, as a user would. */
 function type(g: AVGrid<Row>, text: string): void {
     const input = editor(g);
@@ -205,6 +221,70 @@ describe("opening an editor", () => {
         await paint(g);
         doubleClick(cellAt(g, 1, 0));
         expect(g.isEditing()).toBe(true);
+    });
+
+    it("opens on a single press of the cell that already has the focus", async () => {
+        const g = grid();
+        await paint(g);
+
+        // Cold cell: the first press focuses it and nothing more.
+        press(cellAt(g, 3, 0));
+        expect(g.isEditing()).toBe(false);
+        expect(g.getFocus()?.rowKey).toBe("4");
+
+        // Second press, same cell — this is what a double-click is made of, and it is also
+        // what a deliberate single click on an already-focused cell does.
+        press(cellAt(g, 3, 0));
+        expect(g.isEditing()).toBe(true);
+        expect(g.getState().editing).toMatchObject({ rowKey: "4", columnKey: "name" });
+    });
+
+    it("does not open when a modifier says the press means something else", async () => {
+        const g = grid();
+        await paint(g);
+        press(cellAt(g, 3, 0));
+
+        for (const modifier of [
+            { shiftKey: true },
+            { ctrlKey: true },
+            { metaKey: true },
+            { altKey: true },
+            { button: 2 },
+        ]) {
+            press(cellAt(g, 3, 0), modifier);
+            expect(g.isEditing()).toBe(false);
+        }
+    });
+
+    it("leaves a boolean and a readonly column to the keyboard", async () => {
+        const g = grid();
+        await paint(g);
+
+        // A checkbox already shows both of its states; pressing it twice must not put a text
+        // box over it. Space and a double-click still toggle.
+        press(cellAt(g, 3, 2));
+        press(cellAt(g, 3, 2));
+        expect(g.isEditing()).toBe(false);
+        expect(g.getRows()[3].active).toBe(false);
+
+        press(cellAt(g, 3, 4));
+        press(cellAt(g, 3, 4));
+        expect(g.isEditing()).toBe(false);
+    });
+
+    it("does not arm a range drag with the press that opened the editor", async () => {
+        const g = grid();
+        await paint(g);
+        press(cellAt(g, 3, 0));
+        pressAndHold(cellAt(g, 3, 0));
+
+        // A drag that had been armed would extend the selection to wherever the pointer went
+        // next — here, over the input the user is placing a caret in.
+        window.dispatchEvent(
+            new MouseEvent("pointermove", { bubbles: true, clientX: 10, clientY: 300 }),
+        );
+        expect(g.isEditing()).toBe(true);
+        expect(g.getSelection()?.rowRange).toEqual([3, 3]);
     });
 
     it("opens on a printable key, with that key as the value", async () => {
@@ -335,6 +415,45 @@ describe("committing and cancelling", () => {
         expect(g.isEditing()).toBe(false);
     });
 
+    it("ArrowDown and ArrowUp commit and move a row, ending the edit", async () => {
+        const g = grid();
+        g.focusCell(3, 0);
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+
+        type(g, "moved down");
+        keyOn(editor(g), { key: "ArrowDown", code: "ArrowDown" });
+
+        expect(g.getRows()[3].name).toBe("moved down");
+        expect(g.isEditing()).toBe(false);
+        expect(g.getFocus()?.rowKey).toBe("5");
+        expect(g.getFocus()?.columnKey).toBe("name");
+
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+        type(g, "moved up");
+        keyOn(editor(g), { key: "ArrowUp", code: "ArrowUp" });
+
+        expect(g.getRows()[4].name).toBe("moved up");
+        expect(g.getFocus()?.rowKey).toBe("4");
+    });
+
+    it("leaves the horizontal arrows to the caret", async () => {
+        const g = grid();
+        g.focusCell(3, 0);
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+
+        // A cell editor is one line of text, so left and right belong to the caret inside it —
+        // moving a cell with them would make the value unreachable past its first character.
+        keyOn(editor(g), { key: "ArrowLeft", code: "ArrowLeft" });
+        keyOn(editor(g), { key: "ArrowRight", code: "ArrowRight" });
+
+        expect(g.isEditing()).toBe(true);
+        expect(g.getFocus()?.rowKey).toBe("4");
+        expect(g.getFocus()?.columnKey).toBe("name");
+    });
+
     it("moving the focus elsewhere commits the open edit", async () => {
         const g = grid();
         g.focusCell(0, 0);
@@ -458,6 +577,159 @@ describe("committing and cancelling", () => {
     });
 });
 
+describe("the boolean cell's checkbox", () => {
+    /** Move the pointer onto a cell. The grid reads hover from `mousemove`, on the root. */
+    function hover(g: AVGrid<Row>, row: number, col: number): void {
+        cellAt(g, row, col)?.dispatchEvent(
+            new MouseEvent("mousemove", { bubbles: true }),
+        );
+    }
+
+    function toggleBox(g: AVGrid<Row>, row: number, col: number): HTMLElement | null {
+        return (
+            cellAt(g, row, col)?.querySelector<HTMLElement>(
+                '[data-type="bool-toggle"]',
+            ) ?? null
+        );
+    }
+
+    function click(el: Element | null): void {
+        el?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    }
+
+    it("is in every editable boolean cell, hovered or not, and shows its state", async () => {
+        const g = grid();
+        await paint(g);
+
+        // Row 0 is active, row 1 is not. Nothing has been hovered or focused, and the hit
+        // target is there anyway — an empty box for the unchecked cell.
+        expect(toggleBox(g, 0, 2)?.className).toBe("avg-bool-box avg-checked");
+        expect(toggleBox(g, 1, 2)?.className).toBe("avg-bool-box");
+        expect(cellAt(g, 0, 2)?.querySelector(".avg-check-icon")).not.toBeNull();
+        expect(toggleBox(g, 1, 2)?.innerHTML).toBe("");
+    });
+
+    it("frames its glyph for the cell under the pointer, and only that cell", async () => {
+        const g = grid();
+        await paint(g);
+
+        // At rest a checked cell is a bare tick; hovered, the tick becomes a framed box. Both
+        // are inside the same wrapper, so the target does not move when the glyph changes.
+        expect(cellAt(g, 0, 2)?.querySelector(".avg-check-icon")).not.toBeNull();
+
+        hover(g, 0, 2);
+        await paint(g);
+        expect(cellAt(g, 0, 2)?.querySelector(".avg-check-icon")).toBeNull();
+        expect(toggleBox(g, 0, 2)?.className).toBe("avg-bool-box avg-checked");
+        expect(toggleBox(g, 0, 2)?.innerHTML).not.toBe("");
+
+        // A different cell in the *same* row. Row hover would have framed this one too, and
+        // only one cell of the row is ever under the pointer.
+        hover(g, 0, 0);
+        await paint(g);
+        expect(cellAt(g, 0, 2)?.querySelector(".avg-check-icon")).not.toBeNull();
+    });
+
+    it("is absent wherever an edit could not land", async () => {
+        const g = grid();
+        await paint(g);
+        expect(toggleBox(g, 1, 0)).toBeNull();
+
+        // A readonly boolean column keeps its tick, and keeps it when hovered — there is no box
+        // for the glyph to change into.
+        const readonly = grid(20, {
+            columns: [
+                { key: "name", name: "Name", width: 120 },
+                { key: "active", name: "Active", width: 70, dataType: "boolean", readonly: true },
+            ],
+        });
+        await paint(readonly);
+        hover(readonly, 0, 1);
+        await paint(readonly);
+        expect(toggleBox(readonly, 0, 1)).toBeNull();
+        expect(cellAt(readonly, 0, 1)?.querySelector(".avg-check-icon")).not.toBeNull();
+
+        const notEditable = grid(20, { editable: false });
+        await paint(notEditable);
+        expect(toggleBox(notEditable, 1, 2)).toBeNull();
+    });
+
+    it("flips the cell on the first press, with no focus or hover first", async () => {
+        const onEdit = vi.fn();
+        const g = grid(20, { onEdit });
+        await paint(g);
+
+        expect(g.getFocus()).toBeUndefined();
+        expect(g.getRows()[1].active).toBe(false);
+        const dirty = captureDirty(g, () => press(toggleBox(g, 1, 2)));
+
+        expect(g.getRows()[1].active).toBe(true);
+        expect(onEdit).toHaveBeenCalledTimes(1);
+        // It selects the cell as well as editing it, which is what a press on a cell does.
+        expect(g.getFocus()?.columnKey).toBe("active");
+        // The press moves the focus as well, so it marks the cells the focus left and arrived
+        // at. What matters is that the edit itself marks the written row — a computed column
+        // anywhere in it reads the value that just changed — and that nothing marks the
+        // viewport.
+        expect(dirty).toContainEqual({ rows: [2] });
+        expect(dirty.some((d) => d.all)).toBe(false);
+    });
+
+    /**
+     * The regression that made a real mouse take two clicks per record while every synthetic
+     * test passed: a press held for a frame — which is every real click — repaints the cell for
+     * the focus it just moved, and the box the press landed on is replaced. `click` is then
+     * dispatched on the cell instead, with the box nowhere in its path.
+     */
+    it("flips once when the box is replaced between the press and the click", async () => {
+        const onEdit = vi.fn();
+        const g = grid(20, { onEdit });
+        await paint(g);
+
+        const box = toggleBox(g, 1, 2);
+        pressAndHold(box);
+        await paint(g);
+        expect(box?.isConnected).toBe(false);
+
+        window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+        click(cellAt(g, 1, 2));
+
+        expect(g.getRows()[1].active).toBe(true);
+        expect(onEdit).toHaveBeenCalledTimes(1);
+    });
+
+    it("changes nothing when the press lands on the cell beside the box", async () => {
+        const onEdit = vi.fn();
+        const g = grid(20, { onEdit });
+        await paint(g);
+
+        press(cellAt(g, 1, 2));
+        click(cellAt(g, 1, 2));
+
+        expect(g.getRows()[1].active).toBe(false);
+        expect(onEdit).not.toHaveBeenCalled();
+        // It still selects the cell, which is the whole point of the box being the only target.
+        expect(g.getFocus()?.columnKey).toBe("active");
+    });
+
+    it("acts on the cell under the pointer, not on the selection around it", async () => {
+        const g = grid();
+        await paint(g);
+        g.selectRange(0, 2, 4, 2);
+        await paint(g);
+
+        press(toggleBox(g, 1, 2));
+
+        expect(g.getRows().slice(0, 5).map((r) => r.active)).toEqual([
+            true,
+            true,
+            true,
+            false,
+            true,
+        ]);
+    });
+});
+
 describe("booleans, and the range keys", () => {
     it("Space flips each boolean in the selection", () => {
         const g = grid();
@@ -522,6 +794,67 @@ describe("booleans, and the range keys", () => {
         expect(dirty).toHaveLength(1);
         expect(dirty[0]).toEqual({ all: true });
     });
+});
+
+/**
+ * What a written value marks dirty.
+ *
+ * One row for a single write, one `all` for a bulk one — and nothing per cell, because a host's
+ * `render` may read any part of the row and there is no way to know which part.
+ */
+describe("repainting after an edit", () => {
+    it("repaints the whole row, so a computed column is not left stale", async () => {
+        // The bug this exists for: editing "name" left the computed column showing the old
+        // value until something unrelated repainted it — hovering the row was the usual way to
+        // discover it, which makes the grid look like it needs poking.
+        const g = grid(20, {
+            columns: [
+                { key: "name", name: "Name", width: 120 },
+                {
+                    key: "id",
+                    name: "Label",
+                    width: 160,
+                    render: (c) => `${c.row.name} #${c.row.id}`,
+                },
+            ],
+        });
+        await paint(g);
+        const computed = (): string | undefined =>
+            cellAt(g, 0, 1)?.textContent ?? undefined;
+        expect(computed()).toBe("Row 1 #1");
+
+        g.focusCell(0, 0);
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+        type(g, "renamed");
+
+        keyOn(editor(g), { key: "Enter", code: "Enter" });
+        await paint(g);
+        expect(computed()).toBe("renamed #1");
+
+        // And the mark that did it is the row, not the written cell — captured on a second
+        // edit, because `captureDirty` replaces `update` and so suppresses the very repaint the
+        // assertion above needs. `RenderGridModel` merges these into one dirty set and paints
+        // once per frame, so the two cannot be observed in the same pass.
+        g.focusCell(1, 0);
+        const dirty = captureDirty(g, () => g.setCellValue(1, 0, "again"));
+        expect(dirty).toEqual([{ rows: [2] }]);
+    });
+
+    it("still marks bulk writes once, not a row per cell", () => {
+        // A paste, a range delete and a boolean sweep write through the same `editCellAt` with
+        // `silent`, so the row-level mark above must not reach them: 1,000 rows would otherwise
+        // build a dirty set far larger than the viewport it ends up repainting.
+        const g = grid(1000);
+        g.selectRange(0, 0, 999, 1);
+        const dirty = captureDirty(g, () => g.pasteText("x\ty"));
+        expect(dirty).toEqual([{ all: true }]);
+    });
+
+    // And even an unbatched caller could not flood the engine: marks accumulate into one dirty
+    // set and paint once per animation frame, which `RenderGrid.test.ts` pins directly in
+    // "coalesces several model updates into one paint". The two mechanisms are independent, and
+    // between them a bulk write costs one paint however it is routed.
 });
 
 describe("the editor element", () => {
