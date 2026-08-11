@@ -18,7 +18,8 @@
  *    misspelled costs far more than a thrown error.
  */
 
-import { detectColumnWidth } from "./column-width";
+import { detectColumnWidth, widthForValues } from "./column-width";
+import { columnDisplayValue } from "./gridUtils";
 import type { AVGridOptions, ResolvedOptions } from "./options";
 import type {
     AnyFilter,
@@ -330,7 +331,53 @@ export function validateColumns<R>(
         }
     });
 
-    return columns as Column<R>[];
+    return withDetectedWidths(columns as Column<R>[], rows);
+}
+
+/**
+ * Give every column that omitted `width` one measured from its content.
+ *
+ * `docs/api.md` has always said "omitted, the width is detected from the content and the
+ * header", and for a long time that was only true of *inferred* columns: naming the columns
+ * yourself — which is what anyone does the moment they want a header label — silently opted
+ * every one of them into a flat 140px. The first host to hit it re-ran `inferColumns()` over a
+ * probe of display text purely to copy the widths back off it.
+ *
+ * Measured through `columnDisplayValue`, so `formatValue` and `displayFormat` are what gets
+ * measured. That is stricter than the inferred path was on its own and fixes the same class of
+ * mistake: a `Date` column sized to `toLocaleString()` rather than to the `displayFormat` the
+ * cell will actually render.
+ *
+ * Columns are copied rather than written through — the array belongs to the host, and a grid
+ * that mutated it would leak its defaults into whatever else that host does with it.
+ */
+function withDetectedWidths<R>(
+    columns: Column<R>[],
+    rows: readonly R[],
+): Column<R>[] {
+    if (!columns.some((c) => c.width === undefined)) return columns;
+
+    const limit = Math.min(rows.length, INFERENCE_SAMPLE);
+    return columns.map((column) => {
+        if (column.width !== undefined) return column;
+
+        const values: unknown[] = [];
+        for (let i = 0; i < limit; i++) {
+            const row = rows[i];
+            if (row === null || row === undefined) continue;
+            const value = columnDisplayValue(column, row);
+            if (value !== null && value !== undefined) values.push(value);
+        }
+
+        // Nothing to measure — an empty grid, or the column `addColumns` has just created,
+        // whose data arrives when it is typed in. Sizing those to the header alone would make
+        // a new column the narrowest thing on screen at the moment it most needs room, so
+        // leave `width` unset and let `defaultColumnWidth` answer.
+        if (!values.length) return column;
+
+        const name = column.name ?? String(column.key);
+        return { ...column, width: widthForValues(values, name) };
+    });
 }
 
 /**

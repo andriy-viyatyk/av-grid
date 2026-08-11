@@ -436,6 +436,19 @@ describe("headers", () => {
         expect(sorted[0].getAttribute("data-sort")).toBe("asc");
     });
 
+    it("takes DOM focus when its header is pressed", () => {
+        // The keyboard only works while the root holds focus, and a header press used to
+        // leave it wherever it was — so sorting by clicking killed the arrow keys.
+        const grid = create({ rows: people });
+        const header = grid.element.querySelector(
+            '[data-type="header-cell"][data-column-key="name"]',
+        ) as HTMLElement;
+
+        document.body.focus();
+        header.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        expect(document.activeElement).toBe(grid.element);
+    });
+
     it("cycles the sort when its header is clicked", async () => {
         const grid = create({ rows: people });
         const header = grid.element.querySelector(

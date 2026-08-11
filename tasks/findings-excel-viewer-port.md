@@ -127,3 +127,75 @@ for (const column of dataColumns) column.width = clamp(detected.get(column.key))
   no wrong-name guesses in the whole port.
 - **The `--p-*` fallback chain is a genuine feature on a board.** Zero theming code, and
   `--avg-bg` / `--avg-header-bg` resolve to `--p-bg` / `--p-bg-dark` exactly as documented.
+
+---
+
+## Resolution
+
+Investigated 2026-08-11 against this source, reproducing each claim in a real browser before
+touching anything. **Two of the four are real; two are artifacts of how the port was tested.**
+
+### The testing artifact behind #1, #2 and #3
+
+Persephone's `browser_click` dispatches a bare synthetic `click` — no `pointerdown`, no
+`mousedown` — and `browser_press_key` dispatches keys with `isTrusted: false`. Verified by
+instrumenting both boards: a `browser_click` on a data cell logs exactly one event, `click`, and a
+`browser_press_key` of `Control+c` logs `keydown:c+ctrl trusted=false`. The board's own CLAUDE.md
+records the follow-on advice — synthesise the pointer sequence in `browser_evaluate` instead — but
+by then the conclusions were drawn.
+
+That explains all three:
+
+- **#1 does not reproduce.** A `pointerdown` on a data cell has always focused the root
+  (`GridInteractions.onCellPointerDown`). Dispatching one *in the Excel Viewer board itself*, with
+  the board's own capture-phase workaround bypassed — the workaround is on `mousedown`, so a lone
+  `pointerdown` isolates av-grid — moves `document.activeElement` from `BODY` to `.avg-grid`. A
+  synthetic `click` alone reaches neither handler, which is what "activeElement stays on `<body>`"
+  was measuring.
+- **#2 does not reproduce.** `grid.focus()` *is* `grid.element.focus({ preventScroll: true })` and
+  nothing else — one line, `AVGridModel.focusGrid`, with no listener on the far side. Measured:
+  `getFocus()` before and after is byte-identical, and identical again after `grid.element.focus()`.
+  Most likely the A1 came from an arrow key pressed while nothing was focused yet, which does start
+  at the first cell.
+- **#3 is not disproved, but its evidence does not hold.** A synthetic `keydown` never produces a
+  `copy` event on *any* browser, so "keydown arrives, no copy event follows" is what a synthetic
+  key looks like everywhere, not what a board iframe looks like. A document that does not have
+  focus — which is every MCP-driven page — will not copy either. Whether a *real* Ctrl+C works in a
+  board is still open and needs a human at the keyboard.
+
+**Both #1 and #2 were nonetheless worth the trip**, because #1 pointed at a real bug next door.
+
+### What was fixed
+
+**Focus is now taken on any press inside the grid** (`GridInteractions.focusRoot`), not only on one
+that resolves to a data cell. The real gap was the *other* branches: a press on a **header**, on the
+empty area past the last row or right of the last column, or on the band a status column occupies,
+left focus wherever it had been — so sorting by clicking a header killed the arrow keys, and on a
+fresh page they had never worked at all. A press landing on a control that takes focus itself is
+skipped, because stealing it would close the editor the press was opening.
+
+**Explicit `columns` that omit `width` now get one detected from content**, which is what the docs
+had always promised. Measured through `columnDisplayValue`, so `formatValue` and `displayFormat`
+are what gets measured — strictly better than the inference path was on its own, and the same
+correction the board's `detectWidths()` had to make by hand. A column with nothing to measure keeps
+the 140 px default rather than being sized to its header, so a column `addColumns()` has just made
+is not the narrowest thing on screen at the moment it most needs room. The board's `detectWidths()`
+probe can be deleted.
+
+### What was documented
+
+- `width` — detection stated properly: both paths, the 50-row sample, display text not raw values,
+  the 60–300 px bounds, and the two cases that fall back to 140 px.
+- `detectColumnWidth` / `detectColumnWidths` — full signatures and the `options` defaults, in the
+  Helpers table. The port's four guesses failed because the first argument is the **rows** and the
+  column is named by a **string key**, not by a `Column` object.
+- `isStatusColumn` — its own section: what it does to pinning, focus, editing, copy, the header
+  affordances and the "unknown column" check, with the row-number gutter as the example.
+- `focus()` — says plainly that it is DOM focus only and leaves the cell focus alone, and that a
+  press already does it.
+- The clipboard section — how to bind Ctrl+C to `copySelection()` where the native event does not
+  fire, **and** how to tell that case apart from a synthetic-key test harness before concluding
+  anything.
+
+The read-only context menu and the `--p-*` chain were already documented as the port found them;
+nothing to change there.

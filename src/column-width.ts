@@ -45,24 +45,41 @@ export function detectColumnWidth(
     headerName: string,
     options?: ColumnWidthOptions,
 ): number {
-    const { charWidth, padding, minWidth, maxWidth, sampleSize } = {
+    const sampleSize = options?.sampleSize ?? DEFAULTS.sampleSize;
+    const limit = Math.min(rows.length, sampleSize);
+    const values: unknown[] = [];
+    for (let i = 0; i < limit; i++) values.push(rows[i]?.[key]);
+    return widthForValues(values, headerName, options);
+}
+
+/**
+ * `detectColumnWidth` for values the caller has already resolved.
+ *
+ * Internal — not exported from the package, because the argument is a pre-sampled array and
+ * that shape only makes sense to a caller that has already walked the rows. It exists so the
+ * inference path can measure what the grid will actually *show* in a cell — `formatValue` and
+ * `displayFormat` applied — rather than the raw property behind it, which for a date or a
+ * formatted number is a completely different string.
+ */
+export function widthForValues(
+    values: readonly unknown[],
+    headerName: string,
+    options?: ColumnWidthOptions,
+): number {
+    const { charWidth, padding, minWidth, maxWidth } = {
         ...DEFAULTS,
         ...options,
     };
 
     let width = headerName.length * charWidth + padding;
 
-    const limit = Math.min(rows.length, sampleSize);
-    for (let i = 0; i < limit; i++) {
-        const value = rows[i]?.[key];
-        if (value !== null && value !== undefined) {
-            // `String(aDate)` is the 40-character `toString()` form, which the grid never
-            // shows — measuring it would size every date column to the maximum.
-            const text =
-                value instanceof Date ? value.toLocaleString() : String(value);
-            const w = text.length * charWidth + padding;
-            if (w > width) width = w;
-        }
+    for (const value of values) {
+        if (value === null || value === undefined) continue;
+        // `String(aDate)` is the 40-character `toString()` form, which the grid never
+        // shows — measuring it would size every date column to the maximum.
+        const text = value instanceof Date ? value.toLocaleString() : String(value);
+        const w = text.length * charWidth + padding;
+        if (w > width) width = w;
     }
 
     return Math.max(minWidth, Math.min(width, maxWidth));

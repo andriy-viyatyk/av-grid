@@ -157,11 +157,44 @@ export class GridInteractions<R> {
         };
     }
 
+    /**
+     * Put DOM focus on the root, so the keys the grid handles reach it.
+     *
+     * On *every* press inside the grid, not only on a data cell. The keyboard is only alive
+     * while the root holds focus, and until this was hoisted out of `onCellPointerDown` a
+     * press that resolved to anything else — a header, the empty area past the last row or
+     * right of the last column, the space a status column occupies — left focus wherever it
+     * had been. Sorting by clicking a header therefore killed the arrow keys, and in a fresh
+     * page where nothing had been focused yet they had never worked at all.
+     *
+     * The root rather than the element under the pointer, because a cell is pooled and may
+     * belong to a different coordinate on the next frame — see the third invariant.
+     *
+     * Two things are left alone. A press on a control that takes focus itself — an open
+     * editor's input, a host's own button rendered into a cell — belongs to that control;
+     * stealing it here would close the editor the press was opening. And `preventScroll`,
+     * because focusing an element the browser considers off-screen otherwise scrolls the grid
+     * to it, which is the one thing a click must never do.
+     */
+    private focusRoot(target: EventTarget | null): void {
+        const el = target as Element | null;
+        if (
+            el?.closest?.(
+                "input, textarea, select, button, a, [contenteditable='true']",
+            )
+        ) {
+            return;
+        }
+        this.root.focus({ preventScroll: true });
+    }
+
     // -----------------------------------------------------------------------
     // Column resize
     // -----------------------------------------------------------------------
 
     private onPointerDown = (e: PointerEvent): void => {
+        this.focusRoot(e.target);
+
         const header = this.headerAt(e.target);
         if (!header) {
             this.onCellPointerDown(e);
@@ -241,10 +274,6 @@ export class GridInteractions<R> {
 
         const context = this.model.cellContext(cell.row, cell.col);
         if (!context) return;
-
-        // Focus the root rather than letting the browser do it: the cell under the pointer is
-        // a pooled element and must never itself hold focus.
-        this.root.focus({ preventScroll: true });
 
         // A status column — the checkbox, a row number — is chrome, not data. Clicking one
         // must not move the cell focus or start a range drag, which is also how the reference

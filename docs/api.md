@@ -603,11 +603,41 @@ type DisplayFormat = "text" | "date" | "dateTime" | "phone" | `date:${string}` |
 | `"dateTime"` | `toLocaleString()`. |
 | `"phone"` | A 10-character string as `(123) 456-7890`; anything else unchanged. |
 
+### `isStatusColumn`
+
+Marks a column as **chrome rather than data** — a row number, a checkbox, a drag handle. The
+selection column `selectColumn: true` adds is one, and a host writes its own the same way:
+
+```js
+{ key: "__row", name: "", width: 48, isStatusColumn: true, render: (c) => String(c.rowIndex + 1) }
+```
+
+One flag, and the column steps out of everything that treats a column as data:
+
+| | |
+|---|---|
+| **Pinned** | Every column up to and including the last status column is sticky-left, so they stay put while the rest scrolls. This works off *position*: put them first in the array. |
+| **Not focusable** | A press does not move the cell focus or start a range drag. The click still arrives, which is how the checkbox toggles. |
+| **Skipped by focus fallback** | Focus landing on a row with nothing better lands on the first column that is not one. |
+| **Never edited** | Excluded from `editable` regardless of `readonly`, and from `firstEditable`. |
+| **Never copied** | Left out of Ctrl+C, `copySelection()` and the CSV projection — so a copied range pastes into a spreadsheet without a row-number column glued to the front. |
+| **No header affordances** | No sort, no funnel, no resize grip, not draggable to reorder; the context menu drops its add/delete-column items. |
+| **No data behind it** | Exempt from the "unknown column" check, so the `key` need not exist on the row — give it a `render`. |
+
 ### `width`
 
-A number of pixels, or a percentage string (`"25%"`). Omitted, the width is detected from the
-content — see [What is inferred](#what-is-inferred). A user resize overrides it and is reported
+A number of pixels, or a percentage string (`"25%"`). A user resize overrides it and is reported
 through `onColumnResize`; `getState().columns[i].width` reports what the grid is actually drawing.
+
+**Omitted, the width is detected from the content** — the header label and the first 50 rows,
+measured as the cell will *display* them, so a `formatValue` or a `displayFormat` is what counts
+and not the raw value behind it. Detection applies whether the columns were inferred or you wrote
+them out yourself, and is bounded to 60–300 px. Two cases fall back to a flat 140 px, because
+there is nothing to measure: a grid created before its rows arrive, and a column with no value in
+any sampled row — including the one `addColumns()` has just made.
+
+The measurement is by character count, not by text metrics; laying out the rows to size a column
+would cost more than the first paint. If a column has to be exact, give it a `width`.
 
 **A percentage is measured against the width left over after the fixed columns and the vertical
 scrollbar**, and it re-resolves on every resize. One is enough to make the grid fit its container:
@@ -882,6 +912,23 @@ event, which needs no permission. `copySelection()` and `paste()` are the progra
 Firefox refuses), so they resolve `false` more often than you would like. `pasteText()` has no
 such problem.
 
+That split has a consequence in a host that suppresses the native event — some embedded frames,
+some desktop shells. `Ctrl+C` then reaches the grid as a `keydown` with no `copy` event behind it,
+and nothing is written. Bind it yourself and take the other path:
+
+```js
+grid.element.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
+    e.preventDefault();                 // stop both paths running where the event does fire
+    void grid.copySelection(e.shiftKey ? "copyWithHeaders" : "copy");
+});
+```
+
+Confirm it is really the environment before adding that: a **synthetic** `keydown` never produces
+a `copy` event either, so a test harness that dispatches one — rather than driving real keys —
+reproduces the symptom on a browser where `Ctrl+C` works fine. Check `e.isTrusted` in the
+handler, and check that the document has focus, before concluding anything.
+
 ### Focus and range selection
 
 | Method | Returns | Notes |
@@ -892,7 +939,7 @@ such problem.
 | `focusCell(rowIndex, colIndex, withScroll?)` | `void` | Discards any selection. |
 | `selectRange(rowStart, colStart, rowEnd, colEnd)` | `void` | The focus lands on the end corner, as after a drag. |
 | `getSelection()` | `GridSelection<R> \| undefined` | The selected rows and columns, with their index ranges. |
-| `focus()` | `void` | Give the grid keyboard focus, so arrow keys reach it without a click first. |
+| `focus()` | `void` | Give the grid keyboard **DOM** focus, so arrow keys reach it without a click first. The focused cell and the selection are untouched — this is `grid.element.focus({ preventScroll: true })` and nothing else. Rarely needed: any press inside the grid already does it, unless the press lands on a control that takes focus itself — an open editor, or a `<button>` a `render` hook drew. |
 
 ```js
 grid.focusCell(10, 2);
@@ -1661,7 +1708,8 @@ should not have to reimplement them.
 | `rowsToCsvText(rows, columns, withHeaders?, tabDelimiter?)` | What `Ctrl+C` produces. |
 | `defaultValidate(column, row, value)` | The coercion applied when a column has no `validate`. |
 | `gridBoolean(v)` / `falseString(v)` | The grid's truthiness for boolean columns. |
-| `detectColumnWidth` / `detectColumnWidths` | Content-based width detection. |
+| `detectColumnWidth(rows, key, headerName, options?)` | The width one column would be given, in pixels. `rows` are the raw rows, `key` the property read from each, `headerName` the label measured alongside them. `options`: `{ charWidth = 8, padding = 20, minWidth = 60, maxWidth = 300, sampleSize = 100 }`. |
+| `detectColumnWidths(rows, keys, options?)` | The same for several keys at once, returning `{ [key]: width }`. Each key is its own header label. |
 | `inferColumns` / `inferGetRowKey` / `inferRowKeyProperty` | What the grid infers from the rows. |
 | `validateFilters` | The normalization `setFilters()` applies. |
 | `recordsToCsv` / `csvToRecords` | Dependency-free CSV/TSV, Excel-compatible. |

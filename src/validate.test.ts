@@ -89,6 +89,43 @@ describe("validateColumns", () => {
         ).not.toThrow();
     });
 
+    it("detects a width for a column that omitted one", () => {
+        // The whole point: naming your own columns used to opt every one of them out of width
+        // detection and into a flat 140px, while the docs promised otherwise.
+        const rows = [{ note: "x" }, { note: "a considerably longer note" }];
+        const [column] = validateColumns([{ key: "note", name: "Note" }], rows);
+        expect(column.width).toBe("a considerably longer note".length * 8 + 20);
+    });
+
+    it("measures what the cell will show, not the raw value", () => {
+        const rows = [{ when: new Date("2020-01-02T03:04:05Z") }];
+        const [raw] = validateColumns([{ key: "when" }], rows);
+        const [formatted] = validateColumns(
+            [{ key: "when", formatValue: () => "1/2/20" }],
+            rows,
+        );
+        // `formatValue` is six characters; the date's own string is far wider.
+        expect(formatted.width).toBeLessThan(raw.width as number);
+        expect(formatted.width).toBe("1/2/20".length * 8 + 20);
+    });
+
+    it("leaves an explicit width alone, and copies rather than mutates", () => {
+        const given = [{ key: "note", width: 42 }, { key: "id" }];
+        const out = validateColumns(given, [{ note: "x", id: 1 }]);
+        expect(out[0].width).toBe(42);
+        expect(out[0]).toBe(given[0]); // untouched columns keep their identity
+        expect(given[1].width).toBeUndefined(); // the host's object is not written through
+    });
+
+    it("leaves the width unset when there is nothing to measure", () => {
+        // An empty grid, or the column `addColumns` just made. Sizing those to the header
+        // alone would make a new column the narrowest thing on screen.
+        expect(validateColumns([{ key: "note" }], [])[0].width).toBeUndefined();
+        expect(
+            validateColumns([{ key: "note" }], [{ note: null }])[0].width,
+        ).toBeUndefined();
+    });
+
     it("rejects a duplicate key", () => {
         expect(() =>
             validateColumns([{ key: "id" }, { key: "id" }], people),

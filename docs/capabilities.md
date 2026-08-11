@@ -73,6 +73,19 @@ cell's value; a picked option keeps its type — `20` commits as the number, whi
 
 ### Column widths
 
+**A column that omits `width` is sized from its content** whether the columns were inferred or
+written out by hand. For a long time only the inference path did it, so naming your own columns —
+which is what anyone does the moment they want a header label — silently gave every one of them a
+flat 140 px, against a doc that had always promised detection. The first host to hit it re-ran the
+exported `inferColumns()` over a probe of display text purely to copy the widths back off it.
+
+The measurement is by character count over 50 rows, not by text metrics: laying out the rows to
+size a column would cost more than the first paint. It reads `columnDisplayValue`, so a
+`formatValue` or a `displayFormat` is what gets measured — a `displayFormat: "date"` column comes
+out at 84 px rather than the width of the 40-character `Date.toString()` behind it. Nothing to
+measure means no width and the 140 px default, which is what keeps a column `addColumns()` has just
+made from being the narrowest thing on screen at the moment it most needs room.
+
 A percentage width (`width: "35%"`) is measured against what is left after the fixed columns and
 the vertical scrollbar, and re-resolves on every resize. One is enough to fit the grid to its
 container — `fitToWidth` is only for stretching a set of columns that are all fixed widths.
@@ -86,6 +99,13 @@ option.
 ---
 
 ## Selection, focus and the pointer
+
+**DOM focus lands on the root from any press inside the grid.** It used to be done by the branch
+that resolved a *data cell*, so a press on a header, on the empty area past the last row, or on the
+band a status column occupies left focus wherever it had been — and since the keyboard is bound to
+the root, sorting by clicking a header killed the arrow keys until something else focused it. It is
+now the first thing `pointerdown` does, and skips only a press that lands on a control which takes
+focus itself, because stealing it there would close the editor the press was opening.
 
 **The row highlight follows the pointer everywhere it should.** It read `mousemove`, and
 `onCellPointerDown` calls `preventDefault()` to stop the browser starting a text selection — which
