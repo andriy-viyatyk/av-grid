@@ -231,6 +231,13 @@ itself**. Retested there, using the pointer protocol the new
   same colour, so the marked word is harder to read than its neighbours, not easier. The board
   ships the default. Worth softening that recommendation to "try it, it depends on how saturated
   the host's accent is".
+
+  **Done** — the recommendation is gone rather than softened. The original was one screenshot on
+  AVGridBoard, where `--p-accent` is unset and falls back to a pale `#0078d4`: a real case, but
+  stated as the general one. `docs/api.md`, `src/options.ts` and the stylesheet now describe what
+  each shape looks like and recommend none, with the reason spelled out — a pale accent can read
+  dimmer than its neighbours, where the tint helps; a saturated one turns the tint into a block,
+  where it hurts. The default stands, and an agent changes it when asked or when it has looked.
 - **#3 remains unverified from here**, honestly — no MCP tool produces trusted key input, so the
   board's Ctrl+C binding was removed on the strength of the by-hand retest recorded above rather
   than on a measurement of our own.
