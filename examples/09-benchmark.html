@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<!--
+    av-grid — the 100,000-row benchmark.
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+
+    This is the performance thesis in a page you can run yourself: cost per paint must not
+    depend on how far down the grid is scrolled. The number to watch is the **flat-cost ratio**
+    — paint cost at row 99,000 divided by paint cost at the top. It should sit around 1.0.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — 100k benchmark</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        button, input { font: inherit; }
+        #host { flex: 1 1 auto; min-height: 0; }
+        #out { padding: 8px 16px; border-top: 1px solid #ddd; font-family: ui-monospace, monospace;
+               font-size: 12px; white-space: pre; color: #333; min-height: 8em; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>100,000 rows</h1>
+        <p>Scroll it by hand first — that is the real test. Then run the measurements.</p>
+        <div class="row">
+            <label>rows <input id="count" type="number" value="100000" min="1000" step="10000" size="8" /></label>
+            <button id="build">Rebuild</button>
+            <button id="run">Run benchmark</button>
+            <button id="top">Top</button>
+            <button id="end">Row 99,000</button>
+        </div>
+    </header>
+
+    <div id="host"></div>
+    <pre id="out">ready</pre>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const out = document.getElementById("out");
+        const say = (s) => (out.textContent = s);
+        const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+        /** Two frames: the paint is scheduled on one and lands on the next. */
+        const settle = async () => { await frame(); await frame(); };
+
+        const TEAMS = ["platform", "infra", "data", "growth", "research"];
+        const STATUS = ["open", "pending", "closed", "archived"];
+
+        function buildRows(count) {
+            const rows = new Array(count);
+            for (let i = 0; i < count; i++) {
+                rows[i] = {
+                    id: i + 1,
+                    name: `Row ${i + 1}`,
+                    team: TEAMS[i % TEAMS.length],
+                    status: STATUS[(i * 3) % STATUS.length],
+                    score: (i * 37) % 100,
+                    active: i % 2 === 0,
+                };
+            }
+            return rows;
+        }
+
+        let grid;
+        let firstPaintMs = 0;
+
+        function create(count) {
+            grid?.destroy();
+            const rows = buildRows(count);
+            const started = performance.now();
+            grid = AVGrid.create("#host", {
+                rows,
+                editable: true,
+                columns: [
+                    { key: "id", name: "#", width: 80, align: "right", dataType: "number" },
+                    { key: "name", name: "Name", width: 160 },
+                    { key: "team", name: "Team", width: 120 },
+                    { key: "status", name: "Status", width: 120 },
+                    { key: "score", name: "Score", width: 80, align: "right", dataType: "number" },
+                    { key: "active", name: "Active", width: 80, dataType: "boolean" },
+                ],
+            });
+            // The first frame is painted synchronously inside create(), so the grid is on screen
+            // by the time this returns — that is what is being timed.
+            firstPaintMs = performance.now() - started;
+            window.grid = grid;
+            say(`${count.toLocaleString()} rows · first paint ${firstPaintMs.toFixed(1)} ms`);
+        }
+
+        /** Average paint cost over `steps` one-row scrolls starting at `startRow`. */
+        async function paintCost(startRow, steps = 300) {
+            const scroller = grid.render.container;
+            const rowHeight = grid.getState().rowHeight;
+            scroller.scrollTop = startRow * rowHeight;
+            await settle();
+
+            grid.render.resetStats();
+            for (let i = 0; i < steps; i++) {
+                scroller.scrollTop += rowHeight;
+                await frame();
+            }
+            const { paints, totalPaintMs, cellsAppended, cellsRemoved, pool } = grid.render.stats;
+            return {
+                msPerPaint: paints ? totalPaintMs / paints : 0,
+                paints,
+                cellsPerPaint: paints ? (cellsAppended + cellsRemoved) / paints : 0,
+                poolHits: pool.hits,
+                poolMisses: pool.misses,
+            };
+        }
+
+        async function fullRepaint() {
+            // Warm up: cells that scrolled out earlier stay attached until the next full
+            // recompute trims them, and their removal would read as this repaint's cost.
+            grid.refresh();
+            await settle();
+            grid.render.resetStats();
+            grid.refresh();
+            await settle();
+            const s = grid.render.stats;
+            return { ms: s.lastPaintMs, mutations: s.cellsAppended + s.cellsRemoved };
+        }
+
+        async function run() {
+            const rowCount = grid.getState().sourceRowCount;
+            say("measuring…");
+
+            const top = await paintCost(0);
+            const bottom = await paintCost(Math.max(0, rowCount - 1000));
+            const repaint = await fullRepaint();
+
+            const ratio = top.msPerPaint ? bottom.msPerPaint / top.msPerPaint : 0;
+            const v = grid.getState().viewport;
+
+            say(
+                [
+                    `rows                ${rowCount.toLocaleString()}`,
+                    `first paint         ${firstPaintMs.toFixed(1)} ms`,
+                    ``,
+                    `paint at the top    ${top.msPerPaint.toFixed(3)} ms  (${top.cellsPerPaint.toFixed(1)} cells touched per paint)`,
+                    `paint near the end  ${bottom.msPerPaint.toFixed(3)} ms  (${bottom.cellsPerPaint.toFixed(1)} cells touched per paint)`,
+                    `FLAT-COST RATIO     ${ratio.toFixed(2)}×   ← the number that matters`,
+                    ``,
+                    `full repaint        ${repaint.ms.toFixed(2)} ms, ${repaint.mutations} DOM mutations`,
+                    `cell pool           ${bottom.poolHits} hits / ${bottom.poolMisses} misses near the end`,
+                    `cells in the DOM    ${grid.element.querySelectorAll('[data-type="data-cell"]').length}`,
+                    `viewport            rows ${v.firstRow}–${v.lastRow}, ${v.width}×${v.height}px`,
+                    ``,
+                    `A paint costs well under a millisecond, so the ratio swings either side of 1.00×`,
+                    `on timer quantization — 0.8× and 1.2× are the same answer. The exact number is`,
+                    `cells touched per paint: it is the same at the top and at row 99,000, and that`,
+                    `is what "the cost does not depend on the scroll position" actually means.`,
+                ].join("\n"),
+            );
+        }
+
+        document.getElementById("build").addEventListener("click", () =>
+            create(Number(document.getElementById("count").value) || 100000));
+        document.getElementById("run").addEventListener("click", run);
+        document.getElementById("top").addEventListener("click", () => grid.scrollToRow(0));
+        document.getElementById("end").addEventListener("click", () => grid.scrollToRow(99000, "center"));
+
+        create(100000);
+    </script>
+</body>
+</html>

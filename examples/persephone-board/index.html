@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!--
+    A Persephone board using av-grid.
+
+    `board-base.css` is scaffolded into every board and already linked — it applies the --p-*
+    defaults (page background, text, monospace font, themed scrollbars). Link it first, then
+    your own stylesheet.
+
+    The board is offline-first and its CSP forbids remote network, which is why the library is
+    vendored into ./lib/ rather than loaded from a CDN. See README.md.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid board</title>
+    <link rel="stylesheet" href="./board-base.css" />
+    <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+    <header class="bar">
+        <input id="search" type="search" placeholder="search…" />
+        <button id="add">+ row</button>
+        <button id="copy">Copy selection</button>
+        <span id="status" class="status">starting…</span>
+    </header>
+
+    <div id="host" class="grid-host"></div>
+
+    <script type="module" src="./app.js"></script>
+</body>
+</html>

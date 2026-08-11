@@ -25,10 +25,36 @@ bugs that are fixed rather than carried over.
 
 ## 📊 Current state
 
-**Phases 1–5 are all but complete.** Tasks 1–18 are done, including the two primitives the filter
+**All twenty tasks are done.** Phases 1–5 are complete, including the two primitives the filter
 UI needed and the library did not have — **14a `Popover`** and **14b `VirtualList`**, built fresh
-rather than ported from UIKit. What is left is documentation: task 19 (`docs/api.md`) and task 20
-(`examples/`).
+rather than ported from UIKit — and both documentation deliverables.
+
+**[`examples/`](examples/) holds ten runnable files**, one topic each, every one standalone and
+meant to be copied whole: minimal · columns · cell rendering · sorting and filtering · selection
+and keyboard · editing · clipboard · theming · the 100k benchmark · a Persephone board. Each was
+opened in a real browser and driven, which is how three of them ended up different from how they
+were written. The benchmark reports **12.1 cells touched per paint at the top against 12.0 at row
+99,000** — the exact number — next to the timing ratio, which swings 0.8×–1.2× because a paint
+costs 0.1 ms. The board example was scaffolded, vendored and opened: it renders in Persephone's
+dark theme with **not one line of theming code and an empty `ui.log`**.
+
+**⚠ `--avg-*` on an ancestor does nothing** — the grid root, `.avg-popover`, `.avg-list` and
+`.avg-filter-bar` each define the whole token block *on themselves* from `--p-*`, because a
+popover lives on `document.body` and cannot inherit from a grid, and an element's own definition
+shadows any ancestor's. So: **`--p-*` on an ancestor reaches everything, `--avg-*` on an ancestor
+is shadowed, `--avg-*` on the element itself wins.** The docs used to say otherwise; running the
+theming example in a browser is what caught it. Whether the defaults should move to `:root` so an
+ancestor's `--avg-*` works is still open.
+
+**[`docs/api.md`](docs/api.md) is the complete public surface**, written for an agent reading it
+once mid-task: every option, every column field, every instance method, every callback (marked for
+which ones can veto by returning `false`), the filter API and its persistence, the keyboard map in
+four tables, the CSS custom properties with what each falls back to, and the DOM contract. It
+records the **naming decision** — `key` / `name`, no aliases, and why — so it is not relitigated,
+and it commits to the class names and `data-*` attributes as public while explicitly leaving the
+DOM *structure* free to change, because cells are pooled and their nesting already has. Every
+signature was read out of the source rather than recalled; two of them (`filterRows`,
+`rowsToCsvText`) were not what the obvious guess would have been.
 
 **On a board the grid now looks like Persephone's own.** Four tokens stopped being derived and
 started naming their `--p-*` counterparts, so they resolve to the reference's exact values: the

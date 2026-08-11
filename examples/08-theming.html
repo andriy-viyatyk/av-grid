@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<!--
+    av-grid — theming with CSS custom properties.
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+
+    THE ONE RULE. Four elements — the grid root, a popover, a virtual list and the filter bar —
+    each define the whole `--avg-*` block on themselves, from `--p-*` with a neutral fallback:
+
+        [data-type="render-grid"].avg-grid { --avg-bg: var(--p-bg, #ffffff); … }
+
+    Each of them may be mounted anywhere (a popover lives on document.body), which is why none
+    of them can rely on inheriting. The consequence is the thing to know:
+
+      • `--p-*` on an ancestor  →  reaches everything. This is how you theme a page.
+      • `--avg-*` on an ancestor →  does NOTHING. The element's own definition shadows it.
+      • `--avg-*` on the element itself → wins. This is how you make ONE grid differ.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — theming</title>
+    <style>
+        /* Theme the page with --p-*, which is what every --avg-* token falls back to. Set on
+           :root, so the grid, its popovers, its dropdown and its filter bar all pick it up. */
+        :root {
+            --p-text: #202020;
+            --p-text-muted: #767676;
+            --p-bg: #ffffff;
+            --p-accent: #0078d4;
+        }
+
+        /* A dark theme is the same tokens with different values. Nothing in the library reads a
+           colour, so this costs zero paints — the browser does all of it. */
+        :root[data-theme="dark"] {
+            --p-text: #dddddd;
+            --p-text-muted: #969696;
+            --p-bg: #1f1f1f;
+            --p-accent: #4cc2ff;
+            /* The app's chrome surface: the header band and the filter bar take this, so in a
+               dark theme they read as *darker* than the grid rather than a lighter tint of it. */
+            --p-bg-dark: #181818;
+            /* The cell lines — texture between values, well below a structural border. */
+            --p-border-light: #2b2b2b;
+        }
+
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column;
+               height: 100vh; background: var(--p-bg); color: var(--p-text); }
+        header { padding: 12px 16px; border-bottom: 1px solid var(--p-text-muted); }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: var(--p-text-muted); }
+        .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        label { display: flex; gap: 4px; align-items: center; font-size: 12px; }
+        button { font: inherit; }
+        #host { flex: 1 1 auto; min-height: 0; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Theming</h1>
+        <p>Setting a token re-tints the grid with <strong>no JavaScript and no repaint</strong>.
+        The counter proves it. Open the Status dropdown or a filter funnel after switching —
+        the popovers follow, because they read the same <code>--p-*</code>.</p>
+        <div class="row">
+            <button id="toggle">Toggle dark</button>
+            <label>accent <input id="accent" type="color" value="#0078d4" /></label>
+            <label>text <input id="text" type="color" value="#202020" /></label>
+            <label>background <input id="bg" type="color" value="#ffffff" /></label>
+            <button id="one">Give this grid a green header</button>
+            <span id="paints"></span>
+        </div>
+    </header>
+
+    <div id="host"></div>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const rows = Array.from({ length: 300 }, (_, i) => ({
+            id: i + 1,
+            name: `Row ${i + 1}`,
+            status: ["open", "pending", "closed"][i % 3],
+            score: (i * 11) % 100,
+            active: i % 2 === 0,
+        }));
+
+        const grid = AVGrid.create("#host", {
+            rows,
+            filterBar: true,
+            editable: true,
+            columns: [
+                { key: "id", name: "#", width: 60, align: "right", dataType: "number" },
+                { key: "name", name: "Name", width: 160 },
+                { key: "status", name: "Status", width: 130, options: ["open", "pending", "closed"] },
+                { key: "score", name: "Score", width: 80, align: "right", dataType: "number" },
+                { key: "active", name: "Active", width: 80, dataType: "boolean" },
+            ],
+        });
+
+        const root = document.documentElement;
+        const paintsAtStart = grid.render.stats.paints;
+        const showPaints = () =>
+            (document.getElementById("paints").textContent =
+                `paints since load: ${grid.render.stats.paints - paintsAtStart}`);
+
+        document.getElementById("toggle").addEventListener("click", () => {
+            const dark = root.getAttribute("data-theme") === "dark";
+            if (dark) root.removeAttribute("data-theme");
+            else root.setAttribute("data-theme", "dark");
+            // Nothing else. No refresh(), no setOptions(), no re-create.
+            setTimeout(showPaints, 50);
+        });
+
+        // Page-level: --p-* on :root, so the popovers and the filter bar follow too.
+        for (const [id, token] of [["accent", "--p-accent"], ["text", "--p-text"], ["bg", "--p-bg"]]) {
+            document.getElementById(id).addEventListener("input", (e) => {
+                root.style.setProperty(token, e.target.value);
+                setTimeout(showPaints, 50);
+            });
+        }
+
+        // Per-grid: --avg-* on the grid root itself, which is the element that defines them.
+        // The same property set on :root or on #host would be shadowed and do nothing.
+        document.getElementById("one").addEventListener("click", () => {
+            grid.element.style.setProperty("--avg-header-bg", "#1d7a4f");
+            grid.element.style.setProperty("--avg-header-text", "#ffffff");
+            setTimeout(showPaints, 50);
+        });
+
+        // On a Persephone board there is nothing to do at all: Persephone injects --p-* on
+        // <html> and keeps it live across theme switches. See examples/persephone-board/.
+
+        showPaints();
+        window.grid = grid;
+    </script>
+</body>
+</html>

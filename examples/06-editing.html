@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<!--
+    av-grid — in-cell editing.
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — editing</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        button { font: inherit; }
+        #host { flex: 1 1 auto; min-height: 0; }
+        footer { padding: 8px 16px; border-top: 1px solid #ddd; color: #666;
+                 font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Editing</h1>
+        <p>Click a focused cell to edit it — the caret lands where you clicked. Enter or F2 opens
+        with the value selected, so the next keystroke replaces it; so does simply typing over the
+        cell. Tab and the vertical arrows commit and move on. Booleans have a checkbox;
+        <code>Status</code> has a dropdown.</p>
+        <div class="row">
+            <button id="edit">startEdit(0, 1)</button>
+            <button id="set">setCellValue(0, 3, 42)</button>
+            <button id="add">addRow()</button>
+            <button id="del">deleteSelectedRows()</button>
+            <button id="reject">reject edits: <span id="rejectState">off</span></button>
+        </div>
+    </header>
+
+    <div id="host"></div>
+
+    <footer id="log">edits appear here…</footer>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const rows = Array.from({ length: 30 }, (_, i) => ({
+            id: i + 1,
+            name: `Row ${i + 1}`,
+            status: ["open", "pending", "closed"][i % 3],
+            score: (i * 13) % 100,
+            active: i % 2 === 0,
+        }));
+
+        let reject = false;
+        const log = document.getElementById("log");
+        const say = (line) => (log.textContent = line + "\n" + log.textContent.split("\n").slice(0, 8).join("\n"));
+
+        const grid = AVGrid.create("#host", {
+            rows,
+            editable: true,
+
+            // The user's affordances. The API methods below work regardless.
+            canAddRows: true,
+            canDeleteRows: true,
+            newRow: (index) => ({ id: 1000 + index, name: "", status: "open", score: 0, active: false }),
+
+            // Fires once per committed cell, *before* the write. Return false to reject it —
+            // the grid then writes nothing and the cell keeps its old value.
+            onEdit: (e) => {
+                say(`onEdit ${e.columnKey} @ ${e.rowKey}: ${JSON.stringify(e.previousValue)} → ${JSON.stringify(e.value)}`);
+                if (reject) {
+                    say("  … rejected by onEdit");
+                    return false;
+                }
+                // Persist here. The grid writes row[column.key] itself unless you return false.
+            },
+
+            // The value could not be coerced to the column's type — usually a value that is not
+            // one of the column's `options`. The default is to do nothing at all.
+            onInvalidEdit: (e) => say(`onInvalidEdit ${String(e.column.key)}: ${JSON.stringify(e.value)}`),
+
+            columns: [
+                // Read-only: no editor opens here, and Delete does not clear it.
+                { key: "id", name: "#", width: 60, align: "right", dataType: "number", readonly: true },
+
+                { key: "name", name: "Name", width: 160 },
+
+                // `options` opens the library's own virtualized dropdown instead of a native
+                // <select>. A picked option keeps its type, and typing over the cell seeds the
+                // dropdown's search box rather than the cell's value.
+                { key: "status", name: "Status", width: 130, options: ["open", "pending", "closed"] },
+
+                // A validate that coerces rather than rejects. Return undefined to reject,
+                // which fires onInvalidEdit.
+                {
+                    key: "score",
+                    name: "Score",
+                    width: 80,
+                    align: "right",
+                    dataType: "number",
+                    validate: (col, row, value) => {
+                        const n = Number(value);
+                        return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : undefined;
+                    },
+                },
+
+                // A boolean has no text editor: the checkbox toggles on the first click, and
+                // Space, Enter or a double-click toggles the whole selection.
+                { key: "active", name: "Active", width: 80, dataType: "boolean" },
+            ],
+        });
+
+        document.getElementById("edit").addEventListener("click", () => grid.startEdit(0, 1));
+        document.getElementById("set").addEventListener("click", () => grid.setCellValue(0, 3, 42));
+        document.getElementById("add").addEventListener("click", () => grid.addRow());
+        document.getElementById("del").addEventListener("click", () => grid.deleteSelectedRows());
+        document.getElementById("reject").addEventListener("click", () => {
+            reject = !reject;
+            document.getElementById("rejectState").textContent = reject ? "on" : "off";
+        });
+
+        window.grid = grid;
+    </script>
+</body>
+</html>

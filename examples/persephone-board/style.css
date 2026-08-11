@@ -1,0 +1,53 @@
+/* Everything here is a --p-* token, so the board — and the grid inside it — re-tint live on a
+   theme switch with no JavaScript. Metrics (--p-space-*, --p-radius-*) are constants; colours
+   are live.
+
+   Note what is NOT here: a single --avg-* override. Every av-grid token falls back to its --p-*
+   equivalent, so the grid already matches the app. Override an --avg-* token only where you want
+   the grid to differ from Persephone deliberately. */
+
+html, body { height: 100%; }
+
+body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.bar {
+    display: flex;
+    gap: var(--p-gap-md, 8px);
+    align-items: center;
+    padding: var(--p-space-sm, 6px) var(--p-space-md, 10px);
+    /* The app's chrome surface — darker than the page in a dark theme. The grid's own header
+       band takes this same token, which is why the two line up. */
+    background: var(--p-bg-dark, #181818);
+    border-bottom: 1px solid var(--p-border, #3c3c3c);
+    flex: 0 0 auto;
+}
+
+.bar input,
+.bar button {
+    font: inherit;
+    color: var(--p-text, #e0e0e0);
+    background: var(--p-panel, #252525);
+    border: 1px solid var(--p-border, #3c3c3c);
+    border-radius: var(--p-radius-md, 4px);
+    padding: 2px 8px;
+}
+
+.bar button:hover { background: var(--p-hover, #2f2f2f); }
+
+.status {
+    margin-left: auto;
+    color: var(--p-text-muted, #969696);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The grid measures its own root, so this needs a height. As a flex child that means
+   `flex: 1 1 auto` plus `min-height: 0` — without the latter, a flex item refuses to shrink
+   below its content and the grid grows the page instead of scrolling. */
+.grid-host {
+    flex: 1 1 auto;
+    min-height: 0;
+}

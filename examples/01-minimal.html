@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<!--
+    av-grid — the minimum call.
+
+    Run: npm run build once, then serve this folder and open the file:
+        npx serve .          (or: python -m http.server)
+    Opening it straight off the filesystem does not work — browsers block ES module
+    imports over file://.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — minimal</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0; color: #666; }
+        /* The grid measures its own root, so the host needs a height. This one is a flex child
+           that fills what is left; `height: 400px` would do just as well. */
+        #host { flex: 1 1 auto; min-height: 0; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Minimal</h1>
+        <p><code>rows</code> is the only required option. Columns, labels, widths, data types and
+        row keys are all inferred.</p>
+    </header>
+
+    <div id="host"></div>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const rows = [
+            { id: 1, firstName: "Ada", lastName: "Lovelace", score: 98, active: true },
+            { id: 2, firstName: "Alan", lastName: "Turing", score: 95, active: true },
+            { id: 3, firstName: "Grace", lastName: "Hopper", score: 91, active: false },
+            { id: 4, firstName: "Edsger", lastName: "Dijkstra", score: 88, active: true },
+            { id: 5, firstName: "Barbara", lastName: "Liskov", score: 94, active: false },
+        ];
+
+        const grid = AVGrid.create("#host", { rows });
+
+        // Everything the inference produced, in one line.
+        console.log(grid.getState());
+
+        // Handy while poking at it from the console.
+        window.grid = grid;
+    </script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<!--
+    av-grid — clipboard copy, cut and paste.
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+    Note: navigator.clipboard needs a secure context, so the programmatic buttons work on
+    localhost or https but may refuse on a plain http host. Ctrl+C / Ctrl+V always work.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — clipboard</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        button, textarea { font: inherit; }
+        #host { flex: 1 1 auto; min-height: 0; }
+        footer { display: flex; gap: 8px; padding: 8px 16px; border-top: 1px solid #ddd; }
+        textarea { flex: 1 1 auto; height: 70px; font-family: ui-monospace, monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Clipboard</h1>
+        <p>Clipboard handling is <strong>on by default</strong> — no option needed. Select a range
+        and press Ctrl+C (or Ctrl+Shift+C for headers, Ctrl+X to cut, Ctrl+V to paste). The buttons
+        are the programmatic paths.</p>
+        <div class="row">
+            <button data-mode="copy">copySelection()</button>
+            <button data-mode="copyWithHeaders">copyWithHeaders</button>
+            <button data-mode="copyAsJson">copyAsJson</button>
+            <button data-mode="copyAsHtmlTable">copyAsHtmlTable</button>
+            <button id="show">getSelectionText() →</button>
+            <button id="paste">pasteText() ←</button>
+        </div>
+    </header>
+
+    <div id="host"></div>
+
+    <footer>
+        <textarea id="text" spellcheck="false">Ada&#9;36
+Grace&#9;45</textarea>
+    </footer>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const rows = Array.from({ length: 40 }, (_, i) => ({
+            id: i + 1,
+            name: `Row ${i + 1}`,
+            score: (i * 7) % 100,
+        }));
+
+        const grid = AVGrid.create("#host", {
+            // Editable, so paste and cut have somewhere to write. A paste goes through the same
+            // path as typing, so `validate`, `readonly` and `onEdit` all still apply.
+            rows,
+            editable: true,
+            columns: [
+                { key: "id", name: "#", width: 60, align: "right", dataType: "number", readonly: true },
+                { key: "name", name: "Name", width: 160 },
+                { key: "score", name: "Score", width: 80, align: "right", dataType: "number" },
+            ],
+        });
+
+        const textarea = document.getElementById("text");
+
+        for (const btn of document.querySelectorAll("button[data-mode]")) {
+            btn.addEventListener("click", async () => {
+                const ok = await grid.copySelection(btn.dataset.mode);
+                textarea.value = ok
+                    ? grid.getSelectionText(btn.dataset.mode)
+                    : "clipboard refused — needs a secure context (localhost or https)";
+            });
+        }
+
+        // The same text, without going near the clipboard.
+        document.getElementById("show").addEventListener("click", () => {
+            textarea.value = grid.getSelectionText() || "(nothing selected)";
+        });
+
+        // A single selected cell expands to fit the text, clamped to the rows and columns that
+        // exist; a larger selection is filled by repeating the text across it.
+        document.getElementById("paste").addEventListener("click", () => {
+            if (!grid.getFocus()) grid.focusCell(0, 1);
+            grid.pasteText(textarea.value);
+        });
+
+        window.grid = grid;
+    </script>
+</body>
+</html>

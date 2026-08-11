@@ -10,3 +10,6 @@ Thumbs.db
 # Board build artifacts - regenerate with: npm run build:board
 test-boards/*/lib/
 test-boards/*/ui.log
+
+# Example board vendored library - copy from dist/ (see examples/persephone-board/README.md)
+examples/persephone-board/lib/

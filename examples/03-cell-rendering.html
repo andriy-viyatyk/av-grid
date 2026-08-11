@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<!--
+    av-grid — custom cell rendering.
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — cell rendering</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0; color: #666; }
+        #host { flex: 1 1 auto; min-height: 0; }
+
+        /* Cell content is the host's to style. Keep it inside the cell's box: a cell is
+           absolutely positioned and clipped, so nothing here can change the layout. */
+        .pill { padding: 1px 8px; border-radius: 10px; background: #eef; font-size: 12px; }
+        .pill.hot { background: #fee; color: #a00; }
+        .bar { display: inline-block; height: 10px; background: #4c9; vertical-align: middle; }
+        /* Note the `.avg-data-cell` in front. The grid's stylesheet is injected at create()
+           time, so it lands *after* this block in the document — and `.avg-data-cell` setting
+           `color` is exactly as specific as a bare `.low`, so the later rule would win. One
+           extra class settles it. */
+        .avg-data-cell.low { color: #c00; font-weight: 600; }
+        button.send { font: inherit; font-size: 12px; padding: 0 6px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Cell rendering</h1>
+        <p>A <code>render</code> hook returns an HTML string or a DOM element. Header cells have
+        <code>headerRender</code>; whole-cell classes come from <code>onCellClass</code>.</p>
+    </header>
+
+    <div id="host"></div>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const rows = [
+            { id: 1, name: "Ada Lovelace", team: "platform", score: 98, trend: 0.9 },
+            { id: 2, name: "Alan Turing", team: "research", score: 45, trend: 0.4 },
+            { id: 3, name: "Grace Hopper", team: "infra", score: 91, trend: 0.7 },
+            { id: 4, name: "Edsger Dijkstra", team: "research", score: 38, trend: 0.2 },
+            { id: 5, name: "Barbara Liskov", team: "platform", score: 94, trend: 1.0 },
+        ];
+
+        // Escape anything that came from outside. The string form inserts markup as-is.
+        const esc = (s) =>
+            String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+        const grid = AVGrid.create("#host", {
+            rows,
+            columns: [
+                { key: "name", name: "Name", width: 170 },
+
+                // A string of markup — the common case, and the cheapest.
+                {
+                    key: "team",
+                    name: "Team",
+                    width: 120,
+                    render: (cell) =>
+                        `<span class="pill${cell.row.score < 50 ? " hot" : ""}">${esc(cell.value)}</span>`,
+                },
+
+                // A bar drawn from the value. `formatValue` keeps sorting and copying sane —
+                // without it the clipboard would carry the number, which is fine here.
+                {
+                    key: "trend",
+                    name: "Trend",
+                    width: 140,
+                    render: (cell) =>
+                        `<span class="bar" style="width:${Math.round(cell.value * 100)}px"></span>`,
+                    formatValue: (col, row) => `${Math.round(row.trend * 100)}%`,
+                },
+
+                { key: "score", name: "Score", width: 70, align: "right", dataType: "number" },
+
+                // A button, handled through `onCellClick` below rather than by binding a
+                // listener here. `render` runs on every paint of the cell, so a listener bound
+                // inside it is bound again on every paint — and the grid already resolves every
+                // click back to its row and column for you.
+                {
+                    key: "actions",
+                    name: "",
+                    width: 70,
+                    filterType: null,
+                    readonly: true,
+                    render: () => `<button type="button" class="send">Send</button>`,
+                },
+
+                // Header content is a hook of its own.
+                {
+                    key: "id",
+                    name: "ID",
+                    width: 60,
+                    align: "right",
+                    headerRender: () => `<em>#</em>`,
+                },
+            ],
+
+            // Adds to the built-in state classes rather than replacing them.
+            onCellClass: (cell) => (cell.column.key === "score" && cell.value < 50 ? "low" : undefined),
+
+            // One listener for the whole grid, already resolved to the cell that was clicked.
+            onCellClick: (cell, e) => {
+                if (cell.column.key === "actions" && e.target.closest(".send")) {
+                    alert(`Send to ${cell.row.name}`);
+                }
+            },
+        });
+
+        window.grid = grid;
+    </script>
+</body>
+</html>

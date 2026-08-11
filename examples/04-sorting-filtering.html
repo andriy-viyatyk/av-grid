@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<!--
+    av-grid — sorting, filtering, and the filter bar.
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — sorting and filtering</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        button, input { font: inherit; }
+        #status { margin-left: auto; color: #666; font-variant-numeric: tabular-nums; }
+        #host { flex: 1 1 auto; min-height: 0; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Sorting and filtering</h1>
+        <p>Click a header to sort. Click a funnel to filter. Applied filters appear as removable
+        chips in the bar above the grid — which takes no space until something is filtered.</p>
+        <div class="row">
+            <input id="search" type="search" placeholder="search every column…" size="24" />
+            <button id="open">Filter "status" from here</button>
+            <button id="only">applyFilter(open)</button>
+            <button id="clear">clearFilters()</button>
+            <span id="status"></span>
+        </div>
+    </header>
+
+    <div id="host"></div>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const TEAMS = ["platform", "infra", "data", "growth", "research"];
+        const STATUS = ["open", "pending", "closed", "archived"];
+
+        const rows = Array.from({ length: 500 }, (_, i) => ({
+            id: i + 1,
+            name: `Row ${i + 1}`,
+            team: TEAMS[i % TEAMS.length],
+            status: STATUS[(i * 3) % STATUS.length],
+            score: (i * 37) % 100,
+        }));
+
+        const grid = AVGrid.create("#host", {
+            rows,
+
+            // The bar above the grid. `AVGrid.createFilterBar(el, { grid })` puts one anywhere
+            // else instead — a toolbar, a panel — and a grid can have any number of them.
+            filterBar: true,
+
+            // Remember the filters across a reload. Passing this object *is* the consent to
+            // write to localStorage; nothing is stored without it.
+            persistFilters: { name: "example-orders" },
+
+            sort: { key: "score", direction: "desc" },
+
+            columns: [
+                { key: "id", name: "#", width: 60, align: "right", dataType: "number" },
+                { key: "name", name: "Name", width: 140 },
+                { key: "team", name: "Team", width: 120 },
+                { key: "status", name: "Status", width: 120 },
+                { key: "score", name: "Score", width: 80, align: "right", dataType: "number" },
+            ],
+
+            onSortChange: (sort) => report(),
+            onFiltersChange: (filters) => {
+                // The normalized list — safe to hand straight back to setFilters().
+                console.log("filters:", filters);
+                report();
+            },
+        });
+
+        function report() {
+            const s = grid.getState();
+            document.getElementById("status").textContent =
+                `${s.rowCount} of ${s.sourceRowCount} rows · ` +
+                `sort: ${s.sort ? `${s.sort.key} ${s.sort.direction}` : "none"} · ` +
+                `filters: ${s.filters.length}`;
+        }
+
+        document.getElementById("search").addEventListener("input", (e) => {
+            grid.setSearchString(e.target.value);
+            report();
+        });
+
+        // The same popover the header funnel opens. Anchor it anywhere — an element or a point.
+        document.getElementById("open").addEventListener("click", async (e) => {
+            await grid.showFilterPopover("status", { anchor: e.currentTarget });
+            report();
+        });
+
+        // Applying an empty value removes the filter, which is why one call does both.
+        document.getElementById("only").addEventListener("click", () => {
+            grid.applyFilter({ columnKey: "status", value: ["open"] });
+        });
+
+        document.getElementById("clear").addEventListener("click", () => {
+            grid.clearFilters();
+            grid.setSearchString("");
+            document.getElementById("search").value = "";
+        });
+
+        report();
+        window.grid = grid;
+    </script>
+</body>
+</html>

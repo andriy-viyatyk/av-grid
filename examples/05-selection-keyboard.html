@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<!--
+    av-grid — selection, focus and keyboard navigation.
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — selection and keyboard</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        button { font: inherit; }
+        #host { flex: 1 1 auto; min-height: 0; }
+        footer { padding: 8px 16px; border-top: 1px solid #ddd; color: #666;
+                 font-family: ui-monospace, monospace; font-size: 12px; white-space: pre; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Selection and keyboard</h1>
+        <p>Two different selections at once: <strong>rows</strong> by checkbox, and a
+        <strong>cell range</strong> by drag or shift. Arrows, PageUp/Down, Home/End, Tab and
+        Ctrl+A all work — click a cell first, or press the button below.</p>
+        <div class="row">
+            <button id="focus">grid.focus()</button>
+            <button id="cell">focusCell(3, 2)</button>
+            <button id="range">selectRange(2, 1, 6, 3)</button>
+            <button id="all">selectAll() rows</button>
+            <button id="none">clearSelected()</button>
+        </div>
+    </header>
+
+    <div id="host"></div>
+
+    <footer id="out"></footer>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const rows = Array.from({ length: 200 }, (_, i) => ({
+            id: i + 1,
+            name: `Row ${i + 1}`,
+            team: ["platform", "infra", "data"][i % 3],
+            score: (i * 17) % 100,
+        }));
+
+        const grid = AVGrid.create("#host", {
+            rows,
+
+            // The checkbox column, pinned left. It is the grid's own — it does not appear in
+            // getColumns() and does not survive into setColumns().
+            selectColumn: true,
+            selected: ["2", "5"],
+
+            // Row selection. Keys, not row objects: getSelectedRows() is O(rows) and so is not
+            // done for you on every click.
+            onSelectionChange: (keys) => report(`rows selected: ${keys.length}`),
+
+            // Cell focus and the range around it. Fires once per cell during a drag, not once
+            // per pointer move.
+            onFocusChange: (focus) => {
+                if (!focus) return report("focus cleared");
+                const sel = focus.selection;
+                report(
+                    `focus ${focus.columnKey} @ row key ${focus.rowKey}` +
+                        (sel
+                            ? ` · range rows ${sel.rowStart}–${sel.rowEnd}, cols ${sel.colStart}–${sel.colEnd}`
+                            : ""),
+                );
+            },
+
+            columns: [
+                { key: "id", name: "#", width: 60, align: "right", dataType: "number" },
+                { key: "name", name: "Name", width: 140 },
+                { key: "team", name: "Team", width: 120 },
+                { key: "score", name: "Score", width: 80, align: "right", dataType: "number" },
+            ],
+        });
+
+        const out = document.getElementById("out");
+        function report(line) {
+            const s = grid.getState();
+            // getSelected() returns every key; print a few. getState() gives the count instead,
+            // for exactly this reason — it is built to be logged.
+            const keys = grid.getSelected();
+            const shown = keys.length > 6 ? `[${keys.slice(0, 6).join(", ")}, … +${keys.length - 6}]` : `[${keys.join(", ")}]`;
+            out.textContent =
+                `${line ?? ""}\n` +
+                `getSelected(): ${shown}\n` +
+                `selectedCount: ${s.selectedCount}  allSelected: ${s.allSelected}\n` +
+                `viewport rows ${s.viewport.firstRow}–${s.viewport.lastRow}`;
+        }
+
+        document.getElementById("focus").addEventListener("click", () => grid.focus());
+        document.getElementById("cell").addEventListener("click", () => grid.focusCell(3, 2, true));
+        document.getElementById("range").addEventListener("click", () => grid.selectRange(2, 1, 6, 3));
+        document.getElementById("all").addEventListener("click", () => grid.selectAll());
+        document.getElementById("none").addEventListener("click", () => grid.clearSelected());
+
+        report("ready");
+        window.grid = grid;
+    </script>
+</body>
+</html>
