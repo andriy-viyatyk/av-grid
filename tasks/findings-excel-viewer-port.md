@@ -207,3 +207,33 @@ probe can be deleted.
 
 The read-only context menu and the `--p-*` chain were already documented as the port found them;
 nothing to change there.
+
+---
+
+## Confirmed downstream (2026-08-12, av-grid 2.1.0)
+
+The Excel Viewer board was updated to 2.1.0 and the resolution above **checks out in the board
+itself**. Retested there, using the pointer protocol the new
+[Driving the grid from an agent](../docs/api.md#driving-the-grid-from-an-agent) section prescribes:
+
+- **#1 was the harness.** A lone `pointerdown` on a data cell — with the board's workaround
+  removed — moves `document.activeElement` from `BODY` to `.avg-grid`, and the cell focus lands on
+  the pressed cell, not A1 (which also disposes of #2). A synthetic `browser_click` reaches
+  neither, which is all the original measurement was seeing. **Both workarounds deleted.**
+- **The width fix removes the `detectWidths()` probe entirely.** Detection on explicit columns now
+  produces 68/76/60/76/76/300 px against the probe's 68/76/64/76/76/300 — the same answer, minus
+  25 lines of board code. Measuring through `columnDisplayValue` is what makes it correct here:
+  the raw values behind these columns include `Date` objects, whose width means nothing.
+- **Search highlighting works with no setup**, because the board's columns project through
+  `formatValue` rather than `render`. One note on the shape: the docs recommend `"both"` for dark
+  themes, and in Persephone's `default-dark` that reads *worse* than the colour-only default —
+  the accent is saturated enough that the tint becomes a solid block behind text of nearly the
+  same colour, so the marked word is harder to read than its neighbours, not easier. The board
+  ships the default. Worth softening that recommendation to "try it, it depends on how saturated
+  the host's accent is".
+- **#3 remains unverified from here**, honestly — no MCP tool produces trusted key input, so the
+  board's Ctrl+C binding was removed on the strength of the by-hand retest recorded above rather
+  than on a measurement of our own.
+
+The new agent section is the right fix. Had it existed, three of the four reports would not have
+been filed; `docs/boards.md` pointing at it is where an agent driving a board will actually meet it.

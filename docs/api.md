@@ -866,7 +866,7 @@ host changes it. `highlightSearch` picks the shape, or turns it off:
 |---|---|
 | `true` (default), `"text"` | The letters in the accent colour |
 | `"background"` | A tint behind the letters, their own colour untouched |
-| `"both"` | Both. The most visible, and the most legible on a dark theme, where the accent is a line colour that can read *dimmer* than pale cell text |
+| `"both"` | Both |
 | `false` | Nothing. Rows filter exactly as before |
 
 ```js
@@ -874,8 +874,14 @@ AVGrid.create(el, { rows, searchString: "ada", highlightSearch: "both" });
 grid.setOptions({ highlightSearch: false });    // any time, not only at create()
 ```
 
-Reach for `"background"` when the columns carry their own colours — a status, a rating — and
-recolouring their text would say something it does not mean.
+**Which one is right depends on the host's accent, and there is no recommending it in advance.**
+The default is the colour alone; change it only if asked, or if you have looked. A pale accent
+can read *dimmer* than the text around it, which a tint fixes; a saturated one makes the tint a
+solid block behind text of nearly its own colour, which is worse than the default — that is a
+real report, from a dark theme where `"both"` lost to plain `"text"`. Two screenshots settle it
+in a way reasoning about the theme does not. The one shape with a reason of its own is
+`"background"`: on a column that carries its own colours — a status, a rating — it marks without
+recolouring text whose colour already means something.
 
 What is and is not marked:
 

@@ -263,11 +263,15 @@ export interface AVGridOptions<R = any> {
      * |---|---|
      * | `true` (default), `"text"` | The letters in the accent colour |
      * | `"background"` | A tint behind the letters, their own colour untouched |
-     * | `"both"` | Both — the most visible, and the most legible on a dark theme |
+     * | `"both"` | Both |
      * | `false` | Nothing. Rows still filter exactly as before |
      *
-     * `"background"` is the one to reach for when the columns carry their own colours — a
-     * status or a rating — and recolouring their text would say something it does not mean.
+     * **Which shape suits a theme depends on its accent, so none is recommended here.** Leave
+     * the default unless asked, or unless you have compared them on the actual host: a pale
+     * accent can read dimmer than the text around it, where a tint helps; a saturated one turns
+     * the tint into a solid block behind text of nearly its own colour, which is worse than the
+     * default. `"background"` has a reason of its own — on a column whose text colour already
+     * means something, a status or a rating, it marks without overriding it.
      */
     highlightSearch?: boolean | "text" | "background" | "both";
     /**

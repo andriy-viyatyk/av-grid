@@ -204,12 +204,11 @@ export const css = `
  * on the root — on the root, not on the mark, so choosing a shape costs nothing per cell and
  * changing it repaints nothing at all.
  *
- * The default is the reference's: colour alone. The tint is worth knowing about, though, and
- * "both" is what a dark theme usually wants — the accent is a *line* colour, dark enough to
- * read against a light background, so against pale cell text a coloured match can come out
- * dimmer than the words around it. The tint carries the mark whichever way the theme runs, and
- * stays legible inside a selected cell, where the same accent already covers the whole cell at
- * a lighter 18%.
+ * The default is the reference's: colour alone. Which shape suits a theme turns entirely on its
+ * accent, and this file is the wrong place to guess — a pale accent can read dimmer than the
+ * text around it, where the tint helps, while a saturated one makes the tint a solid block
+ * behind text of nearly its own colour and comes out worse than the default. Both have been
+ * seen. So none of the three is recommended anywhere; the host looks and chooses.
  *
  * No weight change in any of them: bolding reflows the glyphs around the match, so the text
  * would shuffle sideways with every letter typed into the search box.
