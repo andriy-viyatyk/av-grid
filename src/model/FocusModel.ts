@@ -375,6 +375,9 @@ export class FocusModel<R> {
         // on every React render.
         this.model.models.editing.onFocusMoved();
         this.model.options.onFocusChange?.(next);
+        // Last, so the host has seen the new focus before the row that the focus just left
+        // disappears from under it. Does nothing unless an untouched trailing row exists.
+        this.model.models.structure.dropUntouchedTrailingRow();
     }
 
     private deriveRanges(focus: CellFocus<R> | undefined): Ranges {

@@ -89,7 +89,9 @@ takes two clicks and a focused one takes a single click, as the reference did; a
 cell carries a checkbox that toggles on the first click, and only the box toggles — the cell
 around it just selects; Tab and the vertical arrows commit and move on, while the horizontal ones
 stay with the caret), Excel-compatible clipboard copy/cut/paste, rows and columns added and
-deleted by button, keyboard or API, column filters applied through the API, and a stylesheet
+deleted by button, keyboard or API — and the row that ArrowDown adds off the bottom is taken
+back if the focus leaves it without anyone typing in it, so holding the key to read the end of a
+grid does not leave a blank row behind — column filters applied through the API, and a stylesheet
 driven entirely by CSS custom properties.
 
 The performance thesis survived the grid layer, and then survived selection. 100,000 rows in a

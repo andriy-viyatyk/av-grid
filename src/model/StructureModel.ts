@@ -46,6 +46,17 @@ export class StructureModel<R> {
     private nextPlaceholder = 1;
     private rowKeyProperty?: string | null;
 
+    /**
+     * True for the duration of `addTrailingRow`.
+     *
+     * Adding rows re-validates the focus, and a re-validation that lands on the same cell can
+     * still reach `dropUntouchedTrailingRow` — at a moment when the row has been added and the
+     * focus has *not* yet moved onto it, so the drop would undo the add it is part of. The
+     * reference never had to think about it: React had already finished the render before its
+     * effect ran.
+     */
+    private addingTrailingRow = false;
+
     constructor(model: AVGridModel<R>) {
         this.model = model;
         this.model.events.content.onKeyDown.subscribe(this.onContentKeyDown);
@@ -121,12 +132,54 @@ export class StructureModel<R> {
      */
     addTrailingRow = (): R[] => {
         if (!this.canAddRows || this.model.data.newRowKey) return [];
-        const rows = this.addBlankRows(1, undefined, false);
-        if (rows.length) {
-            this.model.data.newRowKey = this.model.options.getRowKey(rows[0]);
-            this.model.data.change();
+        this.addingTrailingRow = true;
+        try {
+            const rows = this.addBlankRows(1, undefined, false);
+            if (rows.length) {
+                this.model.data.newRowKey = this.model.options.getRowKey(rows[0]);
+                this.model.data.change();
+            }
+            return rows;
+        } finally {
+            this.addingTrailingRow = false;
         }
-        return rows;
+    };
+
+    /**
+     * Take the trailing row back if the focus left it without anyone typing in it.
+     *
+     * Holding ArrowDown to scroll is how a user reads the bottom of a grid, and the last press
+     * lands on a row that only exists because of the press. Leaving it behind means the user has
+     * to notice it and press ctrl+Delete; the reference deletes it, and this is that effect —
+     * `EffectsModel`'s `useEffect([focus])` — called from the one place the focus can move.
+     *
+     * `newRowKey` is the temporary mark: `addTrailingRow` sets it, `editCellAt` clears it on the
+     * first write, so a row still carrying it has never been edited.
+     */
+    dropUntouchedTrailingRow = (): void => {
+        const newRowKey = this.model.data.newRowKey;
+        if (newRowKey === undefined || this.addingTrailingRow) return;
+
+        const index = this.displayIndexOfKey(newRowKey);
+        if (index < 0) {
+            // No longer on display — a filter hid it, or the host replaced its rows. The mark
+            // would otherwise block the next trailing row for the life of the grid.
+            this.model.data.newRowKey = undefined;
+            this.model.data.change();
+            return;
+        }
+
+        // The selection, not just the focused cell: a range dragged up off the new row still has
+        // it selected, and deleting a row out from under a live selection is not the deal.
+        const { rows, minRow } = this.model.models.focus.selectedCount;
+        if (rows > 0 && index >= minRow && index < minRow + rows) return;
+
+        // Cleared *before* the delete rather than by it: `deleteRows` moves the focus, which
+        // comes back through here, and this mark is the only thing that says there is work to
+        // do. The reference clears it first for the same reason.
+        this.model.data.newRowKey = undefined;
+        this.model.data.change();
+        this.deleteRows([newRowKey]);
     };
 
     /** Delete rows by key. Returns whether anything went. */
@@ -327,6 +380,26 @@ export class StructureModel<R> {
         if (displayIndex >= displayed.length) return source.length;
         const at = source.indexOf(displayed[displayIndex]);
         return at < 0 ? source.length : at;
+    }
+
+    /**
+     * Where a row key sits in the displayed rows, `-1` if it does not.
+     *
+     * The tail is checked first and answers every ordinary call in one comparison, because the
+     * only row this is ever asked about is the one that was just appended. The scan behind it is
+     * for the case where a sort has since moved it: O(rows), but reached only while an untouched
+     * new row exists, and the delete it leads to costs the same order anyway.
+     */
+    private displayIndexOfKey(rowKey: string): number {
+        const rows = this.model.data.rows;
+        const getRowKey = this.model.options.getRowKey;
+        const last = rows.length - 1;
+        if (last < 0) return -1;
+        if (getRowKey(rows[last]) === rowKey) return last;
+        for (let i = 0; i < last; i++) {
+            if (getRowKey(rows[i]) === rowKey) return i;
+        }
+        return -1;
     }
 
     /** A `data.columns` index as an index into the host's own columns. */

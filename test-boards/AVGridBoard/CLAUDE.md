@@ -121,8 +121,11 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   button under the last row and a **+** at the right end of the header. ctrl+Insert inserts as
   many rows as are selected, ctrl+Delete deletes them, and the shift variants do the same for
   columns; ArrowDown or Tab off the end of the grid grows it by one row, ctrl+→ off the last
-  column adds one. The board passes `newRow` because its rows carry an `id` the grid cannot
-  invent and a `Full Name` derived from two other fields. The thing worth re-checking after any
+  column adds one — and that row is *temporary* until something is typed into it: hold ArrowDown
+  at the bottom and exactly one row appears however long you hold it, then ArrowUp or a click on
+  any other row takes it away again. Type in it and it stays. Rebuild with a small row count (6
+  is enough) to watch this without scrolling. The board passes `newRow` because its rows carry an
+  `id` the grid cannot invent and a `Full Name` derived from two other fields. The thing worth re-checking after any
   change here is `measureStructure`: **scroll and focus must both survive an insert above the
   viewport**, and they only do because `StructureModel` suppresses one focus revalidation.
 - **The popover** — `showPopover({ anchor, tall })` opens one against any element or `{x, y}`

@@ -396,6 +396,71 @@ describe("the keyboard", () => {
         expect(g.getFocus()?.columnKey).toBe("name");
     });
 
+    it("takes the blank row back when the focus leaves it untouched", () => {
+        const g = grid(3);
+        g.focusCell(2, 0);
+        g.element.dispatchEvent(key({ code: "ArrowDown", key: "ArrowDown" }));
+        expect(g.getVisibleRows()).toHaveLength(4);
+
+        g.element.dispatchEvent(key({ code: "ArrowUp", key: "ArrowUp" }));
+        expect(g.getVisibleRows()).toHaveLength(3);
+        expect(g.getFocus()?.rowKey).toBe("3");
+    });
+
+    it("takes it back when the focus moves anywhere else, not only up", () => {
+        const g = grid(3);
+        g.focusCell(2, 0);
+        g.element.dispatchEvent(key({ code: "ArrowDown", key: "ArrowDown" }));
+        g.focusCell(0, 1);
+        expect(g.getVisibleRows()).toHaveLength(3);
+
+        // And the mark went with it, so the next ArrowDown off the end still offers a row.
+        g.focusCell(2, 0);
+        g.element.dispatchEvent(key({ code: "ArrowDown", key: "ArrowDown" }));
+        expect(g.getVisibleRows()).toHaveLength(4);
+    });
+
+    it("keeps it once it has been typed into", () => {
+        const g = grid(3);
+        g.focusCell(2, 0);
+        g.element.dispatchEvent(key({ code: "ArrowDown", key: "ArrowDown" }));
+        g.setCellValue(3, 0, "Ada");
+
+        g.element.dispatchEvent(key({ code: "ArrowUp", key: "ArrowUp" }));
+        expect(g.getVisibleRows()).toHaveLength(4);
+        expect(g.getVisibleRows()[3].name).toBe("Ada");
+    });
+
+    it("keeps it while a range dragged off it still has it selected", () => {
+        const g = grid(3);
+        g.focusCell(2, 0);
+        g.element.dispatchEvent(key({ code: "ArrowDown", key: "ArrowDown" }));
+        // shift+ArrowUp extends the selection up off the new row without deselecting it.
+        g.element.dispatchEvent(
+            key({ code: "ArrowUp", key: "ArrowUp", shiftKey: true }),
+        );
+        expect(g.getVisibleRows()).toHaveLength(4);
+    });
+
+    it("does not manufacture rows when ArrowDown is held at the bottom", () => {
+        const g = grid(3);
+        g.focusCell(2, 0);
+        for (let i = 0; i < 20; i++) {
+            g.element.dispatchEvent(key({ code: "ArrowDown", key: "ArrowDown" }));
+        }
+        expect(g.getVisibleRows()).toHaveLength(4);
+        g.element.dispatchEvent(key({ code: "ArrowUp", key: "ArrowUp" }));
+        expect(g.getVisibleRows()).toHaveLength(3);
+    });
+
+    it("lets onDeleteRows keep the row it was asked about", () => {
+        const g = grid(3, { onDeleteRows: () => false });
+        g.focusCell(2, 0);
+        g.element.dispatchEvent(key({ code: "ArrowDown", key: "ArrowDown" }));
+        g.element.dispatchEvent(key({ code: "ArrowUp", key: "ArrowUp" }));
+        expect(g.getVisibleRows()).toHaveLength(4);
+    });
+
     it("adds a column when ctrl+ArrowRight runs off the last one", () => {
         const g = grid(2);
         g.focusCell(0, 2);
