@@ -55,10 +55,32 @@ export class RowsModel<R> {
     unfreezeRows = (): void => {
         if (!this.model.data.rowsFrozen) return;
 
+        this.clearFreeze();
+        this.updateRows();
+    };
+
+    /**
+     * Re-run the pipeline, ending any freeze first.
+     *
+     * What a filter, a search string or a sort change calls, because each of them *is* the
+     * reason the freeze existed: the order the user asked to hold steady is the one they have
+     * just replaced. Without this a filter cleared during an edit left the edited rows on
+     * screen — `updateRows()` short-circuits into `updateFrozenRows()` while frozen, which
+     * adopts new row objects in place and re-filters nothing. The reference unfreezes from a
+     * `useEffect` on `[searchString, filters, sortColumn]`; this is that effect, called from
+     * the three places those can change.
+     */
+    refilterRows = (): void => {
+        this.clearFreeze();
+        this.updateRows();
+    };
+
+    private clearFreeze = (): void => {
+        if (!this.model.data.rowsFrozen) return;
+
         this.model.data.rowsFrozen = false;
         this.model.data.change();
         this.model.update({ rows: [0] });
-        this.updateRows();
     };
 
     /** Re-run filter → sort and hand the result to the render layer. */

@@ -454,7 +454,9 @@ export class FiltersModel<R> {
             this.model.options.persistFilters,
             this.columns,
         );
-        this.model.models.rows.updateRows();
+        // `refilterRows`, not `updateRows`: a filter change ends an editing freeze, because the
+        // order the freeze was holding steady is the one the filter has just replaced.
+        this.model.models.rows.refilterRows();
         this.model.options.onFiltersChange?.(this.getFilters());
         // The filter bar redraws from this. Internal, and separate from the host callback above,
         // so a host passing `onFiltersChange` does not displace the bar's own subscription.

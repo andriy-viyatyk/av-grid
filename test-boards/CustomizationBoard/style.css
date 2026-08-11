@@ -1,0 +1,132 @@
+/* Board chrome, plus the host classes the class hooks ask for.
+ *
+ * The grid brings its own stylesheet — av-grid injects it — so nothing here styles a cell
+ * except the four rules under "the class hooks", which exist only because this board's own
+ * JavaScript asks for them. Each of those out-specifies `.avg-data-cell`: the grid's sheet is
+ * injected during `create()`, so it lands *after* this file and a bare `.p-critical` setting
+ * `color` loses the specificity tie.
+ */
+
+html, body {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+}
+
+.bar {
+    display: flex;
+    align-items: center;
+    gap: var(--p-gap-md, 8px);
+    padding: var(--p-space-md, 8px) var(--p-space-lg, 12px);
+    background: var(--p-bg-dark, #1e1e1e);
+    border-bottom: 1px solid var(--p-border, #3c3c3c);
+    flex: 0 0 auto;
+}
+
+.footer {
+    border-bottom: none;
+    border-top: 1px solid var(--p-border, #3c3c3c);
+}
+
+.field { display: flex; align-items: center; gap: var(--p-gap-sm, 4px); }
+
+label {
+    color: var(--p-text-muted, #9aa0a6);
+    font-size: var(--p-font-sm, 12px);
+}
+
+input {
+    font: inherit;
+    width: 120px;
+    padding: var(--p-space-xs, 2px) var(--p-space-sm, 6px);
+    background: var(--p-bg, #1e1e1e);
+    color: var(--p-text, #ddd);
+    border: 1px solid var(--p-border, #3c3c3c);
+    border-radius: var(--p-radius-sm, 3px);
+}
+
+input[type="number"] { width: 90px; }
+
+button {
+    font: inherit;
+    padding: var(--p-space-sm, 6px) var(--p-space-lg, 12px);
+    border: 1px solid var(--p-accent, #0078d4);
+    background: var(--p-accent, #0078d4);
+    color: var(--p-accent-text, #fff);
+    border-radius: var(--p-radius-md, 4px);
+    cursor: pointer;
+}
+
+button:hover { filter: brightness(1.1); }
+button:active { filter: brightness(0.9); }
+
+button.secondary {
+    background: transparent;
+    color: var(--p-text-muted, #9aa0a6);
+    border-color: var(--p-border, #3c3c3c);
+}
+
+.status {
+    color: var(--p-text-muted, #9aa0a6);
+    font-size: var(--p-font-sm, 12px);
+    margin-left: auto;
+}
+
+.results {
+    flex: 0 0 auto;
+    max-height: 45%;
+    overflow: auto;
+    padding: var(--p-space-md, 8px) var(--p-space-lg, 12px);
+    background: var(--p-panel, #252526);
+    border-bottom: 1px solid var(--p-border, #3c3c3c);
+}
+
+.results[hidden] { display: none !important; }
+
+.results table { border-collapse: collapse; font-size: var(--p-font-sm, 12px); width: 100%; }
+.results th, .results td { text-align: left; padding: 3px 12px 3px 0; vertical-align: top; }
+.results th { color: var(--p-text-muted, #9aa0a6); font-weight: normal; }
+.results td.pass { color: var(--p-success, #6a9955); }
+.results td.fail { color: var(--p-error, #f48771); }
+
+.grid-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+}
+
+/* ── the class hooks ──────────────────────────────────────────────────────────────────── */
+.grid-host .p-critical { color: var(--p-error, #f48771); font-weight: 600; }   /* cellClass */
+.grid-host .p-high     { color: var(--p-warning, #cca700); font-weight: 600; } /* cellClass */
+.grid-host .p-normal   { color: var(--p-text, #d4d4d4); }                      /* cellClass */
+.grid-host .p-low      { color: var(--p-text-muted, #9aa0a6); }                /* cellClass */
+.grid-host .overdue    { background: var(--p-error-bg, rgba(244, 135, 113, 0.12)); } /* rowClass */
+.grid-host .done       { background: var(--p-success-bg, rgba(106, 153, 85, 0.12)); } /* rowClass */
+.grid-host .wrap       { white-space: normal; }                                /* headerClass */
+
+/* The `progress` column's bar — the cell whose screen form is not what a spreadsheet wants,
+   which is what `copyValue` is for. */
+.progress-bar { display: inline-block; height: 10px; border-radius: 5px; background: var(--p-accent, #0078d4);
+       vertical-align: middle; }
+.progress-num { margin-left: 6px; color: var(--p-text-muted, #9aa0a6); }
+
+/* The body of the Due column's custom filter: host DOM inside the grid's popover, which lives
+   on `document.body`. The panel, its padding and its buttons are the grid's. */
+.range-filter { display: flex; flex-direction: column; gap: 6px; min-width: 190px; }
+.range-filter label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.range-filter input {
+    width: 120px;
+    padding: 2px 6px;
+    font: inherit;
+    color: var(--p-text, #d4d4d4);
+    background: var(--p-bg-input, #1f1f1f);
+    border: solid 1px var(--p-border, #3c3c3c);
+    border-radius: 3px;
+}

@@ -318,6 +318,44 @@ describe("AVGridModel", () => {
         });
     });
 
+    /**
+     * An edit freezes the row order so the row being typed into cannot jump away. The freeze has
+     * to end when the thing it was protecting changes — otherwise a filter cleared while a cell
+     * is open leaves the filtered-out rows on screen, which is what driving the customization
+     * example found.
+     */
+    describe("the editing freeze", () => {
+        it("ends when a filter changes, and the pipeline re-runs", () => {
+            model.setFilters([{ columnKey: "name", value: ["Ada", "Bob"] }]);
+            expect(model.data.rows).toHaveLength(2);
+
+            model.models.rows.freezeRows();
+            expect(model.data.rowsFrozen).toBe(true);
+
+            model.setFilters([]);
+            expect(model.data.rowsFrozen).toBe(false);
+            expect(model.data.rows).toHaveLength(3);
+        });
+
+        it("ends when the search string changes", () => {
+            model.setSearchString("ad");
+            model.models.rows.freezeRows();
+
+            model.setSearchString(undefined);
+            expect(model.data.rowsFrozen).toBe(false);
+            expect(model.data.rows).toHaveLength(3);
+        });
+
+        it("ends when the sort changes", () => {
+            model.setSort({ key: "name", direction: "asc" });
+            model.models.rows.freezeRows();
+
+            model.setSort({ key: "score", direction: "asc" });
+            expect(model.data.rowsFrozen).toBe(false);
+            expect(model.data.rows.map((r) => r.score)).toEqual([10, 20, 30]);
+        });
+    });
+
     describe("columns", () => {
         it("hides columns marked hidden from the render layer, not from getColumns", () => {
             model.setColumns([

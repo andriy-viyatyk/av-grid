@@ -1,6 +1,6 @@
 # av-grid examples
 
-Ten runnable examples, one topic each, every file standalone and small enough to read whole. They
+Eleven runnable examples, one topic each, every file standalone and small enough to read whole. They
 are meant to be **copied in full** and adapted — that is how they will actually be used.
 
 ## Running them
@@ -27,6 +27,7 @@ need.
 | [`07-clipboard.html`](07-clipboard.html) | Copy in four modes, cut, paste — from the keyboard and from the API |
 | [`08-theming.html`](08-theming.html) | Live token editing and a dark theme, with a paint counter proving it costs zero paints |
 | [`09-benchmark.html`](09-benchmark.html) | 100,000 rows: first paint, paint cost top vs row 99,000, the flat-cost ratio |
+| [`10-customization.html`](10-customization.html) | All seven host hooks at once: `cellClass`, `headerClass`, `rowClass`, `editor`, `column.filter`, `copyValue`, `sortValue` |
 | [`persephone-board/`](persephone-board/) | The grid on a Persephone board, themed by `--p-*` with no theming code |
 
 ## Three things every example depends on

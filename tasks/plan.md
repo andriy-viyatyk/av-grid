@@ -27,7 +27,7 @@ Reference paths and the read-only rule: [`../CLAUDE.md`](../CLAUDE.md).
 | 22 | Custom cell editors — `column.editor` | Customization | ✅ Done |
 | 23 | Custom filters — `column.filter` | Customization | ✅ Done |
 | 24 | `copyValue`, and the value-precedence table | Customization | ✅ Done |
-| 25 | Customization docs, example, and board | Customization | ⬜ Not started |
+| 25 | Customization docs, example, and board | Customization | ✅ Done |
 | 26 | Custom sorting — `sortValue` | Customization | ✅ Done |
 
 Status values: ⬜ Not started · 🟡 In progress · ✅ Done · ⏸️ Blocked (say why).
@@ -315,7 +315,7 @@ properties.
   itself and the plan changes here rather than silently.
 - Task 24's table gains its row; the `dataType` note stays true.
 
-### Task 25 — Customization docs, example, and board
+### Task 25 — Customization docs, example, and board ✅
 
 **Build**
 - `docs/api.md`: the three class hooks, `editor` (with the popup-editor and blur notes),
@@ -330,6 +330,12 @@ properties.
 
 **Done when** the example has been opened in a browser and driven — every hook exercised by
 hand, screenshotted — and `CLAUDE.md`'s *Current state* records what customization now covers.
+
+**Done.** `docs/api.md` gained *Customization, at a glance* — one table from the thing a host wants
+to the hook that does it — and `editRender` its row in the removed-names table;
+`examples/10-customization.html` does all seven hooks in one file, numbered rather than named to
+match the other ten; and `test-boards/CustomizationBoard/` checks **20 documented claims** and
+reports them pass/fail. Driving the example is what found the freeze bug in the decision log below.
 
 ---
 
@@ -365,3 +371,7 @@ tasks 1–20 is in [`plan-done-01.md`](plan-done-01.md) and is still required re
 | 2026-08-11 | 26 | **`sortValue` lives on `AVGridData` next to `rowCompare` and shares its change flag.** They are one fact — how the rows are ordered — and the flag is what `RowsModel` reacts to. Keeping them separate would have been the bug the existing direction-only guard already warns about: two columns with a `sortValue` both resolve to the same memorized *value* comparator, so `rowCompare`'s identity does not move and the sort would silently not re-run. The guard in `sortChanged` now compares both. |
 | 2026-08-11 | 26 | **Twelve times fewer calls is a wash on a cheap projection, and 2.7× on a real one — and the docs say so.** Decorate–sort–undecorate takes a table-lookup `sortValue` from 10.8 ms to 10.3 ms on 100,000 rows (100,000 calls against 1,209,558 counted), because the wrapper object per row eats almost all of the saving; the same transform takes a projection that lowercases and concatenates from 46.9 ms to 17.5 ms. The plan predicted "faster" and asked for the plan to change if it was not, so the honest answer is recorded rather than the flattering half: it never loses, and it wins in proportion to what the projection does. |
 | 2026-08-11 | 26 | **No `sortValue` in the `getState()` column snapshot, same reasoning as `copyValue`.** `sorted` already reports whether a column *is* the sort, which is the question a post-mortem asks; how it orders is the column definition's business. |
+| 2026-08-11 | 25 | **Driving the example found a real bug, and it was not in anything phase 6 added: an edit froze the row order and nothing unfroze it but a sort.** `RowsModel.freezeRows()` holds the displayed order steady while a cell is open, so the row being typed into cannot jump away — and the port only ever released that freeze from `onDataChange`'s `rowCompare` arm. A filter cleared while an edit had happened therefore left the filtered-out rows on screen: `updateRows()` short-circuits into `updateFrozenRows()`, which adopts new row *objects* in place and re-filters nothing. The reference does not have this hole — its `useEffect` unfreezes on `[searchString, filters, sortColumn]`, all three. `RowsModel.refilterRows()` is that effect, called from `FiltersModel.filtersChanged` and `AVGridModel.setSearchString`; `unfreezeRows()` now delegates to the same `clearFreeze()`. Three tests, and a check on the board. Only a browser could find it: it needs an edit, then a filter change, then a look at what is on screen. |
+| 2026-08-11 | 25 | **The example is `10-customization.html`, not `customization.html`.** The plan named it by topic; every other example is numbered, `index.html` lists them in order, and one odd name out would read as a different kind of file. Numbered. |
+| 2026-08-11 | 25 | **The board asserts rather than measures, because `AVGridBoard` already measures.** Five drivers there time the same hooks (`measureClassHooks`, `measureCustomEditor`, `measureCustomFilter`, `measureCopyValue`, `measureSortValue`), so a second timing board would be duplication. `CustomizationBoard` asks the other question — *is what the documentation says actually true in a browser* — and answers it as **20 pass/fail rows**, each carrying the value it was checked against so a failure says what it saw. The claims are taken from `docs/api.md`'s sentences, which is what makes it a docs test rather than a second test suite. |
+| 2026-08-11 | 25 | **Never name a host class `.bar` on a board.** The board chrome's toolbar is `.bar` and the progress cell's span was too; the later rule won, the toolbar computed to `display: inline-block`, collapsed to 17 px and spilled its buttons over the grid. Every accessibility snapshot showed the buttons present and correctly labelled throughout — only the screenshot showed it, which is the third time this project has hit *the a11y tree cannot see layout*. |

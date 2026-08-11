@@ -16,8 +16,9 @@ success criteria, the architecture being ported, the per-file port status, the f
 subsystem, the public-API design principles, scope, and the documentation deliverables.
 
 **[`tasks/plan.md`](tasks/plan.md) — the build order for the current phase.** Each task has a
-definition of done. Work top to bottom. Today that is **phase 6, customization (tasks 21–25)**:
-the class hooks, custom cell editors, custom filter types, and `copyValue`.
+definition of done. Work top to bottom. **Phase 6, customization (tasks 21–26), is complete**: the
+class hooks, custom cell editors, custom filter types, `copyValue`, `sortValue`, and the docs,
+example and board that cover them.
 
 **[`tasks/plan-done-01.md`](tasks/plan-done-01.md) — the finished plan for the port**, tasks
 1–20 in five phases, archived unedited. **Read its decision log at the bottom before starting
@@ -28,9 +29,29 @@ then restarts at the current phase, carrying forward the standing rules and a po
 
 ## 📊 Current state
 
-**Phase 6 — customization — is under way.** Tasks 21–26 in [`plan.md`](tasks/plan.md); **tasks 21,
-22, 23, 24 and 26 are done**. Left: **25**, the customization docs, example and board, which
-demonstrates all of them.
+**Phase 6 — customization — is done.** All six tasks, 21–26, in [`plan.md`](tasks/plan.md).
+
+**Every customization hook is documented, demonstrated and checked in a browser.**
+[`docs/api.md`](docs/api.md#customization-at-a-glance) opens the column section with one table from
+*the thing a host wants* to *the hook that does it* — seven rows, each linking to its own section —
+and `editRender` has joined the removed-names table beside the reference's misspellings.
+[`examples/10-customization.html`](examples/10-customization.html) is all seven in one runnable
+file: priority colours from `cellClass`, an overdue row from `rowClass`, a date-picker `editor`, a
+date-range `filter`, a `copyValue` on a column that draws a bar, and a `sortValue` that ranks. And
+[`test-boards/CustomizationBoard/`](test-boards/CustomizationBoard/CLAUDE.md) turns the
+documentation's sentences into **20 pass/fail claims** — `checkAll()` reports 20/20, each row
+carrying the value it was checked against, so a regression says what it saw rather than only that
+it failed. It asserts rather than times, because `AVGridBoard`'s five drivers already time the same
+hooks.
+
+**Driving the example found a bug older than the phase: an edit froze the row order and only a sort
+released it.** `freezeRows()` holds the displayed order steady while a cell is open, so the row
+being typed into cannot jump away — but a filter cleared afterwards left the filtered-out rows on
+screen, because `updateRows()` short-circuits into `updateFrozenRows()`, which adopts new row
+objects in place and re-filters nothing. The reference releases the freeze on *all three* of search,
+filters and sort; `RowsModel.refilterRows()` is now that path, called from `FiltersModel` and
+`setSearchString`. Three tests and a board check. No unit test could have found it — it takes an
+edit, then a filter change, then a look at what is actually on screen.
 
 **One table now says which hook feeds what**, in [`docs/api.md`](docs/api.md#which-hook-feeds-what):
 screen, sort, search, a filter's row test, a filter's option list, copy and paste, each with the
@@ -117,9 +138,10 @@ cells; and a host rule has to out-specify `.avg-data-cell`, so write `.avg-data-
 UI needed and the library did not have — **14a `Popover`** and **14b `VirtualList`**, built fresh
 rather than ported from UIKit — and both documentation deliverables.
 
-**[`examples/`](examples/) holds ten runnable files**, one topic each, every one standalone and
+**[`examples/`](examples/) holds eleven runnable files**, one topic each, every one standalone and
 meant to be copied whole: minimal · columns · cell rendering · sorting and filtering · selection
-and keyboard · editing · clipboard · theming · the 100k benchmark · a Persephone board. Each was
+and keyboard · editing · clipboard · theming · the 100k benchmark · customization · a Persephone
+board. Each was
 opened in a real browser and driven, which is how three of them ended up different from how they
 were written. The benchmark reports **12.1 cells touched per paint at the top against 12.0 at row
 99,000** — the exact number — next to the timing ratio, which swings 0.8×–1.2× because a paint
@@ -373,6 +395,7 @@ av-grid/
     test-boards/                 ← Persephone boards used to run and debug the grid
         RenderGridTest/          ← the engine alone: the 100k-row performance harness
         AVGridBoard/             ← the whole grid: rendering, interaction, theming
+        CustomizationBoard/      ← the host hooks: every documented claim, checked
     docs/api.md                  ← API reference (task 19)
     examples/                    ← runnable standalone examples (task 20)
 ```
@@ -401,6 +424,7 @@ nothing about whether the grid renders or performs. That is what the boards unde
 |---|---|
 | [`RenderGridTest/`](test-boards/RenderGridTest/CLAUDE.md) | The engine alone, with a stub cell renderer. The 100k-row performance gate. `window.bench` |
 | [`AVGridBoard/`](test-boards/AVGridBoard/CLAUDE.md) | The whole grid: `AVGrid.create()`, inference, sorting, resize, reorder, theming. `window.avg` |
+| [`CustomizationBoard/`](test-boards/CustomizationBoard/CLAUDE.md) | The seven host hooks, and whether the docs are true: 20 pass/fail claims. `window.custom` |
 
 ```
 npm run build:board                     # each lib/ is a gitignored build artifact

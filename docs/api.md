@@ -103,6 +103,7 @@ The reference's misspellings are **not** carried over. Type the correct spelling
 | `haderRenderer` | `headerRender` |
 | `cellRenderer` + `cellFormater` | `render` (one hook) |
 | `editFormater` | `editor` (a `CellEditor` factory, not a renderer — see [`editor`](#editor--a-custom-cell-editor)) |
+| `editRender` | `editor` — this library's own earlier name for the same field, removed because it could not work: it was handed a `CellContext`, so whatever it drew had no way to record a value, commit it or cancel |
 | `resizible` | `resizable` |
 | `dataAlignment` | `align` |
 | `TSortColumn`, `TFilter`, … | `SortColumn`, `Filter`, … (no `T` prefix) |
@@ -349,7 +350,7 @@ once per row, so keep it a property read rather than a search.
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
-| `sort` | `SortColumn \| null` | `null` | Initial sort. Clicking a header cycles ascending → descending → none. A column sorts by `row[key]` unless it has a `rowCompare` — see [Which hook feeds what](#which-hook-feeds-what). |
+| `sort` | `SortColumn \| null` | `null` | Initial sort. Clicking a header cycles ascending → descending → none. A column sorts by `row[key]` unless it has a `sortValue` or a `rowCompare` — see [Sorting by something other than the value](#sorting-by-something-other-than-the-value). |
 | `searchString` | `string` | — | Free-text filter. Every whitespace-separated word must appear in some column's *displayed* value — so a computed column with `formatValue` is searchable too. |
 | `filters` | `Filter[]` | `[]` | Applied column filters. See [Filtering](#filtering). |
 | `persistFilters` | `PersistFiltersOptions` | — | Remember the filters across reloads. Passing this **is** the consent to write. |
@@ -440,6 +441,26 @@ columns: [
     { key: "actions", name: "", render: () => `<button>Send</button>`, filterType: null },
 ]
 ```
+
+### Customization, at a glance
+
+Seven hooks cover what a host normally reaches for. Each is additive: it extends the built-in
+behaviour rather than replacing it, and a hook you do not supply costs nothing — the context
+object it would receive is not even allocated.
+
+| I want to… | Hook | Where |
+|---|---|---|
+| colour one column's cells | `Column.cellClass` | [the four class hooks](#the-four-class-hooks) |
+| colour one column's header | `Column.headerClass` | [the four class hooks](#the-four-class-hooks) |
+| colour a whole row | `rowClass` (an option) | [the four class hooks](#the-four-class-hooks) |
+| draw the cell differently | `Column.render` | [`render`](#render--custom-cell-content) |
+| edit it with my own control | `Column.editor` | [`editor`](#editor--a-custom-cell-editor) |
+| filter it my way | `Column.filter` | [`column.filter`](#columnfilter--a-filter-type-of-your-own) |
+| sort it my way | `Column.sortValue` / `rowCompare` | [sorting by something else](#sorting-by-something-other-than-the-value) |
+| copy something other than what it shows | `Column.copyValue` | [`copyValue`](#copyvalue--what-a-cell-copies) |
+
+[`examples/10-customization.html`](../examples/10-customization.html) is all of them in one
+runnable file.
 
 ### `render` — custom cell content
 

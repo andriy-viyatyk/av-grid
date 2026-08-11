@@ -190,7 +190,7 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
     setSearchString = (searchString: string | undefined): void => {
         if (this.options.searchString === searchString) return;
         this.options.searchString = searchString;
-        this.models.rows.updateRows();
+        this.models.rows.refilterRows();
     };
 
     override dispose(): void {

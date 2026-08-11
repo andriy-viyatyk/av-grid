@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<!--
+    av-grid — customization: every host hook in one file.
+
+    cellClass · headerClass · rowClass · editor · column.filter · copyValue · sortValue
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — customization</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        button { font: inherit; }
+        #host { flex: 1 1 auto; min-height: 0; }
+        footer { padding: 8px 16px; border-top: 1px solid #ddd; color: #666;
+                 font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; }
+
+        /*
+            ⚠ Every rule here out-specifies `.avg-data-cell`.
+
+            The stylesheet is injected during create(), so it lands *after* this <style> block,
+            and `.avg-data-cell` setting `color` is exactly as specific as a bare `.critical`.
+            Write the grid's own class into the selector and yours wins.
+        */
+        .avg-data-cell.p-critical { color: #b3261e; font-weight: 600; }
+        .avg-data-cell.p-high     { color: #c26a00; font-weight: 600; }
+        .avg-data-cell.p-normal   { color: #3a3a3a; }
+        .avg-data-cell.p-low      { color: #8a8a8a; }
+
+        .avg-data-cell.overdue    { background: #fff4f4; }
+        .avg-data-cell.done       { background: #f3faf3; }
+
+        .avg-data-cell.wrap       { white-space: normal; line-height: 1.3; }
+        .avg-header-cell.wrap     { white-space: normal; }
+
+        /* A rendered cell: a bar, which is exactly the case copyValue exists for. */
+        .bar { display: inline-block; height: 10px; border-radius: 5px; background: #4a86c8;
+               vertical-align: middle; }
+        .bar-num { margin-left: 6px; color: #666; font-size: 12px; }
+
+        /* The custom filter body. The grid draws the panel, Apply and Clear around it. */
+        .range { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
+        .range label { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+        .range input { font: inherit; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Customization</h1>
+        <p><strong>Priority</strong> sorts by rank, not alphabetically (<code>sortValue</code>) and
+        colours itself (<code>cellClass</code>). Overdue rows are pink and finished ones green
+        (<code>rowClass</code>). <strong>Due</strong> opens a date picker (<code>editor</code>) and
+        its funnel offers a date <em>range</em> (<code>column.filter</code>).
+        <strong>Progress</strong> draws a bar and copies the number behind it
+        (<code>copyValue</code>).</p>
+        <div class="row">
+            <button id="sort">sort by Priority</button>
+            <button id="range">filter Due: next 7 days</button>
+            <button id="clear">clear filters</button>
+            <button id="copy">copy the Progress column</button>
+        </div>
+    </header>
+
+    <div id="host"></div>
+
+    <footer id="log">output appears here…</footer>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const log = document.getElementById("log");
+        const say = (line) =>
+            (log.textContent = line + "\n" + log.textContent.split("\n").slice(0, 8).join("\n"));
+
+        // ── data ────────────────────────────────────────────────────────────────────────────
+        // Dates are ISO strings ("2026-08-14"), which sort and compare lexicographically and are
+        // what <input type="date"> reads and writes. No parsing anywhere.
+        const day = 86400000;
+        const iso = (offsetDays) =>
+            new Date(Date.now() + offsetDays * day).toISOString().slice(0, 10);
+        const today = iso(0);
+
+        const PRIORITIES = ["critical", "high", "normal", "low"];
+        const rows = Array.from({ length: 60 }, (_, i) => ({
+            id: i + 1,
+            task: `Task ${i + 1} — ${["review the migration", "write the release note",
+                "chase the failing test", "answer the ticket"][i % 4]}`,
+            priority: PRIORITIES[i % 4],
+            due: iso((i % 17) - 5),
+            progress: i % 7 === 6 ? 100 : (i * 17) % 101,
+        }));
+
+        // ── the priority rank, used twice ───────────────────────────────────────────────────
+        // Once for the sort order and once for the class name. Both read the same object, which
+        // is the point: the rank is data, not two callbacks that have to agree.
+        const RANK = { critical: 0, high: 1, normal: 2, low: 3 };
+
+        // ── the custom filter type ──────────────────────────────────────────────────────────
+        // An object on the column. There is no registration call and no order to get right:
+        // reuse across columns is this `const`, referenced twice.
+        const dateRangeFilter = {
+            name: "dateRange",
+
+            // The popover *body*. The grid draws the panel, Apply, Clear, the chip, the
+            // persistence and the teardown.
+            create: (ctx) => {
+                const el = document.createElement("div");
+                el.className = "range";
+                el.innerHTML = `
+                    <label>From <input type="date" data-from></label>
+                    <label>To <input type="date" data-to></label>`;
+                const from = el.querySelector("[data-from]");
+                const to = el.querySelector("[data-to]");
+
+                // ctx.value is the filter already applied to this column, or undefined the
+                // first time — reopening the popover shows what is in force.
+                from.value = ctx.value?.from ?? "";
+                to.value = ctx.value?.to ?? "";
+
+                // ctx.apply(value) applies and closes, which is how Enter works here.
+                el.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") ctx.apply({ from: from.value, to: to.value });
+                });
+
+                return {
+                    element: el,
+                    getValue: () =>
+                        // Nullish removes the filter, so an empty body means Clear.
+                        from.value || to.value ? { from: from.value, to: to.value } : undefined,
+                };
+            },
+
+            // The chip's text.
+            label: (value) => `${value.from || "…"} → ${value.to || "…"}`,
+
+            // ⚠ Called once per row, on every filter pass. Whatever it needs must already be in
+            // the value — that is why `getValue` above stores the strings rather than Dates, and
+            // why there is no second "prepare" hook: the value is data you control.
+            match: (value, row, column) => {
+                const v = row[column.key];
+                return (!value.from || v >= value.from) && (!value.to || v <= value.to);
+            },
+        };
+
+        // ── the grid ────────────────────────────────────────────────────────────────────────
+        const grid = AVGrid.create("#host", {
+            rows,
+            editable: true,
+            filterBar: true,
+
+            // Widest of the four class hooks: every cell of a row. There is no row element —
+            // rows are not wrapped, which is what keeps a scroll to twelve node touches — so
+            // this class lands on each of the row's cells and a background rule colours it.
+            // It runs once per *cell*, so keep it a property read rather than a search.
+            rowClass: (r) =>
+                r.row.progress === 100 ? "done" : r.row.due < today ? "overdue" : undefined,
+
+            columns: [
+                { key: "id", name: "#", width: 50, align: "right", readonly: true },
+
+                // A constant string on both. A constant needs no context object at all, so this
+                // is the allocation-free shape of the hook.
+                { key: "task", name: "Task", width: "40%", cellClass: "wrap", headerClass: "wrap" },
+
+                {
+                    key: "priority",
+                    name: "Priority",
+                    width: 110,
+                    options: PRIORITIES,               // so editing it offers the four values
+
+                    // Sort by rank, not alphabetically. Read **once per row** into a parallel
+                    // array, not once per comparison — Array.sort calls a comparator O(n log n)
+                    // times, so a projection written inside a `rowCompare` runs about twelve
+                    // times as often. `rowCompare` is still there for an order that is genuinely
+                    // pairwise (a collator, a tie-break across two properties) and wins if both
+                    // are set.
+                    sortValue: (row) => RANK[row.priority] ?? 9,
+
+                    // The narrowest class hook: this column's data cells.
+                    cellClass: (c) => `p-${c.value}`,
+                },
+
+                {
+                    key: "due",
+                    name: "Due",
+                    width: 140,
+                    filter: dateRangeFilter,           // the funnel opens the range, not a checklist
+
+                    // A custom editor. Returning a bare element is the whole thing: the grid adds
+                    // `avg-cell-editor` (which is what positions it in the cell), keeps its own
+                    // keys and clipboard out of it, binds Escape to cancel and Tab to commit and
+                    // move on, and tears it down every way an edit can end.
+                    editor: (ctx) => {
+                        const input = document.createElement("input");
+                        input.type = "date";
+                        input.value = ctx.value ?? "";
+                        input.addEventListener("input", () => ctx.setValue(input.value));
+                        // Committing on blur is *your* call, not the grid's. It is right here
+                        // because a native date input keeps the focus while its calendar is open;
+                        // an editor that opens a panel of its own must not commit on blur, or it
+                        // closes the instant that panel takes the focus.
+                        input.addEventListener("blur", () => ctx.commit());
+                        return input;
+                    },
+                },
+
+                {
+                    key: "progress",
+                    name: "Progress",
+                    width: 160,
+                    align: "left",
+                    readonly: true,
+
+                    // What it shows.
+                    render: (c) =>
+                        `<span class="bar" style="width:${c.value}px"></span>` +
+                        `<span class="bar-num">${c.value}%</span>`,
+
+                    // What it copies. Without this, a copy reduces the markup above to its text
+                    // ("52%"); with it, a spreadsheet gets the number. It wins over formatValue,
+                    // displayFormat and the text of `render`, on every copy path — ctrl+C,
+                    // ctrl+X, all four Copy as… modes and getSelectionText().
+                    copyValue: (c) => c.value,
+                },
+            ],
+        });
+
+        // ── the buttons ─────────────────────────────────────────────────────────────────────
+        document.getElementById("sort").addEventListener("click", () => {
+            grid.setSort({ key: "priority", direction: "asc" });
+            say(`sorted by rank: ${grid.getVisibleRows().slice(0, 6).map((r) => r.priority).join(", ")}, …`);
+        });
+
+        // A filter is applied the same way whatever its type: { columnKey, value }. The `type`
+        // is filled in from the column's own definition, so a host never writes "dateRange".
+        document.getElementById("range").addEventListener("click", () => {
+            grid.applyFilter({ columnKey: "due", value: { from: today, to: iso(7) } });
+            say(`due ${today} → ${iso(7)}: ${grid.getState().rowCount} of ${rows.length} rows`);
+        });
+
+        document.getElementById("clear").addEventListener("click", () => {
+            grid.setFilters([]);
+            say(`cleared: ${grid.getState().rowCount} rows`);
+        });
+
+        document.getElementById("copy").addEventListener("click", () => {
+            grid.selectRange(0, 4, 4, 4);
+            say(`copied:\n${grid.getSelectionText().trimEnd()}`);
+        });
+
+        window.grid = grid;
+    </script>
+</body>
+</html>
