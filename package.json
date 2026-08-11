@@ -44,6 +44,7 @@
         "build:board:grid": "vite build --outDir test-boards/AVGridBoard/lib --emptyOutDir false",
         "build:board:custom": "vite build --outDir test-boards/CustomizationBoard/lib --emptyOutDir false",
         "typecheck": "tsc --noEmit",
+        "version": "node scripts/sync-version.mjs && git add src/AVGrid.ts src/index.ts",
         "prepublishOnly": "npm run build",
         "test": "vitest run",
         "test:watch": "vitest"

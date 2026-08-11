@@ -5,7 +5,7 @@ framework.** Built for **100,000+ rows** with no lag while scrolling, selecting 
 editing.
 
 ```js
-import { AVGrid } from "./dist/av-grid.js";
+import { AVGrid } from "av-grid";
 
 const grid = AVGrid.create("#host", { rows: data });
 ```
@@ -60,16 +60,22 @@ None of it is a framework, and none of it needs one.
 
 ## Install
 
-Not on npm yet. Until it is, build from source or drop the bundle in:
-
 ```bash
-git clone https://github.com/andriy-viyatyk/av-grid.git
-cd av-grid && npm install && npm run build
+npm install av-grid
 ```
 
-That writes `dist/av-grid.js` (ESM), `dist/av-grid.umd.cjs` (UMD, global `AVGrid`),
+Or take the files straight from a CDN — no build step, no bundler:
+
+```
+https://cdn.jsdelivr.net/npm/av-grid/dist/av-grid.js
+https://cdn.jsdelivr.net/npm/av-grid/dist/av-grid.css
+```
+
+Either way you get `dist/av-grid.js` (ESM), `dist/av-grid.umd.cjs` (UMD, global `AVGrid`),
 `dist/index.d.ts` (TypeScript types) and `dist/av-grid.css` — about **50 kB gzipped**, everything
-included.
+included, nothing else pulled in.
+
+Without a bundler, point at the files directly:
 
 ```html
 <!-- ESM -->
@@ -88,6 +94,11 @@ included.
 
 The stylesheet is injected on first use and shared by every grid on the page. Pass
 `injectStyles: false` and link `dist/av-grid.css` yourself if you would rather control it.
+
+> **Versions 1.x are a different library** — the 2021 React component this project is the
+> descendant of, preserved on the
+> [`react-1.x`](https://github.com/andriy-viyatyk/av-grid/tree/react-1.x) branch. The rewrite
+> shares no API with it and starts at **2.0.0**.
 
 > **The host needs a height.** The grid measures its own root to decide what is on screen, so that
 > height has to be definite — `height: 400px`, a flex child, `position: absolute`. If a grid
@@ -156,6 +167,7 @@ Eleven standalone files, one topic each, every one meant to be copied whole. Ope
 | [`docs/capabilities.md`](docs/capabilities.md) | What each subsystem does and what it measures |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree, file by file |
 | [`docs/invariants.md`](docs/invariants.md) | The three rules that carry the performance — read before changing the render path |
+| [`docs/releasing.md`](docs/releasing.md) | How a version gets cut and published |
 
 ## Provenance
 

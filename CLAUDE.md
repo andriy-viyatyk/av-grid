@@ -21,6 +21,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/capabilities.md`](docs/capabilities.md) | What the grid does today and what each subsystem measures, by subsystem |
 | [`docs/invariants.md`](docs/invariants.md) | The three rules below, in full, with what breaking each one cost |
 | [`docs/boards.md`](docs/boards.md) | Running and creating the test boards |
+| [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
 **There is no active `plan.md`.** Both phases are archived, and phase 7 has not been opened.
