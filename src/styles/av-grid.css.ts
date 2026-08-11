@@ -482,6 +482,7 @@ export const css = `
     --avg-accent: var(--p-accent, #0078d4);
     --avg-border-color: color-mix(in srgb, var(--avg-text) 22%, transparent);
     --avg-hover-bg: color-mix(in srgb, var(--avg-text) 6%, transparent);
+    --avg-selection-bg: color-mix(in srgb, var(--avg-accent) 18%, transparent);
 
     position: fixed;
     z-index: 1000;
@@ -539,6 +540,111 @@ export const css = `
     bottom: auto;
     cursor: nesw-resize;
     transform: rotate(-90deg);
+}
+
+/* --- Menu ------------------------------------------------------------------------------
+   A menu is a popover with rows in it, so everything above applies and this is only the rows.
+   The list scrolls rather than the popover content, so a search box stays put above it. */
+.avg-menu .avg-popover-content {
+    overflow: hidden;
+}
+
+.avg-menu-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 4px 0;
+    overflow: auto;
+}
+
+.avg-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 24px;
+    padding: 0 8px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+/* One highlight, not two: the keyboard's active row and the pointer's hover are the same
+   state, so moving the pointer after using the arrows does not leave two rows lit. */
+.avg-menu-item:hover,
+.avg-menu-item[data-active],
+.avg-menu-item[data-submenu-open] {
+    background-color: var(--avg-selection-bg);
+}
+
+.avg-menu-item[data-start-group] {
+    margin-top: 4px;
+    border-top: solid 1px var(--avg-border-color);
+}
+
+.avg-menu-item[data-disabled] {
+    color: var(--avg-text-muted);
+    cursor: default;
+}
+
+.avg-menu-item[data-disabled]:hover {
+    background-color: transparent;
+}
+
+/* A secondary action sharing the menu with the primary ones — the column items under the row
+   ones. Dimmed until it is the row being pointed at, so the menu reads in two tiers. */
+.avg-menu-item[data-minor]:not(:hover):not([data-active]) {
+    color: var(--avg-text-muted);
+}
+
+.avg-menu-label {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.avg-menu-hotkey {
+    flex: 0 0 auto;
+    margin-left: 24px;
+    color: var(--avg-text-muted);
+}
+
+.avg-menu-icon,
+.avg-menu-chevron,
+.avg-menu-check {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    color: var(--avg-text-muted);
+}
+
+.avg-menu-item > svg,
+.avg-menu-icon > svg,
+.avg-menu-check > svg {
+    width: 16px;
+    height: 16px;
+}
+
+.avg-menu-chevron > svg {
+    width: 12px;
+    height: 12px;
+}
+
+.avg-menu-check {
+    color: var(--avg-accent);
+}
+
+/* The search box is the list's, so it reuses the list's own input rule and only needs the
+   token block a menu popover already carries. */
+.avg-menu .avg-menu-search {
+    flex: 0 0 auto;
+}
+
+.avg-menu .avg-menu-search:focus,
+.avg-menu .avg-menu-search:focus-visible {
+    border-color: var(--avg-accent);
+    outline: none;
 }
 
 /* --- VirtualList -----------------------------------------------------------------------

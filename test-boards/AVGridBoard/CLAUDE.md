@@ -53,6 +53,7 @@ await window.avg.measureFilterStorage()  // filters round-tripped through an inj
 await window.avg.measureFilterPopover(count) // the task-16 gate: what a popover costs the grid
 await window.avg.measureFilterBar(count)  // the task-17 check: chip cost, and where a chip's popover lands
 await window.avg.measureCellSelect(count, options) // the task-17a gate: 10,000 options behind one cell
+await window.avg.measureContextMenu()     // right-click over 100k rows: 0 dirty, 0 mutations
 await window.avg.measureTeardown(100)     // the task-18 gate: 100 create/destroy cycles, leak check
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
@@ -178,6 +179,15 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   the check that exists because a native `<select>` would fail it. One trap: the driver mutates
   `grid.model.data.columns[i].options` and puts the column back afterwards, so a script that stops
   halfway leaves 10,000 options behind; `board_refresh` clears it.
+- **The context menu** — `measureContextMenu(count)` right-clicks a cell twice: once with a
+  single cell focused, once with all `count` rows selected. Both must read `gridDirty: 0` and
+  `gridMutations: 0`, and the two `ms` must be within noise of each other — that is the whole
+  point, since a menu built from `getGridSelection()` would slice 100,000 rows to write a label.
+  It drives the gesture as a mouse does, **`pointerdown` with `button: 2` and then
+  `contextmenu`**: the press is what settles the focus, so a `contextmenu` on its own measures a
+  menu built against the previous selection. Playwright's own right-click is not used here for
+  the same reason the arrow keys are not — synthetic dispatch on the element is what reaches this
+  webview reliably.
 - **Teardown** — `measureTeardown(cycles, rowCount)` builds a fully-loaded grid (filter bar,
   checkbox column, both add buttons, an applied filter, an open editor) and destroys it, `cycles`
   times. Read **`domNodes.leaked`** and **`collected`**, in that order. Ignore `heapKb`: a page

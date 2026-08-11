@@ -92,6 +92,8 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
          * light the right funnel and to be able to close it on `destroy()`.
          */
         filterPopover?: { columnKey: string; close: () => void };
+        /** The open context menu, if there is one. Same shape and the same reason. */
+        contextMenu?: { close: () => void };
     } = { noScrollOnFocus: false };
 
     constructor(options: ResolvedOptions<R>) {

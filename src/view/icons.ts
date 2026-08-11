@@ -1,5 +1,5 @@
 /**
- * The four icons the grid draws, as SVG source strings.
+ * Every icon the grid draws, as SVG source strings.
  *
  * Replaces the reference's `utils.tsx`, which rendered React icon components to markup with
  * `react-dom/server` — a whole rendering framework invoked to produce a constant. These are
@@ -40,6 +40,26 @@ export const closeIcon = svg(`<path d="M4 4l8 8M12 4l-8 8"/>`);
 export const chevronDownIcon = svg(`<path d="M4 6.5 8 10.5l4-4"/>`);
 
 export const chevronUpIcon = svg(`<path d="M4 10.5 8 6.5l4 4"/>`);
+
+/** A menu item that opens a submenu. */
+export const chevronRightIcon = svg(`<path d="M6 4l4 4-4 4"/>`);
+
+/** Copy — the context menu's clipboard group. */
+export const copyIcon = svg(
+    `<rect x="5.75" y="5.75" width="8.5" height="8.5" rx="1.5"/><path d="M11 3.75H3.75c-.55 0-1 .45-1 1V11"/>`,
+);
+
+export const pasteIcon = svg(
+    `<path d="M6 2.75h4v2H6z"/><path d="M10 3.75h1.75c.55 0 1 .45 1 1v8.5c0 .55-.45 1-1 1h-7.5c-.55 0-1-.45-1-1v-8.5c0-.55.45-1 1-1H6"/>`,
+);
+
+/** Add — rows and columns alike, in the context menu. */
+export const plusIcon = svg(`<path d="M8 3.5v9M3.5 8h9"/>`);
+
+/** Delete — the trash can, on the context menu's destructive items. */
+export const deleteIcon = svg(
+    `<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M6.75 7v3.5M9.25 7v3.5"/>`,
+);
 
 /** The header checkbox when some rows are selected but not all. */
 export const indeterminateIcon = svg(

@@ -18,6 +18,7 @@ import type { AVGridModel } from "../model/AVGridModel";
 import type { RenderGrid } from "../render/RenderGrid";
 import { SELECT_COLUMN_KEY } from "./SelectColumn";
 import { showFilterPopover } from "./FilterPopover";
+import { gridContextMenuEvent, showGridContextMenu } from "./ContextMenu";
 
 /** How close to a header's right edge a pointer must be to start a resize. */
 const RESIZE_GRIP_PX = 11;
@@ -627,20 +628,55 @@ export class GridInteractions<R> {
         this.model.options.onCellDoubleClick?.(context, e);
     };
 
+    /**
+     * Right-click: notify, then show the menu.
+     *
+     * The order matters. `onCellContextMenu` is a notification and fires whatever happens next,
+     * including when the platform menu is the one that appears — a host listening for
+     * right-clicks should hear all of them, not only the ones the grid drew a menu for.
+     */
     private onContextMenu = (e: MouseEvent): void => {
         const cell = this.dataCellAt(e.target);
-        if (!cell) return;
-        const context = this.model.cellContext(cell.row, cell.col);
-        if (!context) return;
+        if (cell) {
+            const context = this.model.cellContext(cell.row, cell.col);
+            if (context) {
+                this.model.events.cell.onContextMenu.send({
+                    e,
+                    row: context.row,
+                    col: context.column,
+                    rowIndex: cell.row,
+                    colIndex: cell.col,
+                });
+                this.model.options.onCellContextMenu?.(context, e);
+            }
+        }
 
-        this.model.events.cell.onContextMenu.send({
-            e,
-            row: context.row,
-            col: context.column,
-            rowIndex: cell.row,
-            colIndex: cell.col,
-        });
-        this.model.options.onCellContextMenu?.(context, e);
+        if (this.model.options.disableContextMenu) return;
+
+        // An open editor, or any input the grid put on screen, keeps the platform's own menu:
+        // Cut, Paste, Undo and the spelling suggestions are things only the browser can offer,
+        // and a text field without them is a worse text field.
+        const target = e.target as Element | null;
+        if (
+            this.model.models.editing.isEditing &&
+            (target?.tagName === "INPUT" ||
+                target?.tagName === "TEXTAREA" ||
+                Boolean(target?.closest?.(".avg-editing")))
+        ) {
+            return;
+        }
+
+        const header = this.headerAt(e.target);
+        const hit = cell
+            ? ({ target: "cell", rowIndex: cell.row, colIndex: cell.col } as const)
+            : header
+              ? ({ target: "header", colIndex: header.col } as const)
+              : ({ target: "grid" } as const);
+
+        const event = gridContextMenuEvent(this.model, e, hit);
+        // Only when something was actually shown — an empty menu over an empty grid should leave
+        // the browser's own alone rather than swallow the gesture.
+        if (showGridContextMenu(this.model, event)) e.preventDefault();
     };
 
     // -----------------------------------------------------------------------

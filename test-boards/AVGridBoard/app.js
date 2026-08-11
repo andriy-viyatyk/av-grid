@@ -1061,6 +1061,90 @@ async function measureCellSelect(count = 100000, optionCount = 10000) {
 }
 
 /**
+ * The context menu's gate, which is the same question `measureFilterPopover` asks one level
+ * out: opening a menu over 100,000 rows must cost the grid behind it nothing.
+ *
+ * Two openings, because the selection is what the items are built from: one cell, and then all
+ * 100,000 rows selected — where a careless implementation reads `getGridSelection()` and copies
+ * 100,000 row references before it can draw a single label.
+ */
+async function measureContextMenu(count = 100000) {
+    if (grid.getState().sourceRowCount !== count) createGrid(count);
+    grid.clearFilters();
+    await scrollTo(0);
+    await settle(4);
+
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirty = 0;
+    model.update = (info) => {
+        dirty += 1;
+        return originalUpdate.call(model, info);
+    };
+
+    const openAt = async (row, col) => {
+        const cell = Array.from(
+            grid.element.querySelectorAll('[data-type="data-cell"]'),
+        ).find(
+            (c) =>
+                c.getAttribute("data-row") === String(row) &&
+                c.getAttribute("data-col") === String(col),
+        );
+        const r = cell.getBoundingClientRect();
+        dirty = 0;
+        grid.render.resetStats();
+        const t0 = performance.now();
+        cell.dispatchEvent(
+            new MouseEvent("pointerdown", {
+                bubbles: true,
+                button: 2,
+                buttons: 2,
+                clientX: r.left + 10,
+                clientY: r.top + 8,
+            }),
+        );
+        cell.dispatchEvent(
+            new MouseEvent("contextmenu", {
+                bubbles: true,
+                cancelable: true,
+                clientX: r.left + 10,
+                clientY: r.top + 8,
+            }),
+        );
+        const ms = performance.now() - t0;
+        await settle(3);
+        const result = {
+            ms: Number(ms.toFixed(2)),
+            items: document.querySelectorAll('[data-type="menu-item"]').length,
+            gridDirty: dirty,
+            gridMutations:
+                grid.render.stats.cellsAppended + grid.render.stats.cellsRemoved,
+        };
+        grid.model.flags.contextMenu?.close();
+        await settle(2);
+        return result;
+    };
+
+    // One cell — and note the right-click itself moves the focus, so the first opening pays for
+    // a focus change the second does not.
+    grid.focusCell(4, 2);
+    await settle(2);
+    const single = await openAt(4, 2);
+
+    // Every row selected. The labels say "Delete 100000 rows" and nothing was copied to
+    // find that out.
+    grid.selectRange(0, 1, count - 1, 3);
+    await settle(2);
+    const all = await openAt(4, 2);
+
+    grid.focusCell(0, 1);
+    model.update = originalUpdate;
+    await settle(2);
+
+    return { count, single, all };
+}
+
+/**
  * Task 18's gate: create and destroy a grid `cycles` times and watch the heap.
  *
  * Every grid gets the full surface — filter bar, checkbox column, add buttons, an applied
@@ -1544,6 +1628,7 @@ window.avg = {
     measureFilterPopover,
     measureFilterBar,
     measureCellSelect,
+    measureContextMenu,
     measureTeardown,
     measureSort,
     scrollTo,

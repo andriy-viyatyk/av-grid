@@ -22,7 +22,9 @@ import type {
     DeleteRowsEvent,
     Filter,
     GetFilterOptions,
+    GridContextMenuEvent,
     InvalidEditEvent,
+    MenuItem,
     PersistFiltersOptions,
     SortColumn,
 } from "./types";
@@ -327,6 +329,44 @@ export interface AVGridOptions<R = any> {
     onCellClick?: (cell: CellContext<R>, e: MouseEvent) => void;
     onCellDoubleClick?: (cell: CellContext<R>, e: MouseEvent) => void;
     onCellContextMenu?: (cell: CellContext<R>, e: MouseEvent) => void;
+
+    /**
+     * Extra items at the top of the context menu, above the built-in ones.
+     *
+     * ```js
+     * getContextMenuItems: (e) => [
+     *     { label: `Open ${e.rowKey}`, onClick: () => open(e.row) },
+     * ]
+     * ```
+     *
+     * Called every time the menu opens, so the items can reflect what was clicked. `e.target`
+     * says whether the pointer was over a cell or a header; `e.selectedCount` is free to read,
+     * `e.selection` copies the selected rows and so is a getter.
+     */
+    getContextMenuItems?: (e: GridContextMenuEvent<R>) => MenuItem[];
+    /**
+     * Draw the context menu yourself, instead of the grid's.
+     *
+     * ```js
+     * onGridContextMenu: (e, items) => myMenu.show(e.x, e.y, items)
+     * ```
+     *
+     * Receives the point in viewport coordinates and the items the grid *would* have shown —
+     * already filtered to the ones that apply — so a host menu can offer the same actions
+     * without knowing how to build them. Each item's `onClick` does the work; nothing else is
+     * needed to make them behave.
+     *
+     * Providing this suppresses the grid's own menu **and** the browser's. To get the platform
+     * menu back instead, use `disableContextMenu`.
+     */
+    onGridContextMenu?: (e: GridContextMenuEvent<R>, items: MenuItem[]) => void;
+    /**
+     * Leave right-click alone: no grid menu, and the browser's own menu appears.
+     *
+     * The grid never shows its menu over an open cell editor either way — a user editing text
+     * wants Cut/Paste/Spelling, which only the platform can offer.
+     */
+    disableContextMenu?: boolean;
     /** Extra class names for a cell, applied on top of the built-in state classes. */
     onCellClass?: (cell: CellContext<R>) => string | undefined;
 }

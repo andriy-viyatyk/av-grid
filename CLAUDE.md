@@ -30,6 +30,18 @@ UI needed and the library did not have — **14a `Popover`** and **14b `VirtualL
 rather than ported from UIKit. What is left is documentation: task 19 (`docs/api.md`) and task 20
 (`examples/`).
 
+**Right-click has a menu, and a host can take it over.** Copy, Copy as… (headers / JSON / HTML
+table), Paste, and Insert / Add / Delete for both rows and columns, each label counting what the
+selection actually covers — a header gets the two column items instead. `getContextMenuItems`
+adds items above the built-in ones; `onGridContextMenu(e, items)` receives the point and the
+items the grid *would* have shown and draws its own menu instead; `disableContextMenu` hands the
+gesture back to the browser, which is also what an open cell editor gets, because Cut/Paste and
+spelling are things only the platform can offer. **Opening one over 100,000 rows marks 0 things
+on the grid and mutates 0 DOM nodes, and costs 2.3 ms with every row selected against 2.9 ms
+with one** — `e.selection` is a getter and nothing built-in reads it. The menu itself is a new
+primitive, `Menu`, on `Popover`: submenus on hover or click, arrow keys, and a search box past
+twenty items.
+
 **`getState()` answers "what is going on" in one line, and it survives `JSON.stringify`.** Every
 field is plain data — the columns are flattened to key/name/width plus sorted, filtered, editable
 and `hasRender` / `hasOptions`, because it used to hand back the live `Column[]` with its functions
@@ -188,6 +200,8 @@ av-grid/
             EditingModel.ts      ← in-cell editing: open, commit, cancel, validate
             StructureModel.ts    ← rows and columns added and deleted
         view/                    ← the DOM, rewritten rather than transliterated
+            ContextMenu.ts       ← what right-click offers, and the two hooks that change it
+            Menu.ts              ← the menu itself: rows, submenus, keyboard, search
             FilterBar.ts         ← removable chips: edit from one, remove one, remove all
             DataCell.ts          ← the hot path; allocation-light
             CellInput.ts         ← the text editor; owned by EditingModel, never pooled

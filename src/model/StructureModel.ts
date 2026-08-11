@@ -235,6 +235,25 @@ export class StructureModel<R> {
         return true;
     };
 
+    /**
+     * Insert blank rows *above* the selection, as many as it covers — what ctrl+Insert does.
+     *
+     * Public because the context menu offers the same action, and the alternative was for it to
+     * work out the insert index itself. One caller of `selectedCount` is enough.
+     */
+    insertRowsAtSelection = (count?: number): R[] => {
+        if (!this.canAddRows) return [];
+        const { rows, minRow } = this.model.models.focus.selectedCount;
+        return this.addBlankRows((count ?? rows) || 1, minRow);
+    };
+
+    /** Insert blank columns before the selection — ctrl+shift+Insert. */
+    insertColumnsAtSelection = (count?: number): Column<R>[] => {
+        if (!this.canAddColumns) return [];
+        const { columns, minCol } = this.model.models.focus.selectedCount;
+        return this.addBlankColumns((count ?? columns) || 1, this.hostIndex(minCol));
+    };
+
     /** Delete whatever the cell selection covers — what ctrl+Delete does. */
     deleteSelectedRows = (): boolean => {
         const selection = this.model.models.focus.getGridSelection();
@@ -348,10 +367,8 @@ export class StructureModel<R> {
         if (e.code === "Insert" || (e.code === "Numpad0" && !numLock)) {
             if (e.shiftKey ? !this.canAddColumns : !this.canAddRows) return;
             e.preventDefault();
-            const { rows, columns, minRow, minCol } =
-                this.model.models.focus.selectedCount;
-            if (e.shiftKey) this.addBlankColumns(columns || 1, this.hostIndex(minCol));
-            else this.addBlankRows(rows || 1, minRow);
+            if (e.shiftKey) this.insertColumnsAtSelection();
+            else this.insertRowsAtSelection();
             return;
         }
 

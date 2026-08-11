@@ -1021,6 +1021,7 @@ export class AVGrid<R = any> {
         // A popover lives on `document.body`, outside everything `render.destroy()` reaches, so
         // it would outlive the grid it filters.
         this.model.flags.filterPopover?.close();
+        this.model.flags.contextMenu?.close();
         this.destroyed = true;
 
         if (this.sizeCheckRaf !== undefined) {

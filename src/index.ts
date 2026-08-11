@@ -77,6 +77,13 @@ export type {
     VirtualListOptions,
     VirtualListValue,
 } from "./view/VirtualList";
+export { Menu, showMenu, MENU_SEARCH_THRESHOLD, MENU_SUBMENU_DELAY_MS } from "./view/Menu";
+export type { MenuOptions } from "./view/Menu";
+export {
+    gridContextMenuItems,
+    gridContextMenuEvent,
+    showGridContextMenu,
+} from "./view/ContextMenu";
 export { showFilterPopover } from "./view/FilterPopover";
 export type { ShowFilterPopoverOptions } from "./view/FilterPopover";
 export {

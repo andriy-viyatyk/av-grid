@@ -108,7 +108,7 @@ Line counts as of the port baseline; ~7,300 lines total.
 | `AVGridActions.ts` | 231 | **Port with rework** — DOM/React event handler signatures. |
 | `CopyPasteModel.ts` | 181 | **Port as-is.** Clipboard + CSV, no React. |
 | `AVGridModel.ts` | 186 | **Port with rework** — the root model; extends `TComponentModel`, composes all sub-models. |
-| `ContextMenuModel.tsx` | 158 | **Rewrite.** The one hard coupling to Persephone's app shell: it imports `showAppPopupMenu` from `ui/dialogs/poppers/showPopupMenu`. Needs an own menu, or an injectable menu handler. |
+| `ContextMenuModel.tsx` | 158 | ✅ **Rewritten** as `view/ContextMenu.ts` on a new `view/Menu.ts`. The one hard coupling to Persephone's app shell — `showAppPopupMenu` — is replaced by the library's own menu, and `onGridContextMenu` is the injectable handler for a host that wants to draw its own. |
 | `RowsModel.ts` | 139 | **Port with rework** — `useEffect` prop sync. |
 | `AVGridData.ts` | 134 | **Port as-is.** Plain data container. |
 | `ColumnsModel.ts` | 101 | **Port with rework** — `useEffect` prop sync. |
@@ -417,9 +417,13 @@ selection · clipboard copy/paste · in-cell editing · row/column add and delet
 **column filtering, including the filter bar and the filter popovers** (see *The filtering
 subsystem*) · CSS-variable theming.
 
-**Defer past v1:** `RenderFlexGrid` · the context menu (ship an `onContextMenu` callback and
-let the host draw its own menu) · additional filter types beyond `"options"` (the popover is
+**Defer past v1:** `RenderFlexGrid` · additional filter types beyond `"options"` (the popover is
 already a dispatch point, so these are additive).
+
+~~the context menu~~ — deferred here, then built in the polish phase after task 18, once
+`Popover` made it a hundred lines rather than a dependency on Persephone's app shell. Both
+halves shipped: the grid draws its own menu, and `onGridContextMenu(e, items)` hands the point
+and the generated items to a host that would rather draw one itself.
 
 **Non-goals:** row grouping, tree/hierarchical data, frozen row groups, pagination, aggregation
 rows, server-side data models. Tabulator covers these; av-grid's differentiator is raw scale,

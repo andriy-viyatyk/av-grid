@@ -18,6 +18,7 @@
  * `React.MouseEvent` / `React.DragEvent` handler types (replaced with DOM events).
  */
 
+import type { GridSelection, SelectedCount } from "./model/FocusModel";
 import type { Percent, RenderCellParams } from "./render/types";
 
 export type { Percent };
@@ -374,6 +375,77 @@ export interface InvalidEditEvent<R = any> {
     column: Column<R>;
     rowIndex: number;
     colIndex: number;
+}
+
+// ---------------------------------------------------------------------------
+// Menus
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of a menu — the grid's context menu, or any menu opened with `showMenu()`.
+ *
+ * Ported unchanged from Persephone's `MenuItem`, so a host that already builds these for its
+ * own menus can hand the same array to either. The only field that differs is `icon`, which is
+ * a DOM node or a string of SVG markup rather than a React element.
+ *
+ * ```js
+ * { label: "Delete row", icon: deleteIcon, hotKey: "(Ctrl+Delete)", onClick: () => grid.deleteSelectedRows() }
+ * ```
+ */
+export interface MenuItem {
+    label: string;
+    /** Run when the item is picked. An item with `items` opens a submenu instead. */
+    onClick?: () => void;
+    /** A `Node`, or a string inserted as markup — the library's own icons are SVG source. */
+    icon?: Node | string;
+    /** Shown but not pickable. */
+    disabled?: boolean;
+    /** Left out of the menu entirely. A `startGroup` on it passes to the next visible item. */
+    invisible?: boolean;
+    /** Draw a separator above this item. */
+    startGroup?: boolean;
+    /** Right-aligned hint, e.g. `"(Ctrl+C)"`. Text only — the menu binds no shortcuts. */
+    hotKey?: string;
+    /** Marked with a check, and highlighted when the menu opens. */
+    selected?: boolean;
+    /** Dimmed: a secondary action sharing the menu with the primary ones. */
+    minor?: boolean;
+    /** Identity for keyboard navigation. Defaults to the index and the label. */
+    id?: string;
+    /** Submenu, opened by hovering the item or clicking it. */
+    items?: MenuItem[];
+}
+
+/**
+ * What the pointer was over when a context menu was asked for.
+ *
+ * Passed to `getContextMenuItems` and `onGridContextMenu`. `x` / `y` are viewport coordinates,
+ * which is exactly what `showMenu({ anchor: { x, y } })` wants — so a host drawing its own menu
+ * can position it without touching the event.
+ */
+export interface GridContextMenuEvent<R = any> {
+    x: number;
+    y: number;
+    /** `"cell"` for the data area, `"header"` for a column header, `"grid"` for anywhere else. */
+    target: "cell" | "header" | "grid";
+    /** The column under the pointer, for a cell or a header. */
+    column?: Column<R>;
+    row?: R;
+    rowKey?: string;
+    /** Display indices, counting data rows — the header is not row 0 here. */
+    rowIndex?: number;
+    colIndex?: number;
+    /**
+     * The cell selection at the moment of the click, or `undefined` when nothing is selected.
+     *
+     * A getter, and computed at most once: reading it on a grid with all 100,000 rows selected
+     * copies 100,000 row references, and most menus only need the counts below.
+     */
+    readonly selection?: GridSelection<R>;
+    /** How many rows and columns the selection covers, and its top-left corner. */
+    selectedCount: SelectedCount;
+    /** The DOM event, for a host that would rather handle `preventDefault` itself. */
+    event: MouseEvent;
 }
 
 // ---------------------------------------------------------------------------
