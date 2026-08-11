@@ -15,6 +15,7 @@
 
 import { Model } from "../core/observable";
 import { searchWords } from "../gridUtils";
+import { markSearchWords } from "../highlight";
 import type { RenderGridModel } from "../render/RenderGridModel";
 import type { RerenderInfo } from "../render/types";
 import type { ResolvedOptions } from "../options";
@@ -167,6 +168,7 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
             rowIndex: dataRow,
             colIndex,
             rowKey: this.options.getRowKey(row),
+            highlight: this.highlightText,
         };
     };
 
@@ -196,6 +198,20 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
         this.options.searchString = searchString;
         this.models.rows.refilterRows();
     };
+
+    /**
+     * `CellContext.highlight` — escape a host's text and mark the search words in it.
+     *
+     * One function per *grid*, not one per cell: it is handed to every context built for a
+     * `render`, a `cellClass` or an `onCellClass`, so allocating a closure here would be an
+     * allocation on the per-cell path. It reads `data.searchWords` when called, which is
+     * already the resolved answer to both `searchString` and `highlightSearch`.
+     */
+    highlightText = (text: unknown): string =>
+        markSearchWords(
+            text === null || text === undefined ? "" : String(text),
+            this.data.searchWords,
+        );
 
     /**
      * Recompute the words cells highlight, from the two options that decide them.

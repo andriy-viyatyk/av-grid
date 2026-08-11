@@ -190,6 +190,13 @@ export const css = `
     border-left: solid 1px var(--avg-grid-line);
 }
 
+/* .avg-search-text — the wrapper around a marked cell's whole text — deliberately has no rule
+   here. It exists for layout, not appearance: a data cell is inline-flex, and flex discards the
+   whitespace *between* items, so a mark that splits the text rendered "Alan Dijkstra" as
+   "AlanDijkstra"; inside one inline box the space survives. Giving it overflow or a colour would
+   make a marked cell lay out differently from the unmarked cell beside it, which is the one thing
+   a highlight must not do. */
+
 /*
  * A word of the active search, inside a cell's text.
  *

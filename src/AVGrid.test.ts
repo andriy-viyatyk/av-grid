@@ -934,6 +934,52 @@ describe("search highlighting", () => {
         expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
     });
 
+    it("gives a render column a way to mark, through c.highlight", async () => {
+        // The reported case: a computed Full Name column showing what a search matched in the
+        // Last Name column beside it, unmarked, because its markup is the host's.
+        const grid = create({
+            rows: people,
+            columns: [
+                { key: "name", name: "Name" },
+                {
+                    key: "full",
+                    name: "Full",
+                    render: (c) => c.highlight(`${c.row.name} <${c.row.id}>`),
+                },
+            ],
+            searchString: "ala",
+        });
+        await settle();
+        expect(marks(grid, "full")).toEqual(["Ala"]);
+        // Escaped by the same call — the angle brackets are text, not a tag.
+        expect(columnText(grid, "full")).toEqual(["Alan <2>"]);
+        expect(grid.element.querySelector('[data-column-key="full"] alan')).toBeNull();
+    });
+
+    it("c.highlight is the plain text when nothing is searched", async () => {
+        const grid = create({
+            rows: people,
+            columns: [{ key: "name", render: (c) => c.highlight(c.value) }],
+        });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+    });
+
+    it("c.highlight goes quiet when highlightSearch is off", async () => {
+        // Otherwise turning the feature off would half-work: default cells would stop marking
+        // and every render column would carry on.
+        const grid = create({
+            rows: people,
+            columns: [{ key: "name", render: (c) => c.highlight(c.value) }],
+            searchString: "a",
+            highlightSearch: false,
+        });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+    });
+
     it("marks the displayed text, not the raw value", async () => {
         const grid = create({
             rows: [{ id: 1 }],

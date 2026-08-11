@@ -26,7 +26,7 @@ import type { CellContext, Column } from "../types";
 import { columnDisplayValue, formatDisplayValue, gridBoolean } from "../gridUtils";
 import { checkedIcon, checkIcon, uncheckedIcon } from "./icons";
 import { appendClass, applyCellStyle, setText } from "./cellDom";
-import { highlightMarkup } from "./highlight";
+import { highlightMarkup } from "../highlight";
 
 type ContentMode = "text" | "bool" | "html" | "node" | "editor" | "match";
 
@@ -129,6 +129,8 @@ export function renderDataCell<R>(
             rowIndex: dataRow,
             colIndex: p.col,
             rowKey: model.options.getRowKey(row),
+            // A reference, not a closure: `highlightText` is built once per grid.
+            highlight: model.highlightText,
         };
     }
 

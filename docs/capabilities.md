@@ -154,7 +154,18 @@ in 0.1 ms with 0 DOM mutations** — indistinguishable from no search at all. Th
 that: the words are split once per pipeline run rather than per cell, a cell with no match never
 leaves the single-text-node path, and the *shape* is one attribute on the root, so choosing
 between the three repaints nothing. What is marked is the **displayed** text — the same text the
-search matched — which leaves out a `render` column, whose markup belongs to the host.
+search matched. A `render` column is left alone, because its markup belongs to the host — and
+is given `CellContext.highlight` to opt in with — one call that escapes the text and marks the
+same words the rest of the grid is marking:
+
+```js
+{ key: "full", render: (c) => c.highlight(`${c.row.firstName} ${c.row.lastName}`) }
+```
+
+Marked output is wrapped in one inline box, which is not decoration: a data cell is `inline-flex` and
+flex discards the whitespace *between* items, so a mark that split the text rendered
+"Alan Dijkstra" as "AlanDijkstra". Measured against the same row unmarked, width and
+`scrollWidth` are identical — a mark changes appearance, never layout.
 
 ---
 

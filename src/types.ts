@@ -63,6 +63,25 @@ export interface CellContext<R = any> {
     rowIndex: number;
     colIndex: number;
     rowKey: string;
+    /**
+     * Escape `text` and mark the active search words in it, as an HTML string.
+     *
+     * What a `render` column uses to highlight like every other column does. A default cell
+     * marks the search itself, but a `render` column's markup belongs to the host — the grid
+     * cannot mark inside it without parsing what the hook returned — so the hook asks:
+     *
+     * ```js
+     * render: (c) => c.highlight(`${c.row.firstName} ${c.row.lastName}`)
+     * ```
+     *
+     * Safe to use unconditionally: with no search, or with `highlightSearch: false`, it is
+     * simply the escaped text. **It escapes**, so it is also the right way to put any untrusted
+     * value into a `render` string, search or no search.
+     *
+     * Mark only the text. Wrapping markup — `` `<b>${c.highlight(name)}</b>` `` — is fine; the
+     * other way round, `c.highlight("<b>" + name)`, escapes the tag and shows it.
+     */
+    highlight: (text: unknown) => string;
 }
 
 /**

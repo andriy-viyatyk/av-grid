@@ -166,8 +166,11 @@ function columns() {
             width: 200,
             // Computed from two other columns, so there is nothing an edit could write to.
             readonly: true,
-            // A computed column: no `full` property exists on any row.
-            render: (c) => `${c.row.firstName} ${c.row.lastName}`,
+            // A computed column: no `full` property exists on any row. `c.highlight` is what
+            // makes it mark the search like every plain column does — the grid will not reach
+            // inside a `render` hook's markup, so the hook asks. It escapes too, and is a
+            // no-op with no search, so it needs no guard.
+            render: (c) => c.highlight(`${c.row.firstName} ${c.row.lastName}`),
             // And the plain-text form of the same thing, which is what makes the column
             // searchable and filterable. `render` is deliberately not called by the row
             // filter — it may build an element, and it would run 100,000 times a keystroke.

@@ -107,7 +107,9 @@ export {
     defaultValidate,
     gridBoolean,
     falseString,
+    searchWords,
 } from "./gridUtils";
+export { highlightText } from "./highlight";
 export { detectColumnWidth, detectColumnWidths } from "./column-width";
 export type { ColumnWidthOptions } from "./column-width";
 export {

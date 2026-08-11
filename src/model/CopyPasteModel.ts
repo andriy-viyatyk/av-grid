@@ -155,6 +155,9 @@ export class CopyPasteModel<R> {
             rowIndex,
             colIndex,
             rowKey: this.model.options.getRowKey(row),
+            // `copyValue` gets it too, for symmetry — though a hook that marks what it copies
+            // would be putting markup on the clipboard, so nothing here is expected to call it.
+            highlight: this.model.highlightText,
         };
     }
 

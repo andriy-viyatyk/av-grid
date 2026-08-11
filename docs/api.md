@@ -489,8 +489,26 @@ interface CellContext<R = any> {
     rowIndex: number;  // index into the *displayed* rows
     colIndex: number;
     rowKey: string;
+    highlight: (text: unknown) => string;   // escape, and mark the search words
 }
 ```
+
+**`highlight` is how a `render` column joins in the search highlighting.** A default cell marks
+the matched words itself, but this column's markup is yours — the grid will not reach inside it —
+so a computed column looks unmarked beside the plain one it was computed from. One call fixes it:
+
+```js
+{ key: "full", name: "Full Name",
+  render: (c) => c.highlight(`${c.row.firstName} ${c.row.lastName}`) }
+```
+
+Use it unconditionally. With no search, or with `highlightSearch: false`, it is the escaped text
+— so a column does not half-opt-out of a feature the grid was told to turn off. And because **it
+escapes**, it is the right way to put any untrusted value into a `render` string, search or no
+search. Mark the text, then wrap it: `` `<b>${c.highlight(name)}</b>` `` works; the other way
+round, `c.highlight("<b>" + name)`, escapes the tag and shows it. For text the grid never sees —
+a summary line, a panel beside it — the same thing is exported as
+[`highlightText(text, searchString)`](#helpers).
 
 A cell with `render` is still **sorted, searched and filtered by its raw value** — `render` output
 is never parsed for those. `formatValue` is the plain-text projection search and filtering use, and
@@ -863,8 +881,17 @@ What is and is not marked:
 
 - **The displayed text**, so a `formatValue` or a `displayFormat` column marks what is on
   screen rather than the value behind it — the same text the search matched against.
-- **Not a `render` column.** The host owns that markup; marking inside it would mean parsing
-  what the hook returned. Such a column still *matches*, and its row still survives.
+- **Not a `render` column — until it asks.** The host owns that markup, and the grid will not
+  parse what a hook returned. Such a column still *matches* and its row still survives; to mark
+  it too, call `c.highlight(text)`, which escapes the text and marks the same words the rest of
+  the grid is marking:
+
+  ```js
+  { key: "full", render: (c) => c.highlight(`${c.row.firstName} ${c.row.lastName}`) }
+  ```
+
+  It is safe with no search and honours `highlightSearch: false`, so it needs no guard. See
+  [`render`](#render--custom-cell-content).
 - **Not a boolean column**, which shows a tick rather than text, and **not the open editor**.
 - A value that looks like markup is escaped: a cell holding `<b>ada</b>` shows those characters
   and marks the `ada` between them.
@@ -1604,7 +1631,10 @@ positioned, and their nesting can change.
 Cell state classes, which the four class hooks add to rather than replace: `avg-focused`,
 `avg-editing`, `avg-in-selection` (plus `-top` / `-right` / `-bottom` / `-left` for the edges),
 `avg-row-hovered`, `avg-row-selected`, `avg-align-center`, `avg-align-right`. Inside a cell's
-text, `avg-search-match` wraps each matched search word. On a header cell's
+text, `avg-search-match` wraps each matched search word, inside one `avg-search-text` box
+around the whole run — the wrapper is what keeps the spaces either side of a mark, since a data
+cell is `inline-flex` and flex discards whitespace *between* items. A cell with no match has
+neither, and stays a bare text node. On a header cell's
 funnel: `avg-column-filtered` when that column is filtered, `avg-filter-open` while its popover
 is up.
 
@@ -1852,6 +1882,8 @@ should not have to reimplement them.
 | `rowsToCsvText(rows, columns, withHeaders?, tabDelimiter?)` | What `Ctrl+C` produces. |
 | `defaultValidate(column, row, value)` | The coercion applied when a column has no `validate`. |
 | `gridBoolean(v)` / `falseString(v)` | The grid's truthiness for boolean columns. |
+| `highlightText(text, searchString)` | Escape `text` and wrap each search word in `<span class="avg-search-match">`. For text outside the grid — a summary line, a panel. **Inside a cell use `CellContext.highlight`**, which already holds the grid's search and honours `highlightSearch: false`. |
+| `searchWords(searchString)` | How the grid splits a search: lowercased, on any whitespace, empties dropped. |
 | `detectColumnWidth(rows, key, headerName, options?)` | The width one column would be given, in pixels. `rows` are the raw rows, `key` the property read from each, `headerName` the label measured alongside them. `options`: `{ charWidth = 8, padding = 20, minWidth = 60, maxWidth = 300, sampleSize = 100 }`. |
 | `detectColumnWidths(rows, keys, options?)` | The same for several keys at once, returning `{ [key]: width }`. Each key is its own header label. |
 | `inferColumns` / `inferGetRowKey` / `inferRowKeyProperty` | What the grid infers from the rows. |
