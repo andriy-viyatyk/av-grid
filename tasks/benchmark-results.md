@@ -707,6 +707,37 @@ both ends. Select-all reported 10 mutations *inside the full benchmark run* and 
 the cold cell pool left by the preceding scroll phase, the same artefact task 17a saw, not a cost
 of anything in this task.
 
+## The hover highlight, and what it costs during a scroll
+
+Row hover was read from `mousemove`, which looked equivalent to `pointermove` and was not.
+`onCellPointerDown` calls `preventDefault()` so the browser does not start a text selection that
+follows the drag out of the grid — and per the Pointer Events spec that **suppresses the
+compatibility mouse events for the rest of that pointer's stream**. So a range drag delivered no
+`mousemove` at all: the highlight stayed on the cell the drag started from and jumped to the
+pointer only on release, when the compat events resumed. `pointermove` is not suppressed.
+
+The second half is a wheel scroll with the pointer standing still. No pointer event fires, so
+nothing recomputed the highlight and the row it was on scrolled away from under the cursor. It is
+now re-resolved from the pointer's last position in a frame requested from the scroller's `scroll`
+event — after the paint, because `RenderGrid` paints on rAF and its own scroll listener is bound
+first, so a frame requested here runs behind it. Hit-testing before the paint returns the row that
+*was* there.
+
+What it costs, measured on 100,000 rows, one row per frame for 200 frames:
+
+| Scrolling with | DOM mutations per paint | Per paint |
+|---|---|---|
+| the pointer away from the grid | 20.2 | 0.120 ms |
+| the pointer parked over a cell | 99.8 | 0.291 ms |
+
+The highlight moving on its own — pointer crossing rows, grid not scrolling — is **0 mutations and
+0.045 ms**, so this is not the cost of drawing hover. It is the cost of a dirty set arriving in the
+same frame as a scroll: `update()` schedules a recompute with no `direction`, which cannot take the
+cheap newly-exposed-cells path the scroll itself took. 0.29 ms is 1.7% of a frame and fps held at
+60.0, so it is left alone; the guard that matters is that `onScrolled` returns immediately when no
+pointer is over the grid, which is every programmatic scroll — the benchmark below is unchanged
+because of it.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -729,3 +760,4 @@ of anything in this task.
 | 2026-08-11 | polish | 8.8 ms | 0.88× | 60.0 / 60.0 | 0 | A commit marks the edited **row**, so a computed column cannot go stale. One mark, one paint, and the bulk writers are untouched because they were already `silent` + one `{ all: true }`: a 1,000-row paste still costs **1 mark and 0 DOM mutations**. `measureEditing`'s `dirtyCellsOnCommit` counts `cells + rows`, so its `1` is now one row. |
 | 2026-08-11 | polish | 10.2 ms | 0.85× | 60.0 / 60.0 | 0 | An untouched trailing row is deleted when the focus leaves it. Not the render path — the hook is one `undefined` comparison at the end of `applyFocus`, which is why the range drag, whose every pointer move goes through it, still costs **2 cells a move** at both ends and reads a **0.88×** ratio. Full repaint **0.1 ms / 0 mutations**, select-all **0 mutations**, insert above the viewport **0 mutations**. First paint drifted up 1.4 ms with nothing on the paint path changed; it is a cold-JIT number on a shared machine and the ratio is what the gate is about. |
 | 2026-08-11 | polish | 5.6 ms | 1.11× | 60.0 / 60.0 | 0 | The context menu, on a new `Menu` primitive. Opening one over 100,000 rows marks **0** things on the grid and mutates **0** DOM nodes — and costs **2.3 ms with all 100,000 rows selected against 2.9 ms with one cell**, because the items are built from `selectedCount` and `e.selection` is a getter nothing built-in reads. The render path is untouched: the only change inside the grid is one branch in the `contextmenu` handler. |
+| 2026-08-11 | polish | 8.8 ms | 0.86× | 60.0 / 60.0 | 0 | Row hover follows the pointer during a drag and during a wheel scroll. Hover moved from `mousemove` to `pointermove`, because `preventDefault()` on `pointerdown` suppresses the compat mouse events — and a stationary pointer now re-resolves after the paint on `scroll`. The gate is unchanged (drag **2 cells a move** at both ends, full repaint **0 mutations**, select-all **0 mutations**) because `onScrolled` returns immediately with no pointer over the grid, which is every programmatic scroll. A real wheel scroll under the pointer costs **0.291 ms a paint against 0.120 ms**; hover moving on its own is **0 mutations, 0.045 ms**. |

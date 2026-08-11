@@ -497,6 +497,11 @@ export const css = `
        pointer, and the platform draws that one in the full selection colour. */
     --avg-menu-selection-bg: var(--p-selection-bg, var(--avg-accent));
     --avg-menu-selection-text: var(--p-selection-text, #ffffff);
+    /* Apply is the same gesture as picking a menu row, so it takes the same pair. The accent is
+       a *line* colour — dark enough to read against a light background — and filling a button
+       with it left the label, which was --avg-bg, near-black on dark blue in a dark theme. */
+    --avg-button-primary-bg: var(--p-selection-bg, var(--avg-accent));
+    --avg-button-primary-text: var(--p-selection-text, var(--avg-bg));
 
     position: fixed;
     z-index: 1000;
@@ -850,7 +855,11 @@ export const css = `
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
-    padding: 6px;
+    /* The extra 14px on the right is the resize grip's own square, which sits at the bottom
+       corner with a z-index above this row. Without it "Clear" ends up under the grip: the
+       press that means "resize" lands on the button, and the press that means "Clear" is
+       taken by the grip. */
+    padding: 6px 20px 6px 6px;
     border-top: solid 1px var(--avg-border-color);
 }
 
@@ -871,13 +880,13 @@ export const css = `
 }
 
 .avg-button-primary {
-    color: var(--avg-bg);
-    background-color: var(--avg-accent);
-    border-color: var(--avg-accent);
+    color: var(--avg-button-primary-text, var(--avg-bg));
+    background-color: var(--avg-button-primary-bg, var(--avg-accent));
+    border-color: var(--avg-button-primary-bg, var(--avg-accent));
 }
 
 .avg-button-primary:hover:not(:disabled) {
-    color: var(--avg-bg);
+    color: var(--avg-button-primary-text, var(--avg-bg));
     opacity: 0.85;
 }
 

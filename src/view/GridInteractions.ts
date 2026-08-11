@@ -78,6 +78,10 @@ export class GridInteractions<R> {
     private pointerY = 0;
     private autoScrollRaf?: number;
 
+    /** Whether `pointerX/Y` describe a pointer that is actually over the grid. */
+    private hasPointer = false;
+    private hoverRaf?: number;
+
     constructor(model: AVGridModel<R>, grid: RenderGrid) {
         this.model = model;
         this.grid = grid;
@@ -93,8 +97,9 @@ export class GridInteractions<R> {
         this.root.addEventListener("click", this.onClick);
         this.root.addEventListener("dblclick", this.onDoubleClick);
         this.root.addEventListener("contextmenu", this.onContextMenu);
-        this.root.addEventListener("mousemove", this.onMouseMove);
-        this.root.addEventListener("mouseleave", this.onMouseLeave);
+        this.root.addEventListener("pointermove", this.onPointerMove);
+        this.root.addEventListener("pointerleave", this.onPointerLeave);
+        this.grid.container.addEventListener("scroll", this.onScrolled, { passive: true });
         this.root.addEventListener("dragstart", this.onDragStart);
         this.root.addEventListener("dragover", this.onDragOver);
         this.root.addEventListener("drop", this.onDrop);
@@ -110,8 +115,9 @@ export class GridInteractions<R> {
         this.root.removeEventListener("click", this.onClick);
         this.root.removeEventListener("dblclick", this.onDoubleClick);
         this.root.removeEventListener("contextmenu", this.onContextMenu);
-        this.root.removeEventListener("mousemove", this.onMouseMove);
-        this.root.removeEventListener("mouseleave", this.onMouseLeave);
+        this.root.removeEventListener("pointermove", this.onPointerMove);
+        this.root.removeEventListener("pointerleave", this.onPointerLeave);
+        this.grid.container.removeEventListener("scroll", this.onScrolled);
         this.root.removeEventListener("dragstart", this.onDragStart);
         this.root.removeEventListener("dragover", this.onDragOver);
         this.root.removeEventListener("drop", this.onDrop);
@@ -121,6 +127,10 @@ export class GridInteractions<R> {
         this.root.removeEventListener("paste", this.onPaste);
         this.endResize();
         this.endSelect();
+        if (this.hoverRaf !== undefined) {
+            cancelAnimationFrame(this.hoverRaf);
+            this.hoverRaf = undefined;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -304,6 +314,10 @@ export class GridInteractions<R> {
     private onSelectMove = (e: PointerEvent): void => {
         this.pointerX = e.clientX;
         this.pointerY = e.clientY;
+        // The hover is not refreshed here. This fires on `window`, but the root's own
+        // `pointermove` fires too whenever the pointer is over the grid, and `pointerleave`
+        // clears it when the drag goes outside — so an `elementFromPoint` per move, which
+        // forces layout, would buy nothing.
         this.extendSelection();
         this.updateAutoScroll();
     };
@@ -685,16 +699,57 @@ export class GridInteractions<R> {
 
     /**
      * Row hover is the smallest honest test of the dirty-set discipline: moving the pointer
-     * down one row must repaint two rows, not the viewport. `mousemove` rather than
-     * `mouseover` because pooled elements do not reliably fire enter/leave pairs.
+     * down one row must repaint two rows, not the viewport. `pointermove` rather than
+     * `mouseover` because pooled elements do not reliably fire enter/leave pairs — and rather
+     * than `mousemove`, which looks equivalent and is not: `onCellPointerDown` calls
+     * `preventDefault()` to stop the browser starting a text selection, and per the Pointer
+     * Events spec that suppresses the compatibility mouse events for the rest of that pointer's
+     * stream. So a range drag produced no `mousemove` at all, the highlight stayed on the cell
+     * the drag started from, and it jumped to the pointer only when the button came up and the
+     * compat events resumed.
      */
-    private onMouseMove = (e: MouseEvent): void => {
+    private onPointerMove = (e: PointerEvent): void => {
+        this.pointerX = e.clientX;
+        this.pointerY = e.clientY;
+        this.hasPointer = true;
         const cell = this.dataCellAt(e.target);
         this.setHovered(cell ? cell.row : -1, cell ? cell.col : -1);
     };
 
-    private onMouseLeave = (): void => {
+    private onPointerLeave = (): void => {
+        this.hasPointer = false;
         this.setHovered(-1, -1);
+    };
+
+    /**
+     * Re-resolve the hover from where the pointer *is*, for the two cases where the row under
+     * it changes without the pointer moving: the grid scrolled beneath it, or a drag is in
+     * flight and no move event is being delivered to the root.
+     */
+    private refreshHoverFromPoint(): void {
+        if (!this.hasPointer && !this.selecting) return;
+        const hit = this.dataCellAt(
+            this.root.ownerDocument.elementFromPoint(this.pointerX, this.pointerY),
+        );
+        this.setHovered(hit ? hit.row : -1, hit ? hit.col : -1);
+    }
+
+    /**
+     * A wheel tick moves rows under a stationary pointer, so the highlight has to be recomputed
+     * even though nothing pointer-shaped happened. It has to happen *after* the paint, or the
+     * hit test reads the row that was there before the scroll: `RenderGrid` paints on rAF, and
+     * its scroll listener is bound before this one, so a frame requested here runs behind it.
+     */
+    private onScrolled = (): void => {
+        // Nothing to recompute with no pointer over the grid, which is every programmatic
+        // scroll and every scrollbar drag that started outside it. Checking here rather than
+        // only in the callback keeps a `scrollTo` from queueing a frame per event.
+        if (!this.hasPointer && !this.selecting) return;
+        if (this.hoverRaf !== undefined) return;
+        this.hoverRaf = requestAnimationFrame(() => {
+            this.hoverRaf = undefined;
+            this.refreshHoverFromPoint();
+        });
     };
 
     private setHovered(row: number, col: number): void {

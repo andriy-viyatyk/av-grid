@@ -578,10 +578,13 @@ describe("committing and cancelling", () => {
 });
 
 describe("the boolean cell's checkbox", () => {
-    /** Move the pointer onto a cell. The grid reads hover from `mousemove`, on the root. */
+    /**
+     * Move the pointer onto a cell. The grid reads hover from `pointermove`, on the root —
+     * `mousemove` is not delivered at all once a press has called `preventDefault()`.
+     */
     function hover(g: AVGrid<Row>, row: number, col: number): void {
         cellAt(g, row, col)?.dispatchEvent(
-            new MouseEvent("mousemove", { bubbles: true }),
+            new MouseEvent("pointermove", { bubbles: true }),
         );
     }
 

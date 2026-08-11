@@ -66,6 +66,17 @@ brighten to `--p-text-strong` on hover instead of turning blue, and a menu row t
 `--p-selection-bg` / `--p-selection-text` pair rather than the 18% tint a checklist wants. Every
 fallback is the old value, so a bare HTML page is unchanged.
 
+**The row highlight follows the pointer everywhere it should.** It read `mousemove`, and
+`onCellPointerDown` calls `preventDefault()` to stop the browser starting a text selection — which
+**suppresses the compatibility mouse events for the rest of that pointer's stream**, so a range
+drag delivered no `mousemove` at all and the highlight stayed on the cell the drag began from
+until the button came up. It reads `pointermove` now. A wheel scroll under a stationary pointer
+re-resolves the row after the paint, on the scroller's own `scroll` event — before the paint the
+hit test returns the row that *was* there. The gate is untouched, because that handler returns
+immediately when no pointer is over the grid, which is every programmatic scroll; a real wheel
+scroll under the pointer costs **0.291 ms a paint against 0.120 ms**, and the highlight moving on
+its own is **0 mutations and 0.045 ms**.
+
 **Right-click has a menu, and a host can take it over.** Copy, Copy as… (headers / JSON / HTML
 table), Paste, and Insert / Add / Delete for both rows and columns, each label counting what the
 selection actually covers — a header gets the two column items instead. `getContextMenuItems`
