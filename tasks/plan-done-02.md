@@ -1,7 +1,10 @@
 # av-grid — Implementation Plan 02: customization (tasks 21–26)
 
-The task-by-task build order for the current phase. [`goal.md`](goal.md) is the *what* and
-*why*; this document is the *in what order*, with a definition of done for each step.
+**Archived — all six tasks are ✅.** The task-by-task build order for phase 6. [`goal.md`](goal.md)
+is the *what* and *why*; this document is the *in what order*, with a definition of done for each
+step. Its **decision log still applies**, exactly as [`plan-done-01.md`](plan-done-01.md)'s does.
+
+There is no active `plan.md` — phase 7 has not been opened yet. Start one when it is.
 
 **How to use this document:** work one task at a time, top to bottom. A task is finished only
 when every line in its **Done when** list is true. Update the **Status** column as you go, and

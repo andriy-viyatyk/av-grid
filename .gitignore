@@ -7,6 +7,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Scratch space - notes and working files that are not part of the project
+temp/
+
 # Board build artifacts - regenerate with: npm run build:board
 test-boards/*/lib/
 test-boards/*/ui.log
