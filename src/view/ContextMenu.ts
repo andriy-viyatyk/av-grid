@@ -22,7 +22,7 @@
  * event and built an array — and the menu it opens is view code, which the model layer
  * deliberately does not import.
  *
- * Three divergences from the reference, all in `plan.md`'s decision log:
+ * Three divergences from the reference, all in `plan-done-01.md`'s decision log:
  *
  * 1. **Insert is never disabled.** There, inserting into a sorted or filtered grid was offered
  *    greyed out with `Filtered or Sorted` where the shortcut goes. Here `addRows` freezes the

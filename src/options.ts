@@ -17,6 +17,7 @@ import type {
     CellContext,
     CellEditEvent,
     CellFocus,
+    ClassValue,
     Column,
     DeleteColumnsEvent,
     DeleteRowsEvent,
@@ -26,6 +27,7 @@ import type {
     InvalidEditEvent,
     MenuItem,
     PersistFiltersOptions,
+    RowContext,
     SortColumn,
 } from "./types";
 
@@ -367,8 +369,32 @@ export interface AVGridOptions<R = any> {
      * wants Cut/Paste/Spelling, which only the platform can offer.
      */
     disableContextMenu?: boolean;
-    /** Extra class names for a cell, applied on top of the built-in state classes. */
-    onCellClass?: (cell: CellContext<R>) => string | undefined;
+    /**
+     * Extra class names for a cell, applied on top of the built-in state classes.
+     *
+     * The grid-wide arm of `Column.cellClass`: use this one when the rule spans columns, and the
+     * column's own when it does not.
+     *
+     * ```js
+     * onCellClass: (c) => (c.value === null ? "missing" : undefined)
+     * ```
+     */
+    onCellClass?: (cell: CellContext<R>) => ClassValue;
+
+    /**
+     * Extra class names for every cell of a row — how a whole row is highlighted.
+     *
+     * ```js
+     * rowClass: (r) => (r.row.overdue ? "overdue" : undefined)
+     * ```
+     *
+     * There is no row *element* to put a class on: rows are not wrapped, which is what keeps a
+     * one-row scroll to twelve node touches. So the class lands on each of the row's cells, and
+     * a rule of `.avg-data-cell.overdue { background: … }` colours the row.
+     *
+     * Called once per cell, not once per row, so keep it a property read rather than a search.
+     */
+    rowClass?: (row: RowContext<R>) => ClassValue;
 }
 
 /** The resolved form: every option that has a default, with its default filled in. */

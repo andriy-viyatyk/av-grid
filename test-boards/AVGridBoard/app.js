@@ -96,7 +96,17 @@ function columns() {
                 return span;
             },
         },
-        { key: "score", name: "Score", width: 100, dataType: "number" },
+        {
+            key: "score",
+            name: "Score",
+            width: 100,
+            dataType: "number",
+            // Task 21. A per-column class, decided per cell — this is the hook a host reaches
+            // for instead of writing `if (column.key === "score")` inside `onCellClass`.
+            cellClass: (c) => (c.value < 250 ? "low-score" : undefined),
+            // And the constant-string form, on the header.
+            headerClass: "score-header",
+        },
         { key: "active", name: "Active", width: 80, dataType: "boolean" },
         { key: "joined", name: "Joined", width: 170, displayFormat: "dateTime" },
     ];
@@ -116,6 +126,9 @@ function createGrid(count = Number(el("rows").value) || 1000, useColumns = true)
         columns: useColumns ? columns() : undefined,
         name: "avgrid-board",
         onCellClass: (c) => (c.row.status === "closed" ? "flagged" : undefined),
+        // Task 21. There is no row element, so this lands on each of the row's cells — which is
+        // why the tint reaches the full width including the checkbox column.
+        rowClass: (r) => (r.row.active ? undefined : "inactive"),
         onSortChange: (sort) =>
             live(`sort: ${sort ? `${sort.key} ${sort.direction}` : "none"}`),
         onCellClick: (c) => live(`click: ${c.column.key} = ${String(c.value)}`),
@@ -261,6 +274,71 @@ async function measureFullRepaint() {
     return {
         ms: s.lastPaintMs,
         mutations: s.cellsAppended + s.cellsRemoved,
+    };
+}
+
+/**
+ * The task-21 check: what the four class hooks cost, and whether a class actually goes away.
+ *
+ * Two halves, and the second is the one that matters. **Cost** is a full repaint with all four
+ * hooks live against the same repaint with every one of them removed — the hooks run inside the
+ * per-cell loop, so this is where they would show up. **Correctness** is the pool trap: cells
+ * arrive at their next occupant holding the previous one's classes, so a class that stops
+ * applying has to be *absent* after the repaint, not merely un-asked-for. Removing the hooks and
+ * counting again is exactly that test, run against real elements rather than happy-dom's.
+ */
+async function measureClassHooks() {
+    const count = (cls) =>
+        grid.element.querySelectorAll(`[data-type="data-cell"].${cls}`).length;
+    const snapshot = () => ({
+        flagged: count("flagged"),
+        lowScore: count("low-score"),
+        inactive: count("inactive"),
+        scoreHeader: grid.element.querySelectorAll(
+            '[data-type="header-cell"].score-header',
+        ).length,
+    });
+
+    const withHooks = await measureFullRepaint();
+    const applied = snapshot();
+
+    // Take all four away. `setColumns` with the hooks stripped, and the two grid-wide callbacks
+    // assigned `undefined` — which `setOptions` passes straight through.
+    const original = grid.getColumns();
+    const stripped = original.map((c) => {
+        const { cellClass, headerClass, ...rest } = c;
+        return rest;
+    });
+    grid.setOptions({ columns: stripped, onCellClass: undefined, rowClass: undefined });
+    await settle(6);
+
+    const withoutHooks = await measureFullRepaint();
+    const remaining = snapshot();
+
+    // Put the board back the way the rest of the harness expects it.
+    grid.setOptions({
+        columns: original,
+        onCellClass: (c) => (c.row.status === "closed" ? "flagged" : undefined),
+        rowClass: (r) => (r.row.active ? undefined : "inactive"),
+    });
+    await settle(6);
+    const restored = snapshot();
+
+    return {
+        applied,
+        remaining,
+        restored,
+        // The real answer: every class gone once its hook is, and back when it returns.
+        cleared:
+            remaining.flagged === 0 &&
+            remaining.lowScore === 0 &&
+            remaining.inactive === 0 &&
+            remaining.scoreHeader === 0,
+        withHooksMs: Number(withHooks.ms.toFixed(3)),
+        withoutHooksMs: Number(withoutHooks.ms.toFixed(3)),
+        ratio: Number((withHooks.ms / (withoutHooks.ms || 1)).toFixed(2)),
+        withHooksMutations: withHooks.mutations,
+        withoutHooksMutations: withoutHooks.mutations,
     };
 }
 
@@ -1618,6 +1696,7 @@ window.avg = {
     measurePaintCost,
     measureScrollFps,
     measureFullRepaint,
+    measureClassHooks,
     measureRangeDrag,
     measureSelectAll,
     measureEditing,

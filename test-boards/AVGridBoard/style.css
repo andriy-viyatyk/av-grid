@@ -115,5 +115,16 @@ button.secondary {
     overflow: hidden;
 }
 
-/* A host-supplied cell class, to prove `onCellClass` reaches the DOM. */
-.grid-host .flagged { color: var(--p-error, #f48771); }
+/*
+ * Host-supplied classes, to prove the four class hooks reach the DOM. This is the one place in
+ * this file that touches a cell, and it is the feature under test rather than the grid's own
+ * look: these classes exist only because this board's own JavaScript asks for them.
+ *
+ * Each rule out-specifies `.avg-data-cell` on purpose. The grid injects its stylesheet during
+ * `create()`, so it lands *after* this file, and a bare `.low-score` setting `color` loses the
+ * tie to `.avg-data-cell`. `.grid-host .x` wins on specificity; `.avg-data-cell.x` also would.
+ */
+.grid-host .flagged { color: var(--p-error, #f48771); }          /* onCellClass */
+.grid-host .low-score { color: var(--p-warning, #cca700); }      /* Column.cellClass, per cell */
+.grid-host .inactive { background: var(--p-bg-light, #2a2a2a); } /* rowClass, whole row */
+.grid-host .score-header { font-style: italic; }                 /* Column.headerClass */

@@ -425,6 +425,13 @@ already a dispatch point, so these are additive).
 halves shipped: the grid draws its own menu, and `onGridContextMenu(e, items)` hands the point
 and the generated items to a host that would rather draw one itself.
 
+**v1.1 — customization (phase 6, tasks 21–25):** per-column and per-row class hooks · custom
+cell editors (`column.editor` — the date picker a board asks for) · **custom filter types**, which
+is the deferred item above arriving as the extension point rather than as more built-in arms ·
+`copyValue` for a column whose `render` makes the copied text ambiguous. All five are additive
+hooks on top of behaviour that already works; none of them lets a host reach a state the grid
+could not reach on its own.
+
 **Non-goals:** row grouping, tree/hierarchical data, frozen row groups, pagination, aggregation
 rows, server-side data models. Tabulator covers these; av-grid's differentiator is raw scale,
 and every feature added is a chance to reintroduce a full-viewport repaint.

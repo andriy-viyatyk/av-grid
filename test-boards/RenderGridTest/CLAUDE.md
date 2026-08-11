@@ -1,6 +1,6 @@
 # RenderGridTest — av-grid performance harness
 
-The performance gate for [av-grid](../../tasks/plan.md). It drives the virtualization engine
+The performance gate for [av-grid](../../tasks/plan-done-01.md). It drives the virtualization engine
 against a 100,000-row dataset in a real browser and reports the four numbers task 5 stops on:
 time to first paint, sustained scroll FPS, paint cost near the top, and paint cost near row
 99,000.

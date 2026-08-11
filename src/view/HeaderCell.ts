@@ -17,7 +17,7 @@
 import type { RenderCellParams, RenderedCell } from "../render/types";
 import type { AVGridModel } from "../model/AVGridModel";
 import { filterIcon, sortAscIcon, sortDescIcon } from "./icons";
-import { applyCellStyle, setText } from "./cellDom";
+import { appendClass, applyCellStyle, setText } from "./cellDom";
 
 interface HeaderParts {
     sort: HTMLSpanElement;
@@ -78,6 +78,16 @@ export function renderHeaderCell<R>(
     let className = "avg-header-cell";
     if (model.flags.dragColumnKey === key) className += " avg-drag-source";
     if (model.flags.dragOverColumnKey === key) className += " avg-drag-over";
+    // Additive, exactly as `cellClass` is on a data cell, and reassigned whole on every paint so
+    // a class that stops applying goes away with it.
+    const headerClass = column.headerClass;
+    if (typeof headerClass === "string") className += ` ${headerClass}`;
+    else if (headerClass) {
+        className = appendClass(
+            className,
+            headerClass({ column, colIndex: p.col }),
+        );
+    }
     if (el.className !== className) el.className = className;
 
     el.setAttribute("data-type", "header-cell");

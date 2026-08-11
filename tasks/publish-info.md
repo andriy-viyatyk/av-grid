@@ -170,7 +170,7 @@ gh repo view andriy-viyatyk/av-grid --json name,visibility,pushedAt,isArchived,s
 
 Then, before `npm publish`:
 
-- [ ] Name decision made and recorded in the decision log in [`plan.md`](plan.md)
+- [ ] Name decision made and recorded in the decision log in [`plan-done-01.md`](plan-done-01.md)
 - [ ] "not AG Grid" line present in `docs/api.md` (if keeping `av-grid`)
 - [ ] Version set to `2.0.0` in `package.json` (currently `0.0.0`)
 - [ ] `repository`, `homepage`, `bugs` fields added to `package.json` — npm and jsDelivr both

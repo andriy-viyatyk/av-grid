@@ -292,14 +292,57 @@ clears, on an `editable` grid. A paste writes through the same path as typing, s
 | `className` | `string` | — | Extra class on the root, for host styling. |
 | `name` | `string` | — | Debug label, emitted as `data-name` on the root and reported by `getState().name`. Never used for styling. |
 | `injectStyles` | `boolean` | `true` | Inject the stylesheet on first use. `false` if you link `av-grid.css` yourself. |
-| `onCellClass` | `(cell: CellContext<R>) => string \| undefined` | — | Extra class names for a cell, on top of the built-in state classes. |
+| `onCellClass` | `(cell: CellContext<R>) => ClassValue` | — | Extra class names for a cell, on top of the built-in state classes. The grid-wide arm of `Column.cellClass`. |
+| `rowClass` | `(row: RowContext<R>) => ClassValue` | — | Extra class names for every cell of a row — how a whole row is highlighted. |
 
 ```js
 AVGrid.create(el, {
     rows,
-    onCellClass: (cell) => (cell.column.key === "score" && cell.value < 50 ? "low" : undefined),
+    onCellClass: (cell) => (cell.value === null ? "missing" : undefined),
+    rowClass: (r) => (r.row.overdue ? "overdue" : undefined),
 });
 ```
+
+### The four class hooks
+
+Four hooks add class names, narrowest to widest. All are additive — they never replace the
+built-in state classes — and all accept the same `ClassValue`: a string, an array (falsy entries
+dropped, so `[a && "x", b && "y"]` works), or nothing.
+
+| Hook | Where | Receives |
+|---|---|---|
+| `Column.cellClass` | one column's data cells | `CellContext<R>`, or a constant `string` |
+| `Column.headerClass` | one column's header cell | `HeaderContext<R>`, or a constant `string` |
+| `onCellClass` | every data cell | `CellContext<R>` |
+| `rowClass` | every cell of a row | `RowContext<R>` — `{ row, rowIndex, rowKey }` |
+
+```js
+columns: [
+    { key: "status", cellClass: (c) => `status-${c.value}` },
+    { key: "score",  cellClass: (c) => (c.value < 50 ? "low" : undefined) },
+    { key: "note",   cellClass: "wrap", headerClass: "wrap" },
+]
+```
+
+**⚠ Your rule has to out-specify `.avg-data-cell`.** The stylesheet is injected during
+`create()`, so it lands *after* the page's own `<style>`, and `.avg-data-cell` setting `color` is
+exactly as specific as a bare `.low`. Write the cell class into the selector:
+
+```css
+.avg-data-cell.low      { color: #c00; }
+.avg-data-cell.overdue  { background: #fff4f4; }
+.avg-header-cell.wrap   { white-space: normal; }
+```
+
+**There is no row element.** Rows are not wrapped — that is what keeps a one-row scroll to twelve
+node touches — so `rowClass` puts its class on each of the row's cells, and a background rule on
+the cell class colours the row.
+
+**Cost.** A hook that is not supplied costs nothing: the `CellContext` is built only when
+`render`, `onCellClass` or a *functional* `cellClass` needs one, and a constant-string `cellClass`
+needs none. With all four live, a full repaint of every visible cell costs about 1.3× what a bare
+grid's does — +0.012 ms — and still mutates **0** DOM nodes. `rowClass` runs once per *cell*, not
+once per row, so keep it a property read rather than a search.
 
 ### Sorting and filtering
 
@@ -357,6 +400,9 @@ interface Column<R = any> {
     name?: string;                  // header label; defaults to `key`
     width?: number | `${number}%`;
     hidden?: boolean;
+
+    cellClass?: string | ((cell: CellContext<R>) => ClassValue);      // extra classes, this column
+    headerClass?: string | ((header: HeaderContext<R>) => ClassValue);
 
     render?: CellRenderer<R>;       // custom cell content
     headerRender?: HeaderRenderer<R>;
@@ -1150,7 +1196,7 @@ positioned, and their nesting can change.
 | `data-avg-action="add-row" \| "add-column"` | The two `+` buttons |
 | `data-cell-borders="off"` | The root, with `cellBorders: false` |
 
-Cell state classes, which `onCellClass` adds to rather than replaces: `avg-focused`,
+Cell state classes, which the four class hooks add to rather than replace: `avg-focused`,
 `avg-editing`, `avg-in-selection` (plus `-top` / `-right` / `-bottom` / `-left` for the edges),
 `avg-row-hovered`, `avg-row-selected`, `avg-align-center`, `avg-align-right`. On a header cell's
 funnel: `avg-column-filtered` when that column is filtered, `avg-filter-open` while its popover

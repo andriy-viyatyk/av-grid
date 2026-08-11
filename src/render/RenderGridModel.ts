@@ -416,7 +416,7 @@ export class RenderGridModel extends Model<RenderGridState> {
 
         const mergedRerender = this.mergeRerenders(rerender, this.pendingRerender);
 
-        // Guard against the initial-state trap documented in tasks/plan.md: the initial
+        // Guard against the initial-state trap documented in tasks/plan-done-01.md: the initial
         // render info has an all-zero visibleOffset, so a *directional* call at offset (0,0)
         // would match it and return having rendered nothing, leaving the grid blank. Scrolling
         // back to the very top before anything has rendered would otherwise do exactly that.

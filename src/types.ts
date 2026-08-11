@@ -3,7 +3,7 @@
  *
  * Ported from `AVGrid/avGridTypes.ts`, with React removed and the reference's naming quirks
  * corrected. Three classes of change, all deliberate — see the decision log in
- * `tasks/plan.md`:
+ * `tasks/plan-done-01.md`:
  *
  * 1. **Misspellings fixed.** `haderRenderer`, `cellFormater`, `editFormater`, `resizible`
  *    are gone. An agent types the correct spelling and must not be silently ignored.
@@ -76,10 +76,40 @@ export type CellRenderer<R = any> = (
     cell: CellContext<R>,
 ) => string | HTMLElement | null | undefined;
 
+/**
+ * What a row-level hook receives — `CellContext` minus the column, because a row has no one
+ * column. Today that is `rowClass`.
+ */
+export interface RowContext<R = any> {
+    row: R;
+    /** Index into the currently displayed rows (after sorting and filtering). */
+    rowIndex: number;
+    rowKey: string;
+}
+
 export interface HeaderContext<R = any> {
     column: Column<R>;
     colIndex: number;
 }
+
+/**
+ * What a class hook may return. An array is accepted because that is what composing conditions
+ * produces, and joining it yourself is a papercut; `undefined`, `null` and `false` entries are
+ * dropped, so `[a && "x", b && "y"]` works.
+ *
+ * ⚠ **A class aimed at a cell has to out-specify `.avg-data-cell`.** The grid's stylesheet is
+ * injected during `create()`, so it lands *after* the page's own `<style>`, and `.avg-data-cell`
+ * setting `color` is exactly as specific as a bare `.low`. Write `.avg-data-cell.low`.
+ */
+export type ClassValue =
+    | string
+    | (string | undefined | null | false)[]
+    | undefined
+    | null
+    | false;
+
+/** A class hook: a constant string, or a function of what is being painted. */
+export type ClassHook<C> = string | ((context: C) => ClassValue);
 
 export type HeaderRenderer<R = any> = (
     header: HeaderContext<R>,
@@ -106,6 +136,22 @@ export interface Column<R = any> {
     name?: string;
     width?: number | Percent;
     hidden?: boolean;
+
+    /**
+     * Extra class names for this column's cells, on top of the built-in state classes.
+     *
+     * ```js
+     * { key: "score", cellClass: (c) => (c.value < 50 ? "low" : undefined) }
+     * { key: "note",  cellClass: "wrap" }
+     * ```
+     *
+     * Applied before the grid-wide `onCellClass` and before `rowClass`; all three are additive.
+     * Style it as `.avg-data-cell.low` — see `ClassValue` for why the bare class loses.
+     */
+    cellClass?: ClassHook<CellContext<R>>;
+
+    /** Extra class names for this column's header cell. Same shape as `cellClass`. */
+    headerClass?: ClassHook<HeaderContext<R>>;
 
     /** Custom cell content. See `CellRenderer`. */
     render?: CellRenderer<R>;

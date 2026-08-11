@@ -15,17 +15,36 @@ Boards, which are written by AI agents; that shapes the API design.
 success criteria, the architecture being ported, the per-file port status, the filtering
 subsystem, the public-API design principles, scope, and the documentation deliverables.
 
-**[`tasks/plan.md`](tasks/plan.md) — the build order.** Twenty tasks in five phases, each with
-a definition of done, plus the settled API decisions and a decision log. Work top to bottom;
-task 5 is a hard performance gate.
+**[`tasks/plan.md`](tasks/plan.md) — the build order for the current phase.** Each task has a
+definition of done. Work top to bottom. Today that is **phase 6, customization (tasks 21–25)**:
+the class hooks, custom cell editors, custom filter types, and `copyValue`.
 
-**Read the decision log at the bottom of `plan.md` before starting a task.** It records every
-place the port deliberately diverges from the reference, and why — including several reference
-bugs that are fixed rather than carried over.
+**[`tasks/plan-done-01.md`](tasks/plan-done-01.md) — the finished plan for the port**, tasks
+1–20 in five phases, archived unedited. **Read its decision log at the bottom before starting
+any task.** It records every place the port deliberately diverges from the reference, and why —
+including several reference bugs that are fixed rather than carried over, and the traps that
+each cost a debugging session. A plan is archived this way once all its tasks are ✅; `plan.md`
+then restarts at the current phase, carrying forward the standing rules and a pointer back.
 
 ## 📊 Current state
 
-**All twenty tasks are done.** Phases 1–5 are complete, including the two primitives the filter
+**Phase 6 — customization — is under way.** Tasks 21–25 in [`plan.md`](tasks/plan.md); **task 21
+is done**, and 22–25 (custom cell editors, custom filter types, `copyValue`, then docs and an
+example) are not started.
+
+**Styling reaches the granularity a host actually styles at.** `Column.cellClass` and
+`Column.headerClass` take a constant string or a function of the cell; `rowClass` on the options
+highlights a whole row. All four class hooks — those three plus the existing `onCellClass` — are
+additive on top of the state classes, accept an array with its falsy entries dropped, and are
+reassigned whole on every paint, so a class **disappears** when its hook stops asking for it:
+removing all four from a live 100,000-row grid takes 70/10/130/1 marked cells to 0/0/0/0 and
+restores exactly those counts. That is the pool trap, and no happy-dom test can see it. The cost
+is **+0.012 ms on a full repaint of every visible cell and 0 DOM mutations** — measured as
+alternating pairs, because timed in blocks the bare grid came back *slower* than the hooked one.
+There is no row element to hang a class on, by design, so `rowClass` lands on each of the row's
+cells; and a host rule has to out-specify `.avg-data-cell`, so write `.avg-data-cell.overdue`.
+
+**All twenty tasks of the port are done.** Phases 1–5 are complete, including the two primitives the filter
 UI needed and the library did not have — **14a `Popover`** and **14b `VirtualList`**, built fresh
 rather than ported from UIKit — and both documentation deliverables.
 
@@ -223,7 +242,8 @@ av-grid/
     CLAUDE.md                    ← you are here
     tasks/
         goal.md                  ← the goal, scope, and API design principles
-        plan.md                  ← the 20-task build order + decision log
+        plan.md                  ← the current phase's tasks + its decision log
+        plan-done-01.md          ← the port, tasks 1–20 — done; its decision log still applies
         benchmark-results.md     ← performance history; append after render-path changes
     scripts/
         build-css.mjs            ← emits dist/av-grid.css from the stylesheet module

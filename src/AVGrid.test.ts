@@ -289,6 +289,137 @@ describe("cells", () => {
     });
 });
 
+describe("class hooks", () => {
+    /** Every rendered cell of one column, by data row. */
+    function cells(grid: AVGrid<any>, columnKey: string): HTMLElement[] {
+        return Array.from(
+            grid.element.querySelectorAll<HTMLElement>(
+                `[data-type="data-cell"][data-column-key="${columnKey}"]`,
+            ),
+        ).sort(
+            (a, b) =>
+                Number(a.getAttribute("data-row")) -
+                Number(b.getAttribute("data-row")),
+        );
+    }
+
+    it("applies a column's cellClass to that column only", () => {
+        const grid = create({
+            rows: people,
+            columns: [
+                { key: "name", cellClass: (c) => (c.value === "Alan" ? "hit" : undefined) },
+                { key: "id" },
+            ],
+        });
+        expect(cells(grid, "name").map((el) => el.classList.contains("hit"))).toEqual([
+            false,
+            true,
+            false,
+        ]);
+        expect(cells(grid, "id").every((el) => !el.classList.contains("hit"))).toBe(true);
+    });
+
+    it("accepts a constant string, with no context object built for it", () => {
+        const seen: any[] = [];
+        const grid = create({
+            rows: people,
+            columns: [{ key: "name", cellClass: "wrap" }, { key: "id", render: (c) => (seen.push(c), "") }],
+        });
+        expect(cells(grid, "name").every((el) => el.classList.contains("wrap"))).toBe(true);
+        // The other column's `render` proves the context path still works where it is needed.
+        expect(seen.length).toBeGreaterThan(0);
+    });
+
+    it("applies rowClass to every cell of the row", () => {
+        const grid = create({
+            rows: people,
+            columns: [{ key: "name" }, { key: "id" }],
+            rowClass: (r) => (r.row.active ? "on" : undefined),
+        });
+        expect(cells(grid, "name").map((el) => el.classList.contains("on"))).toEqual([
+            true,
+            false,
+            true,
+        ]);
+        expect(cells(grid, "id").map((el) => el.classList.contains("on"))).toEqual([
+            true,
+            false,
+            true,
+        ]);
+    });
+
+    it("hands rowClass the row, its index and its key — and no column", () => {
+        const seen: any[] = [];
+        create({
+            rows: [people[0]],
+            columns: [{ key: "name" }],
+            rowClass: (r) => (seen.push(r), undefined),
+        });
+        expect(seen[0]).toEqual({ row: people[0], rowIndex: 0, rowKey: "1" });
+    });
+
+    it("joins an array and drops its falsy entries", () => {
+        const grid = create({
+            rows: [people[0]],
+            columns: [{ key: "name", cellClass: () => ["a", undefined, false && "b", "c"] }],
+        });
+        const list = Array.from(dataCell(grid, 0)!.classList);
+        expect(list).toContain("a");
+        expect(list).toContain("c");
+        expect(list).toContain("avg-data-cell");
+        expect(list).not.toContain("false");
+    });
+
+    it("stacks all three hooks with the built-in classes", () => {
+        const grid = create({
+            rows: [people[0]],
+            columns: [{ key: "name", cellClass: "col" }],
+            onCellClass: () => "grid",
+            rowClass: () => "row",
+        });
+        const list = Array.from(dataCell(grid, 0)!.classList);
+        expect(list).toEqual(
+            expect.arrayContaining(["avg-data-cell", "col", "grid", "row"]),
+        );
+    });
+
+    /**
+     * The pool trap. Cells arrive at their next occupant holding the last one's classes, so a
+     * class that stops applying has to be *absent* after the repaint, not merely un-asked-for.
+     */
+    it("removes a class that stops applying on the next paint", async () => {
+        let flagged = true;
+        const grid = create({
+            rows: [people[0]],
+            columns: [{ key: "name" }],
+            rowClass: () => (flagged ? "flagged" : undefined),
+        });
+        expect(dataCell(grid, 0)?.classList.contains("flagged")).toBe(true);
+
+        flagged = false;
+        grid.refresh();
+        await settle();
+        expect(dataCell(grid, 0)?.classList.contains("flagged")).toBe(false);
+        expect(dataCell(grid, 0)?.classList.contains("avg-data-cell")).toBe(true);
+    });
+
+    it("applies headerClass, as a string and as a function", () => {
+        const grid = create({
+            rows: people,
+            columns: [
+                { key: "name", headerClass: "wrap" },
+                { key: "id", headerClass: (h) => `col-${h.colIndex}` },
+            ],
+        });
+        const headers = Array.from(
+            grid.element.querySelectorAll('[data-type="header-cell"]'),
+        );
+        expect(headers[0].classList.contains("wrap")).toBe(true);
+        expect(headers[1].classList.contains("col-1")).toBe(true);
+        expect(headers[0].classList.contains("avg-header-cell")).toBe(true);
+    });
+});
+
 describe("headers", () => {
     it("falls back to the key when a column has no name", () => {
         const grid = create({ rows: people, columns: [{ key: "name" }] });

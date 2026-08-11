@@ -10,7 +10,7 @@
  *
  * - **No listeners.** The root delegates. See `GridInteractions.ts`.
  * - **No object literals per cell.** `CellContext` is built only when a custom `render`,
- *   `formatValue` or `onCellClass` hook actually needs one — the default path never
+ *   `formatValue`, `cellClass` or `onCellClass` hook actually needs one — the default path never
  *   allocates.
  * - **The class name is assembled into one string and assigned once**, rather than through
  *   `classList.add/remove` calls that each touch the class list.
@@ -25,7 +25,7 @@ import type { AVGridModel } from "../model/AVGridModel";
 import type { CellContext, Column } from "../types";
 import { columnDisplayValue, formatDisplayValue, gridBoolean } from "../gridUtils";
 import { checkedIcon, checkIcon, uncheckedIcon } from "./icons";
-import { applyCellStyle, setText } from "./cellDom";
+import { appendClass, applyCellStyle, setText } from "./cellDom";
 
 type ContentMode = "text" | "bool" | "html" | "node" | "editor";
 
@@ -112,10 +112,13 @@ export function renderDataCell<R>(
     className += model.models.selected.rowClass(dataRow);
     className += model.models.focus.focusClass(p.col, dataRow);
 
-    // `onCellClass` and `render` are the only two hooks that need a context object; when
-    // neither is set, the default path allocates nothing at all.
+    // A context object is built only for the hooks that need one — `render`, `onCellClass`, and a
+    // functional `cellClass`. A string `cellClass` needs nothing, and a grid with none of them
+    // allocates nothing at all per cell.
+    const cellClass = column.cellClass;
+    const onCellClass = model.options.onCellClass;
     let context: CellContext<R> | undefined;
-    if (column.render || model.options.onCellClass) {
+    if (column.render || onCellClass || typeof cellClass === "function") {
         context = {
             value,
             row,
@@ -126,9 +129,32 @@ export function renderDataCell<R>(
         };
     }
 
-    if (model.options.onCellClass && context) {
-        const extra = model.options.onCellClass(context);
-        if (extra) className += ` ${extra}`;
+    // The column's own class first, then the grid-wide hook, then the row's: narrowest to
+    // widest, all additive. Nothing has to be removed — `className` is assembled from scratch on
+    // every paint and assigned once, so a class that stops applying is simply not in the next
+    // string. That matters more here than it looks: pooled cells arrive holding their last
+    // occupant's classes.
+    if (typeof cellClass === "string") className += ` ${cellClass}`;
+    else if (cellClass && context) {
+        className = appendClass(className, cellClass(context));
+    }
+
+    if (onCellClass && context) {
+        className = appendClass(className, onCellClass(context));
+    }
+
+    const rowClass = model.options.rowClass;
+    if (rowClass) {
+        // A second small object, and only when the hook exists. It cannot be the cell context —
+        // a row hook has no column, and handing it one invites a rule that reads it.
+        className = appendClass(
+            className,
+            rowClass({
+                row,
+                rowIndex: dataRow,
+                rowKey: model.options.getRowKey(row),
+            }),
+        );
     }
 
     if (el.className !== className) el.className = className;

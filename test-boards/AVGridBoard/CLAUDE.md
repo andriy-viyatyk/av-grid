@@ -1,7 +1,7 @@
 # AVGridBoard — the grid, in a real browser
 
 The debugger and visual check for **the grid layer** (tasks 6–14 of
-[`plan.md`](../../tasks/plan.md)): `AVGrid.create()`, inferred columns, header sorting, column
+[`plan-done-01.md`](../../tasks/plan-done-01.md)): `AVGrid.create()`, inferred columns, header sorting, column
 resize and reorder, custom cell renderers, the injected stylesheet, the theme contract, cell
 focus with keyboard navigation and range selection, row selection with the checkbox column,
 in-cell editing, clipboard copy/cut/paste, and rows and columns added and deleted.
@@ -43,6 +43,7 @@ await window.avg.runBenchmark(100000)     // the task-5 gate, through the whole 
 await window.avg.measurePaintCost(y)      // avg paint ms over 300 one-row scrolls from y
 await window.avg.measureScrollFps(y)      // scripted 2s scroll; fps + frame percentiles
 await window.avg.measureFullRepaint()     // the sort / filter / setRows path
+await window.avg.measureClassHooks()      // the task-21 check: cost, and does a class go away
 await window.avg.measureRangeDrag(row)    // the task-10 gate: drag cost at any row
 await window.avg.measureSelectAll()       // the task-11 gate: select-all cost and dirty rows
 await window.avg.measureEditing(row)      // the task-12 check: does the editor survive a repaint
@@ -85,6 +86,15 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
 - **Explicit columns** — a computed column (`full`, no such row property) returning a string,
   an element renderer (`status`), a boolean column, a `displayFormat: "dateTime"` column, a
   non-resizable column, and `onCellClass` painting closed rows red.
+- **The class hooks** — all four are live: `onCellClass` reddens a closed row, `Score` carries a
+  functional `cellClass` (gold under 250) and a constant-string `headerClass` (italic), and
+  `rowClass` tints every inactive row — every third one, so the banding is obvious. Their four
+  rules are the only cell styling in `style.css`, and each is written `.grid-host .x` because a
+  bare class loses the specificity tie to `.avg-data-cell`. `measureClassHooks()` reports the cost
+  and, more importantly, `cleared: true` — every class **gone** once its hook is removed and back
+  when it returns, which is the pool trap and is invisible to happy-dom. Note it strips and
+  restores the hooks by `setOptions`, so a script that stops halfway leaves the grid unstyled;
+  `board_refresh` puts it back.
 - **The minimum call** — the *Minimum call* button drops to `AVGrid.create(el, { rows })` and
   shows what inference produces: humanized labels (`firstName` → *First Name*, `id` → *ID*),
   content-based widths, `dataType` and `displayFormat` guesses, inferred row keys.

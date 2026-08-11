@@ -6,6 +6,22 @@
  */
 
 import type { CellStyle } from "../render/types";
+import type { ClassValue } from "../types";
+
+/**
+ * Append a class hook's return value to a class name being assembled.
+ *
+ * Returns the string it was given when the hook returned nothing, which is the common case for a
+ * conditional hook — so a cell that does not match allocates no string at all. The whole class
+ * name is assigned once, at the end, rather than through `classList` calls: see `DataCell`.
+ */
+export function appendClass(className: string, value: ClassValue): string {
+    if (!value) return className;
+    if (typeof value === "string") return `${className} ${value}`;
+    let out = className;
+    for (const part of value) if (part) out += ` ${part}`;
+    return out;
+}
 
 /**
  * Set an element's text through its existing text node.

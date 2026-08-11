@@ -1,6 +1,6 @@
 # Benchmark results
 
-The performance gate from [`plan.md`](plan.md) task 5. **Re-run this after any change to the
+The performance gate from [`plan-done-01.md`](plan-done-01.md) task 5. **Re-run this after any change to the
 render path** (tasks 2, 3, 4, 9, 10, 12) and append a row — a regression here is the only kind
 of bug that matters for this project's purpose.
 
@@ -738,6 +738,46 @@ cheap newly-exposed-cells path the scroll itself took. 0.29 ms is 1.7% of a fram
 pointer is over the grid, which is every programmatic scroll — the benchmark below is unchanged
 because of it.
 
+## Task 21 — the class hooks — 2026-08-11
+
+Four hooks now run inside the per-cell loop: `Column.cellClass`, `Column.headerClass`, the
+existing `onCellClass`, and `rowClass`. Two of them allocate — a functional `cellClass` or
+`onCellClass` builds one `CellContext` per cell, `rowClass` a second, smaller `RowContext` — so
+this is the first feature since task 15's search that puts host callbacks on the hot path.
+
+The gate, re-run on 100,000 rows with all four live on the board:
+
+| | |
+|---|---|
+| First paint | 9.2 ms |
+| Paint cost at row 100 / near the bottom | 0.120 ms / 0.115 ms |
+| **Flat ratio** | **0.96×** |
+| Scroll fps, top / bottom | 60.0 / 60.0 |
+| Full repaint | 0.200 ms, **0 DOM mutations** |
+| Range drag, top / bottom | 2.0 cells a move at both ends, ratio 0.88× |
+| Select all 100k | 28.3 ms, 39 rows marked, 0 mutations |
+
+**What the hooks themselves cost: +0.012–0.015 ms on a full repaint of every visible cell,
+which is 1.24×–1.32×.** Measured by `measureClassHooks`'s method taken further — 40 paired
+repaints, alternating all-four-on against all-four-off *within each pair* so page drift lands on
+both, run twice with the order inside the pair reversed: 0.0650 vs 0.0525 ms one way and 0.0625
+vs 0.0475 the other. **DOM mutations stay 0 in every configuration**, which is the exact half of
+this measurement.
+
+⚠ **Measured in blocks rather than alternating pairs, this comparison lies.** A first attempt
+timed each configuration as a run of 60 repaints and reported the *bare* grid at 0.090 ms against
+`onCellClass` alone at 0.074 — the hooks apparently making the grid faster. A full repaint costs
+~0.05–0.1 ms here and the webview's timer quantizes near 0.1 ms, so block ordering dominates a
+difference of 12 µs. Same lesson as `measureRangeDrag` and the 100k example: when the quantity is
+smaller than the clock, pair the samples or quote the exact counter instead.
+
+The correctness half — and the one no unit test can reach, because happy-dom pools nothing under
+real layout — is that a class **goes away** when its hook stops asking for it. Pooled cells arrive
+holding their last occupant's classes, and the class name is assembled from scratch and assigned
+once per paint, so removing all four hooks from a live 100,000-row grid leaves
+`flagged: 0, low-score: 0, inactive: 0, score-header: 0` from 70/10/130/1, and restoring them
+brings back exactly those counts. `window.avg.measureClassHooks()` reports it as `cleared: true`.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -761,3 +801,4 @@ because of it.
 | 2026-08-11 | polish | 10.2 ms | 0.85× | 60.0 / 60.0 | 0 | An untouched trailing row is deleted when the focus leaves it. Not the render path — the hook is one `undefined` comparison at the end of `applyFocus`, which is why the range drag, whose every pointer move goes through it, still costs **2 cells a move** at both ends and reads a **0.88×** ratio. Full repaint **0.1 ms / 0 mutations**, select-all **0 mutations**, insert above the viewport **0 mutations**. First paint drifted up 1.4 ms with nothing on the paint path changed; it is a cold-JIT number on a shared machine and the ratio is what the gate is about. |
 | 2026-08-11 | polish | 5.6 ms | 1.11× | 60.0 / 60.0 | 0 | The context menu, on a new `Menu` primitive. Opening one over 100,000 rows marks **0** things on the grid and mutates **0** DOM nodes — and costs **2.3 ms with all 100,000 rows selected against 2.9 ms with one cell**, because the items are built from `selectedCount` and `e.selection` is a getter nothing built-in reads. The render path is untouched: the only change inside the grid is one branch in the `contextmenu` handler. |
 | 2026-08-11 | polish | 8.8 ms | 0.86× | 60.0 / 60.0 | 0 | Row hover follows the pointer during a drag and during a wheel scroll. Hover moved from `mousemove` to `pointermove`, because `preventDefault()` on `pointerdown` suppresses the compat mouse events — and a stationary pointer now re-resolves after the paint on `scroll`. The gate is unchanged (drag **2 cells a move** at both ends, full repaint **0 mutations**, select-all **0 mutations**) because `onScrolled` returns immediately with no pointer over the grid, which is every programmatic scroll. A real wheel scroll under the pointer costs **0.291 ms a paint against 0.120 ms**; hover moving on its own is **0 mutations, 0.045 ms**. |
+| 2026-08-11 | 21 | 9.2 ms | 0.96× | 60.0 / 60.0 | 0 | The four class hooks — `Column.cellClass`, `Column.headerClass`, `onCellClass`, `rowClass` — all live on the board's 100k grid. Full repaint 0.200 ms and **0 DOM mutations**; the hooks themselves add **+0.012–0.015 ms (1.24×–1.32×)** to a full repaint of every visible cell, measured as 40 alternating pairs run twice with the pair order reversed, because measured in blocks the comparison came back backwards. A class **disappears** when its hook stops asking for it: 70/10/130/1 marked cells → 0/0/0/0 with the hooks removed, and back again. |
