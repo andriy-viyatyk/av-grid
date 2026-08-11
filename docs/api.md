@@ -358,6 +358,7 @@ once per row, so keep it a property read rather than a search.
 |---|---|---|---|
 | `sort` | `SortColumn \| null` | `null` | Initial sort. Clicking a header cycles ascending → descending → none. A column sorts by `row[key]` unless it has a `sortValue` or a `rowCompare` — see [Sorting by something other than the value](#sorting-by-something-other-than-the-value). |
 | `searchString` | `string` | — | Free-text filter. Every whitespace-separated word must appear in some column's *displayed* value — so a computed column with `formatValue` is searchable too. |
+| `highlightSearch` | `boolean \| "text" \| "background" \| "both"` | `true` | Mark the matched words inside the cells. See [Search highlighting](#search-highlighting). |
 | `filters` | `Filter[]` | `[]` | Applied column filters. See [Filtering](#filtering). |
 | `persistFilters` | `PersistFiltersOptions` | — | Remember the filters across reloads. Passing this **is** the consent to write. |
 | `onGetOptions` | `GetFilterOptions<R>` | — | Supply the options a filter popover offers, instead of the column's distinct values. May return a promise. |
@@ -829,6 +830,52 @@ grid.setSort({ key: "score", direction: "desc" });
 grid.setSort(undefined);            // unsorted
 grid.setSearchString("lovelace");   // across every column's displayed value
 ```
+
+### Search highlighting
+
+The words that kept a row are marked inside its cells, so it is visible *why* each row survived
+a search. It is on by default and needs nothing:
+
+```js
+grid.setSearchString("ada lovelace");   // both words marked wherever they appear
+```
+
+Each whitespace-separated word of `searchString` is marked wherever it appears in a cell's
+**displayed** text, case-insensitively, in `--avg-search-match` — the accent colour unless a
+host changes it. `highlightSearch` picks the shape, or turns it off:
+
+| Value | What a match looks like |
+|---|---|
+| `true` (default), `"text"` | The letters in the accent colour |
+| `"background"` | A tint behind the letters, their own colour untouched |
+| `"both"` | Both. The most visible, and the most legible on a dark theme, where the accent is a line colour that can read *dimmer* than pale cell text |
+| `false` | Nothing. Rows filter exactly as before |
+
+```js
+AVGrid.create(el, { rows, searchString: "ada", highlightSearch: "both" });
+grid.setOptions({ highlightSearch: false });    // any time, not only at create()
+```
+
+Reach for `"background"` when the columns carry their own colours — a status, a rating — and
+recolouring their text would say something it does not mean.
+
+What is and is not marked:
+
+- **The displayed text**, so a `formatValue` or a `displayFormat` column marks what is on
+  screen rather than the value behind it — the same text the search matched against.
+- **Not a `render` column.** The host owns that markup; marking inside it would mean parsing
+  what the hook returned. Such a column still *matches*, and its row still survives.
+- **Not a boolean column**, which shows a tick rather than text, and **not the open editor**.
+- A value that looks like markup is escaped: a cell holding `<b>ada</b>` shows those characters
+  and marks the `ada` between them.
+
+Overlapping words merge into one run rather than nesting: searching `"an ana"` against
+`"banana"` marks `anan` once.
+
+Cost, on the 100k-row board with a search active: **60 fps scrolling and a full repaint of every
+visible cell in 0.1 ms with 0 DOM mutations** — the same numbers as with no search. A cell with
+no match never leaves the plain-text path, and the shape is one attribute on the root, so
+switching between `"text"`, `"background"` and `"both"` repaints nothing.
 
 ### Filters
 
@@ -1510,6 +1557,7 @@ light default — so the grid looks deliberate on a bare HTML page and matches t
 | `--avg-selection-bg` | — | 18% of `--avg-accent` |
 | `--avg-selection-border` | — | `--avg-accent` |
 | `--avg-selection-border-blurred` | — | `--avg-text-muted`. The selection outline while the grid does not have focus. |
+| `--avg-search-match` | — | `--avg-accent`. A matched search word. Its own token because it is the one place the accent lands on *text*. |
 | `--avg-menu-selection-bg` | `--p-selection-bg` | `--avg-accent`. A menu row is *picked*, so it takes the full selection colour, not the tint a checklist wants. |
 | `--avg-menu-selection-text` | `--p-selection-text` | `#ffffff` |
 | `--avg-cell-padding-x` | — | `4px` |
@@ -1551,10 +1599,12 @@ positioned, and their nesting can change.
 | `data-type="cell-editor"` | The open editor |
 | `data-avg-action="add-row" \| "add-column"` | The two `+` buttons |
 | `data-cell-borders="off"` | The root, with `cellBorders: false` |
+| `data-search-highlight="background" \| "both"` | The root. Absent for the default, colour-only shape |
 
 Cell state classes, which the four class hooks add to rather than replace: `avg-focused`,
 `avg-editing`, `avg-in-selection` (plus `-top` / `-right` / `-bottom` / `-left` for the edges),
-`avg-row-hovered`, `avg-row-selected`, `avg-align-center`, `avg-align-right`. On a header cell's
+`avg-row-hovered`, `avg-row-selected`, `avg-align-center`, `avg-align-right`. Inside a cell's
+text, `avg-search-match` wraps each matched search word. On a header cell's
 funnel: `avg-column-filtered` when that column is filtered, `avg-filter-open` while its popover
 is up.
 

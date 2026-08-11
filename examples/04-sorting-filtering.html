@@ -23,9 +23,18 @@
     <header>
         <h1>Sorting and filtering</h1>
         <p>Click a header to sort. Click a funnel to filter. Applied filters appear as removable
-        chips in the bar above the grid — which takes no space until something is filtered.</p>
+        chips in the bar above the grid — which takes no space until something is filtered.
+        Searching marks the words it matched, inside the cells.</p>
         <div class="row">
             <input id="search" type="search" placeholder="search every column…" size="24" />
+            <label>mark
+                <select id="highlight">
+                    <option value="text">text (default)</option>
+                    <option value="background">background</option>
+                    <option value="both">both</option>
+                    <option value="false">off</option>
+                </select>
+            </label>
             <button id="open">Filter "status" from here</button>
             <button id="only">applyFilter(open)</button>
             <button id="clear">clearFilters()</button>
@@ -89,6 +98,14 @@
         document.getElementById("search").addEventListener("input", (e) => {
             grid.setSearchString(e.target.value);
             report();
+        });
+
+        // Every whitespace-separated word of the search is marked wherever it appears in a
+        // cell's *displayed* text. `highlightSearch` picks how — the colour alone by default,
+        // a tint behind the letters, both, or nothing. The colour is `--avg-search-match`.
+        document.getElementById("highlight").addEventListener("change", (e) => {
+            const value = e.target.value;
+            grid.setOptions({ highlightSearch: value === "false" ? false : value });
         });
 
         // The same popover the header funnel opens. Anchor it anywhere — an element or a point.

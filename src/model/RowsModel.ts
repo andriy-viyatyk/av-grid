@@ -85,6 +85,10 @@ export class RowsModel<R> {
 
     /** Re-run filter → sort and hand the result to the render layer. */
     updateRows = (): void => {
+        // Before the freeze check: what a cell highlights is a function of the search string,
+        // not of which rows are on screen, and a frozen grid is still painting them.
+        this.model.syncSearchWords();
+
         if (this.model.data.rowsFrozen) {
             this.updateFrozenRows();
             return;

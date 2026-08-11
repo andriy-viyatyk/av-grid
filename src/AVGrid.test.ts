@@ -784,6 +784,180 @@ describe("filters", () => {
     });
 });
 
+describe("search highlighting", () => {
+    /**
+     * The marked runs of each cell in a column, in row order, joined by `|`.
+     *
+     * Per cell rather than per column, and sorted by `data-row`: the cells are pooled, so their
+     * order in the DOM is the order the pool handed them out and says nothing about the rows.
+     */
+    function marks(grid: AVGrid<any>, columnKey: string): string[] {
+        return Array.from(
+            grid.element.querySelectorAll(
+                `[data-type="data-cell"][data-column-key="${columnKey}"]`,
+            ),
+        )
+            .sort(
+                (a, b) =>
+                    Number(a.getAttribute("data-row")) -
+                    Number(b.getAttribute("data-row")),
+            )
+            .map((cell) =>
+                Array.from(cell.querySelectorAll(".avg-search-match"))
+                    .map((el) => el.textContent ?? "")
+                    .join("|"),
+            );
+    }
+
+    it("marks every search word in the surviving rows", async () => {
+        const grid = create({ rows: people, searchString: "a" });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["A|a", "A|a", "a"]);
+    });
+
+    it("marks each word of a multi-word search", async () => {
+        const grid = create({
+            rows: [{ name: "Ada", city: "Ankara" }],
+            searchString: "ad ank",
+        });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["Ad"]);
+        expect(marks(grid, "city")).toEqual(["Ank"]);
+    });
+
+    it("leaves the cell's text intact — only its markup changes", async () => {
+        const grid = create({ rows: people, searchString: "a" });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+    });
+
+    it("paints nothing when highlightSearch is false", async () => {
+        const grid = create({
+            rows: people,
+            searchString: "a",
+            highlightSearch: false,
+        });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+        // Still filters, exactly as before.
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+    });
+
+    it("repaints when highlightSearch is toggled on its own", async () => {
+        // The row set does not change, so the pipeline would not have run: `setOptions` has to
+        // resync the words and ask for a paint itself.
+        const grid = create({
+            rows: people,
+            searchString: "a",
+            highlightSearch: false,
+        });
+        await settle();
+        grid.setOptions({ highlightSearch: true });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["A|a", "A|a", "a"]);
+
+        grid.setOptions({ highlightSearch: false });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+    });
+
+    it("keeps the shape on the root, not on the marks", async () => {
+        // Per cell, all three shapes are the same one class — so switching between them costs
+        // one attribute and repaints nothing.
+        const grid = create({
+            rows: people,
+            searchString: "a",
+            highlightSearch: "both",
+        });
+        await settle();
+        expect(grid.element.getAttribute("data-search-highlight")).toBe("both");
+        expect(marks(grid, "name")).toEqual(["A|a", "A|a", "a"]);
+
+        grid.setOptions({ highlightSearch: "background" });
+        await settle();
+        expect(grid.element.getAttribute("data-search-highlight")).toBe(
+            "background",
+        );
+        expect(marks(grid, "name")).toEqual(["A|a", "A|a", "a"]);
+    });
+
+    it("leaves the attribute off for the default shape", async () => {
+        const grid = create({ rows: people, searchString: "a" });
+        await settle();
+        expect(grid.element.hasAttribute("data-search-highlight")).toBe(false);
+
+        grid.setOptions({ highlightSearch: "text" });
+        await settle();
+        expect(grid.element.hasAttribute("data-search-highlight")).toBe(false);
+    });
+
+    it("takes the attribute back off when highlighting is turned off", async () => {
+        const grid = create({
+            rows: people,
+            searchString: "a",
+            highlightSearch: "both",
+        });
+        await settle();
+        grid.setOptions({ highlightSearch: false });
+        await settle();
+        expect(grid.element.hasAttribute("data-search-highlight")).toBe(false);
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+    });
+
+    it("clears the marks when the search is cleared", async () => {
+        const grid = create({ rows: people, searchString: "a" });
+        await settle();
+        grid.setSearchString(undefined);
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+    });
+
+    it("follows the search as it narrows", async () => {
+        const grid = create({ rows: people, searchString: "a" });
+        await settle();
+        grid.setSearchString("ala");
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Alan"]);
+        expect(marks(grid, "name")).toEqual(["Ala"]);
+    });
+
+    it("does not touch a column with its own render", async () => {
+        // The host owns that markup; marking inside it would mean parsing what it returned.
+        const grid = create({
+            rows: people,
+            columns: [{ key: "name", render: (c) => `<i>${c.value}</i>` }],
+            searchString: "a",
+        });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+    });
+
+    it("marks the displayed text, not the raw value", async () => {
+        const grid = create({
+            rows: [{ id: 1 }],
+            columns: [{ key: "id", formatValue: () => "Order 7" }],
+            searchString: "order",
+        });
+        await settle();
+        expect(marks(grid, "id")).toEqual(["Order"]);
+    });
+
+    it("escapes a value that looks like markup", async () => {
+        const grid = create({
+            rows: [{ name: "<b>ada</b>" }],
+            searchString: "ada",
+        });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["ada"]);
+        expect(columnText(grid, "name")).toEqual(["<b>ada</b>"]);
+        expect(
+            grid.element.querySelector('[data-column-key="name"] b'),
+        ).toBeNull();
+    });
+});
+
 describe("two grids on one page", () => {
     it("do not interfere", async () => {
         const a = create({ rows: people, columns: [{ key: "name" }] });

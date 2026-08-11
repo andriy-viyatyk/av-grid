@@ -14,6 +14,7 @@
  */
 
 import { Model } from "../core/observable";
+import { searchWords } from "../gridUtils";
 import type { RenderGridModel } from "../render/RenderGridModel";
 import type { RerenderInfo } from "../render/types";
 import type { ResolvedOptions } from "../options";
@@ -34,6 +35,9 @@ export interface AVGridState<R = any> {
     sort?: SortColumn;
     cellEdit?: CellEdit<R>;
 }
+
+/** Shared, so turning highlighting off never allocates. */
+const EMPTY_WORDS: readonly string[] = [];
 
 export class AVGridModels<R> {
     readonly columns: ColumnsModel<R>;
@@ -191,6 +195,20 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
         if (this.options.searchString === searchString) return;
         this.options.searchString = searchString;
         this.models.rows.refilterRows();
+    };
+
+    /**
+     * Recompute the words cells highlight, from the two options that decide them.
+     *
+     * Called from `RowsModel.updateRows` — every path that changes the search string runs it —
+     * and from `setOptions` when `highlightSearch` is toggled on its own, which changes what is
+     * painted without changing which rows survive.
+     */
+    syncSearchWords = (): void => {
+        this.data.searchWords =
+            this.options.highlightSearch === false
+                ? EMPTY_WORDS
+                : searchWords(this.options.searchString);
     };
 
     override dispose(): void {

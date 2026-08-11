@@ -145,6 +145,17 @@ removes them all. The bar takes no space at all until something is filtered. Eve
 while the bar is up mutates **zero** DOM nodes; the bar appearing or going away costs one row of
 cells, because it changes the grid's height by 32 px.
 
+**Free text, and where it matched.** `searchString` keeps a row when every whitespace-separated
+word appears in some column's displayed value, and each of those words is then marked inside the
+cells, so it is visible *why* a row survived. The mark is the accent colour by default;
+`highlightSearch` switches it to a tint behind the letters, to both, or off. It is measured on
+the 100k board with a search active: **60 fps scrolling, and a full repaint of every visible cell
+in 0.1 ms with 0 DOM mutations** — indistinguishable from no search at all. Three things buy
+that: the words are split once per pipeline run rather than per cell, a cell with no match never
+leaves the single-text-node path, and the *shape* is one attribute on the root, so choosing
+between the three repaints nothing. What is marked is the **displayed** text — the same text the
+search matched — which leaves out a `render` column, whose markup belongs to the host.
+
 ---
 
 ## The context menu

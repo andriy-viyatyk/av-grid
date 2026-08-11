@@ -315,6 +315,8 @@ export class AVGrid<R = any> {
             this.render.root.setAttribute("data-cell-borders", "off");
         }
 
+        this.syncSearchHighlight();
+
         // The container may simply not have been laid out yet when `create()` was called —
         // a board or a framework mounts its DOM and constructs the grid in the same tick. In
         // that case the fallback height was chosen against a measurement of zero; re-check
@@ -852,6 +854,14 @@ export class AVGrid<R = any> {
             this.model.models.columns.updateColumnsData(this.model.options.columns);
         }
         if ("filterBar" in options) this.syncFilterBar();
+        // Turning highlighting on or off changes what is painted without changing which rows
+        // survive, so it is the one thing here that the row pipeline would not have picked up.
+        // Switching between the *shapes* needs neither — the attribute alone does it.
+        if ("highlightSearch" in options) {
+            this.syncSearchHighlight();
+            this.model.syncSearchWords();
+            this.model.requestRepaint();
+        }
         if ("selected" in options) this.setSelected(options.selected);
         // An editor left open on a grid that is no longer editable would commit on its next
         // blur, writing a value the host has just said it does not accept.
@@ -1098,6 +1108,22 @@ export class AVGrid<R = any> {
      * new box — to save a call to `AVGrid.createFilterBar()`, which does the same job without
      * touching the grid at all.
      */
+    /**
+     * Put the chosen highlight shape on the root, where the stylesheet reads it.
+     *
+     * The default — colour alone — is the bare rule, so it is the *absence* of the attribute.
+     * A shape is a presentation choice with no bearing on which cells match, so it belongs on
+     * one element rather than in the class name of every mark inside every cell.
+     */
+    private syncSearchHighlight(): void {
+        const mode = this.model.options.highlightSearch;
+        if (mode === "background" || mode === "both") {
+            this.render.root.setAttribute("data-search-highlight", mode);
+        } else {
+            this.render.root.removeAttribute("data-search-highlight");
+        }
+    }
+
     private syncFilterBar(): void {
         const wanted = Boolean(this.model.options.filterBar);
         if (wanted === Boolean(this.filterBar)) return;

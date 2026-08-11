@@ -393,6 +393,85 @@ async function measureScrollFps(startY, ms = 2000, pxPerFrame = 40) {
 }
 
 /** A full repaint — the path sorting, filtering and setRows all take. */
+/**
+ * Search-word highlighting: what it costs, and that all four shapes actually land.
+ *
+ * The cost half is a full repaint and a scripted scroll with a search active against the same
+ * two with none — the marking runs inside the per-cell loop, so this is where it would show up.
+ * The correctness half is the pool trap in its usual form: a mark has to be *gone* once the
+ * search that made it is cleared, not merely un-asked-for, and a cell that stops matching has
+ * to fall back to a plain text node. Counting `.avg-search-match` after each change is that
+ * test, against real elements.
+ */
+async function measureHighlight(search = "a") {
+    const marked = () =>
+        [...grid.element.querySelectorAll('[data-type="data-cell"]')].filter((c) =>
+            c.querySelector(".avg-search-match"),
+        ).length;
+    const visible = () =>
+        grid.element.querySelectorAll('[data-type="data-cell"]').length;
+
+    grid.setSearchString(undefined);
+    grid.setOptions({ highlightSearch: true });
+    await settle(6);
+    await scrollTo(0);
+    const off = {
+        repaint: await measureFullRepaint(),
+        fps: await measureScrollFps(0),
+        marked: marked(),
+    };
+
+    grid.setSearchString(search);
+    await settle(6);
+    await scrollTo(0);
+    const on = {
+        repaint: await measureFullRepaint(),
+        fps: await measureScrollFps(0),
+        marked: marked(),
+        visible: visible(),
+        rowsKept: grid.getState().rowCount,
+    };
+
+    // Each shape is the same one class per cell — only the root attribute differs, so switching
+    // must not change what is marked, and must not cost a repaint.
+    const shapes = {};
+    for (const mode of ["text", "background", "both"]) {
+        grid.setOptions({ highlightSearch: mode });
+        await settle(6);
+        const span = grid.element.querySelector(".avg-search-match");
+        const cs = span ? getComputedStyle(span) : null;
+        shapes[mode] = {
+            attr: grid.element.getAttribute("data-search-highlight"),
+            marked: marked(),
+            color: cs?.color,
+            background: cs?.backgroundColor,
+        };
+    }
+
+    grid.setOptions({ highlightSearch: false });
+    await settle(6);
+    const disabled = { marked: marked(), rowsKept: grid.getState().rowCount };
+
+    // Put the board back the way the rest of the harness expects it.
+    grid.setOptions({ highlightSearch: true });
+    grid.setSearchString(undefined);
+    await settle(6);
+    const cleared = marked();
+
+    return {
+        search,
+        off,
+        on,
+        shapes,
+        disabled,
+        markedAfterClear: cleared,
+        // The two that decide whether this shipped: a search costs nothing measurable on the
+        // paint path, and no mark outlives the search that made it.
+        freeRepaint: on.repaint.mutations === 0,
+        clean: cleared === 0 && disabled.marked === 0,
+    };
+}
+
 async function measureFullRepaint() {
     // Warm up first, then settle generously. Cells that scrolled out during a previous phase
     // stay attached until the next *full* recompute trims them — settling alone does not do
@@ -2403,6 +2482,7 @@ window.avg = {
     measureTeardown,
     measureSort,
     measureSortValue,
+    measureHighlight,
     scrollTo,
     settle,
     get grid() {

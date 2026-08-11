@@ -26,8 +26,9 @@ import type { CellContext, Column } from "../types";
 import { columnDisplayValue, formatDisplayValue, gridBoolean } from "../gridUtils";
 import { checkedIcon, checkIcon, uncheckedIcon } from "./icons";
 import { appendClass, applyCellStyle, setText } from "./cellDom";
+import { highlightMarkup } from "./highlight";
 
-type ContentMode = "text" | "bool" | "html" | "node" | "editor";
+type ContentMode = "text" | "bool" | "html" | "node" | "editor" | "match";
 
 /**
  * The shapes a boolean cell takes, as constant markup.
@@ -54,6 +55,8 @@ const BOX_ON_HOVERED = `<span class="avg-bool-box avg-checked" data-type="bool-t
 const BOX_OFF_HOVERED = `<span class="avg-bool-box" data-type="bool-toggle">${uncheckedIcon}</span>`;
 
 const mode = new WeakMap<HTMLElement, ContentMode>();
+/** The highlighted markup last written to an element, so the paint can skip an unchanged one. */
+const marked = new WeakMap<HTMLElement, string>();
 
 /** Reset an element's children when the content shape changes under it. */
 function setMode(el: HTMLElement, next: ContentMode): boolean {
@@ -223,8 +226,24 @@ export function renderDataCell<R>(
         }
         if (el.innerHTML !== wanted) el.innerHTML = wanted;
     } else {
-        setMode(el, "text");
-        setText(el, displayText(column, row, value));
+        const text = displayText(column, row, value);
+        // The search words are already split and lowercased on `data` — this is a length check
+        // per cell, so a grid with no search pays for the feature exactly once per paint.
+        const words = model.data.searchWords;
+        const markup = words.length ? highlightMarkup(text, words) : null;
+        if (markup === null) {
+            setMode(el, "text");
+            setText(el, text);
+        } else {
+            // `marked` rather than reading `innerHTML` back: the getter serialises the subtree,
+            // and it would re-escape what we wrote, so the comparison would have to survive a
+            // round trip it is not worth designing for. What we last assigned is known.
+            if (setMode(el, "match")) marked.delete(el);
+            if (marked.get(el) !== markup) {
+                el.innerHTML = markup;
+                marked.set(el, markup);
+            }
+        }
     }
 
     applyCellStyle(el, p.style);

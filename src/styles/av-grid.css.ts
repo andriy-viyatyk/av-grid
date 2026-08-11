@@ -46,6 +46,10 @@ export const css = `
     --avg-selection-border: var(--avg-accent);
     /* The selection outline while the grid does not have focus. */
     --avg-selection-border-blurred: var(--avg-text-muted);
+    /* A matched search word. Its own token rather than --avg-accent directly, because it is the
+       one place the accent lands on *text* — a host that tints the grid to match its brand can
+       need a different colour here than on a border, and cannot say so if the two are one. */
+    --avg-search-match: var(--avg-accent);
 
     --avg-cell-padding-x: 4px;
 
@@ -184,6 +188,37 @@ export const css = `
 
 .avg-grid .avg-data-cell[data-col="0"] {
     border-left: solid 1px var(--avg-grid-line);
+}
+
+/*
+ * A word of the active search, inside a cell's text.
+ *
+ * The highlightSearch option picks between the three shapes by writing data-search-highlight
+ * on the root — on the root, not on the mark, so choosing a shape costs nothing per cell and
+ * changing it repaints nothing at all.
+ *
+ * The default is the reference's: colour alone. The tint is worth knowing about, though, and
+ * "both" is what a dark theme usually wants — the accent is a *line* colour, dark enough to
+ * read against a light background, so against pale cell text a coloured match can come out
+ * dimmer than the words around it. The tint carries the mark whichever way the theme runs, and
+ * stays legible inside a selected cell, where the same accent already covers the whole cell at
+ * a lighter 18%.
+ *
+ * No weight change in any of them: bolding reflows the glyphs around the match, so the text
+ * would shuffle sideways with every letter typed into the search box.
+ */
+.avg-grid .avg-search-match {
+    color: var(--avg-search-match);
+}
+
+.avg-grid[data-search-highlight="background"] .avg-search-match,
+.avg-grid[data-search-highlight="both"] .avg-search-match {
+    background-color: color-mix(in srgb, var(--avg-search-match) 25%, transparent);
+    border-radius: 2px;
+}
+
+.avg-grid[data-search-highlight="background"] .avg-search-match {
+    color: inherit;
 }
 
 .avg-grid .avg-align-center {

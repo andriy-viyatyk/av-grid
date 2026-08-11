@@ -21,7 +21,7 @@ need.
 | [`01-minimal.html`](01-minimal.html) | `rows` and nothing else — columns, labels, widths, data types and row keys all inferred |
 | [`02-columns.html`](02-columns.html) | Explicit widths (pixels and percent), alignment, `dataType`, `displayFormat`, a computed column, a hidden one |
 | [`03-cell-rendering.html`](03-cell-rendering.html) | `render` returning markup, `headerRender`, `onCellClass`, and a button handled through `onCellClick` |
-| [`04-sorting-filtering.html`](04-sorting-filtering.html) | Header sorting, the funnel popover, the filter-chip bar, search, `persistFilters` |
+| [`04-sorting-filtering.html`](04-sorting-filtering.html) | Header sorting, the funnel popover, the filter-chip bar, search and its highlighting, `persistFilters` |
 | [`05-selection-keyboard.html`](05-selection-keyboard.html) | Row selection and cell-range selection side by side, plus keyboard navigation |
 | [`06-editing.html`](06-editing.html) | Click-to-edit, the dropdown column, the boolean checkbox, `validate`, a vetoing `onEdit` |
 | [`07-clipboard.html`](07-clipboard.html) | Copy in four modes, cut, paste — from the keyboard and from the API |

@@ -215,6 +215,28 @@ function searchStringMatch<R>(
     return true;
 }
 
+const NO_WORDS: string[] = [];
+
+/**
+ * The words of a search string, lowercased — the one definition of what a word is.
+ *
+ * Both halves of the search read this: `filterRows` below decides which rows survive, and
+ * `highlightMarkup` decides what is painted in the accent colour inside them. They have to
+ * agree, or a row is kept for a word the cell then does not mark.
+ *
+ * Split on any whitespace rather than on `" "` alone — a search pasted from elsewhere can
+ * carry a tab or a newline, and splitting on the space only would have made the whole thing
+ * one word that matches nothing.
+ *
+ * Returns the *same empty array* for every empty search, so the common case — no search —
+ * allocates nothing however often it is asked.
+ */
+export function searchWords(searchString: string | undefined): string[] {
+    if (!searchString) return NO_WORDS;
+    const words = searchString.toLowerCase().split(/\s+/).filter(Boolean);
+    return words.length ? words : NO_WORDS;
+}
+
 /**
  * Narrow `rows` to those matching every word of `searchString` and every applied `filter`.
  *
@@ -230,10 +252,7 @@ export function filterRows<R>(
     if (!searchString?.length && !filters?.length) {
         return rows;
     }
-    const searchLower = searchString
-        ?.toLowerCase()
-        .split(" ")
-        .filter((s) => s);
+    const searchLower = searchWords(searchString);
 
     const resolved = filters?.length
         ? filters.map<ResolvedFilter<R>>((filter) => ({
@@ -245,7 +264,7 @@ export function filterRows<R>(
     return rows.filter((r) => {
         if (!r) return false;
         const sMatch =
-            !searchLower?.length ||
+            !searchLower.length ||
             searchLower.every((s) => searchStringMatch(r, columns, s));
         return sMatch && (!resolved?.length || filtersMatch(r, resolved));
     });

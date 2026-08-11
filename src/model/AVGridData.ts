@@ -41,6 +41,18 @@ export class AVGridData<R> {
     private _rowsFrozen = false;
     private _newRowKey: string | undefined;
 
+    /**
+     * The search words each cell paints in the accent colour. Empty when there is no search,
+     * or when `highlightSearch` is off.
+     *
+     * A plain field rather than one of the tracked properties above, because nothing observes
+     * it: the two things that can change it — the search string and the option — both repaint
+     * the whole grid anyway, and `AVGridModel.syncSearchWords` sets this first. Derived once
+     * per pipeline run rather than per cell, which is the only reason `DataCell` can afford to
+     * ask on the hot path.
+     */
+    searchWords: readonly string[] = [];
+
     constructor(rows: readonly R[], columns: Column<R>[]) {
         this._rows = rows;
         this._columns = columns;

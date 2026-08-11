@@ -60,6 +60,7 @@ av-grid/
             SelectColumn.ts      ← the checkbox column, as an ordinary Column
             GridInteractions.ts  ← every listener, all of them delegated from the root
             cellDom.ts           ← setText / applyCellStyle, the two per-cell operations
+            highlight.ts         ← the search-word markup a matching cell gets
             icons.ts             ← SVG source strings
         styles/
             av-grid.css.ts       ← the whole stylesheet; single source of truth
@@ -113,6 +114,7 @@ Supporting code that AVGrid depends on, also under `C:\projects\persephone\src\r
 | `core/traits/` | Trait-based data binding for UIKit list components | Drop — UIKit-specific |
 | `theme/color.ts` | Theme color tokens | Replace with a CSS custom-property contract |
 | `shared/utils.ts` | misc helpers | Port the few functions actually used |
+| `shared/highlight.ts` | Wraps search words in `.highlighted-text`, as React nodes | **Rewritten** as `src/view/highlight.ts` — one markup string per cell instead of a node tree, because it runs for every visible cell of every repaint |
 
 Per-file port status for everything under `AVGrid/` and `RenderGrid/` is in
 [`tasks/goal.md`](../tasks/goal.md#file-inventory-and-port-status).

@@ -247,6 +247,30 @@ export interface AVGridOptions<R = any> {
     /** Free-text filter applied across every column's displayed value. */
     searchString?: string;
     /**
+     * Mark the matched words inside the cells. Default `true`.
+     *
+     * ```js
+     * AVGrid.create(el, { rows, searchString: "ann NY" });                          // accent text
+     * AVGrid.create(el, { rows, searchString: "ann", highlightSearch: "both" });     // and a tint
+     * AVGrid.create(el, { rows, searchString: "ann", highlightSearch: false });      // filter only
+     * ```
+     *
+     * Every word of `searchString` is marked wherever it appears in a cell's *displayed* text,
+     * case-insensitively. The colour is `--avg-search-match`, the accent unless a host changes
+     * it, and the four values choose how it is applied:
+     *
+     * | Value | What a match looks like |
+     * |---|---|
+     * | `true` (default), `"text"` | The letters in the accent colour |
+     * | `"background"` | A tint behind the letters, their own colour untouched |
+     * | `"both"` | Both — the most visible, and the most legible on a dark theme |
+     * | `false` | Nothing. Rows still filter exactly as before |
+     *
+     * `"background"` is the one to reach for when the columns carry their own colours — a
+     * status or a rating — and recolouring their text would say something it does not mean.
+     */
+    highlightSearch?: boolean | "text" | "background" | "both";
+    /**
      * Applied column filters. The filter UI arrives in task 16; these already filter rows.
      *
      * ```js

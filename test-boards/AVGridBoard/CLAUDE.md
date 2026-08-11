@@ -60,6 +60,7 @@ await window.avg.measureCellSelect(count, options) // the task-17a gate: 10,000 
 await window.avg.measureContextMenu()     // right-click over 100k rows: 0 dirty, 0 mutations
 await window.avg.measureTeardown(100)     // the task-18 gate: 100 create/destroy cycles, leak check
 await window.avg.measureSortValue(6)      // the task-26 check: a projection against the same comparator
+await window.avg.measureHighlight("a")    // search marking: cost against no search, and all four shapes
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`
@@ -103,7 +104,9 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   shows what inference produces: humanized labels (`firstName` → *First Name*, `id` → *ID*),
   content-based widths, `dataType` and `displayFormat` guesses, inferred row keys.
 - **Interaction** — header click sorts, header edge drag resizes, header drag reorders,
-  hovering highlights a row, the search box filters.
+  hovering highlights a row, the search box filters — and each word it filtered by is marked
+  inside the cells. `grid.setOptions({ highlightSearch: "background" | "both" | false })`
+  switches the shape; only the root's `data-search-highlight` changes, so nothing repaints.
 - **Focus and selection** — click a cell, drag to select a range, shift-click to extend,
   arrow / Tab / Home / End / PageUp / PageDown / ctrl+arrows to navigate, ctrl+A to select
   everything. The selection outline is muted while the grid is blurred and accent-coloured
