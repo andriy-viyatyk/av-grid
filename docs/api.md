@@ -912,9 +912,15 @@ event, which needs no permission. `copySelection()` and `paste()` are the progra
 Firefox refuses), so they resolve `false` more often than you would like. `pasteText()` has no
 such problem.
 
-That split has a consequence in a host that suppresses the native event — some embedded frames,
-some desktop shells. `Ctrl+C` then reaches the grid as a `keydown` with no `copy` event behind it,
-and nothing is written. Bind it yourself and take the other path:
+That split would matter in a host that suppresses the native event: `Ctrl+C` would reach the grid
+as a `keydown` with no `copy` event behind it, and nothing would be written. **No such host has
+turned up yet** — the one that was reported, a Persephone board iframe, was retested by hand and
+copies fine. Before you conclude you have found one, read
+[Driving the grid from an agent](#driving-the-grid-from-an-agent): a **synthetic** `keydown` never
+produces a `copy` event on any browser, so a harness that dispatches one reproduces the symptom
+everywhere. Check `e.isTrusted` and `document.hasFocus()` first.
+
+If you do land in such a host, bind the key yourself and take the other path:
 
 ```js
 grid.element.addEventListener("keydown", (e) => {
@@ -924,10 +930,6 @@ grid.element.addEventListener("keydown", (e) => {
 });
 ```
 
-Confirm it is really the environment before adding that: a **synthetic** `keydown` never produces
-a `copy` event either, so a test harness that dispatches one — rather than driving real keys —
-reproduces the symptom on a browser where `Ctrl+C` works fine. Check `e.isTrusted` in the
-handler, and check that the document has focus, before concluding anything.
 
 ### Focus and range selection
 
@@ -1566,6 +1568,98 @@ Root-level classes worth knowing: `avg-grid` (the root), `avg-grid-wrap` (the fl
 **If you write your own cell renderer returning an element, the stylesheet must position it
 absolutely.** The engine writes `top` and `left`; nothing writes `position`. A cell that lays out
 in flow looks correct at the top of a list and shows an empty band everywhere below.
+
+---
+
+## Driving the grid from an agent
+
+If you are testing av-grid through Persephone's MCP browser tools, read this before you conclude
+anything from a click. It has already cost one port a day: three of the four bugs it reported were
+the harness, not the grid.
+
+### The one thing to know
+
+**`browser_click` and `browser_press_key` dispatch synthetic events.** A `browser_click` fires a
+bare `click` — no `pointerdown`, no `mousedown`. A `browser_press_key` fires a `keydown` with
+`isTrusted: false`. Two consequences, and both look exactly like a grid bug:
+
+- **The grid resolves pointer gestures on `pointerdown`** — focus, cell focus, range drags, the
+  boolean checkbox — because a repaint between the press and the click replaces the element the
+  press landed on (see the third invariant in `CLAUDE.md`). A lone synthetic `click` reaches none
+  of that, so the grid looks like it ignored the click and left `document.activeElement` on
+  `<body>`.
+- **A synthetic key cannot drive the clipboard.** `Ctrl+C` works through the browser's own `copy`
+  event, which only trusted input produces — on every browser, in every frame. `keydown` arrives,
+  no `copy` follows, nothing is written. This is not evidence of anything about your environment.
+
+An MCP-driven page usually does not have OS focus either, so `document.hasFocus()` is `false` and
+some browsers decline clipboard work on that basis alone. Log both `e.isTrusted` and
+`document.hasFocus()` before you believe a clipboard result.
+
+### Prefer the API
+
+Almost everything worth asserting is reachable without synthesising an event at all, and this is
+the path to reach for first:
+
+```js
+grid.focusCell(10, 2);                  // move the cell focus
+grid.selectRange(10, 2, 40, 5);         // a range, as after a drag
+grid.startEdit(10, 2);                  // open the editor
+await grid.copySelection("copy");       // the clipboard, through navigator.clipboard
+grid.setSearchString("ada");
+grid.setFilters([...]); grid.setSort({ key: "score", direction: "desc" });
+
+grid.getState();                        // columns, viewport, focus, counts — JSON-serializable
+grid.getFocus(); grid.getSelection(); grid.getSelectionText();
+```
+
+`getState().viewport.width === 0` is the answer to a grid that rendered blank, and worth checking
+first whenever a selector finds no cells.
+
+### When you do need a real gesture
+
+Synthesise the whole pointer sequence in `browser_evaluate`. `clientX` / `clientY` must be real
+screen coordinates — the grid hit-tests the point for sticky bands and for drags:
+
+```js
+const cell = document.querySelector('[data-type="data-cell"][data-row="3"][data-col="2"]');
+const r = cell.getBoundingClientRect();
+const o = { bubbles: true, cancelable: true, clientX: r.left + 10, clientY: r.top + 8,
+            button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true };
+
+cell.dispatchEvent(new PointerEvent("pointerdown", o));           // focus + cell focus happen here
+window.dispatchEvent(new PointerEvent("pointerup", { ...o, buttons: 0 }));  // window, not the cell
+cell.dispatchEvent(new MouseEvent("click", o));                   // only for onCellClick
+```
+
+- **`pointerup` goes on `window`**, because that is where a range drag listens — a drag has to keep
+  being heard after it leaves the grid.
+- **A range drag** is `pointerdown` on the first cell, then `pointermove` on `window` with the
+  coordinates of each later cell, then `pointerup`.
+- **Opening an editor takes two presses** on a cold cell, one on a cell that already has the focus.
+  That is the real gesture; `grid.startEdit()` is the shortcut.
+- **Keyboard navigation works synthetically** — the grid's own `keydown` handler does not care
+  about `isTrusted`. Dispatch on `grid.element`:
+  `grid.element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }))`.
+  Only the clipboard keys need real input.
+- **Give it a frame.** Paints are on `requestAnimationFrame`, so `await` a frame or two before
+  reading the DOM back.
+
+### Finding things
+
+Cells are addressed by the [DOM contract](#dom-contract) above:
+`[data-type="data-cell"][data-row="3"][data-col="2"]`, `[data-type="header-cell"]`,
+`[data-type="cell-editor"]` for the open editor. Only the **visible** window exists — the grid is
+virtualized, so row 99,000 has no element until you scroll to it. `data-row` on a data cell is the
+data row index, not the grid row.
+
+Screenshots beat accessibility snapshots here: cells are `div`s with no roles, so a snapshot shows
+a flat list of strings and hides every layout bug. Take a screenshot and look at it.
+
+### Iterating on a board
+
+Boards do not auto-reload. After editing the grid's source: `npm run build:board`, then
+`board_refresh { pageId }`. After editing only the board's own files, `board_refresh` alone.
 
 ---
 

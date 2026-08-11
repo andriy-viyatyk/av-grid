@@ -31,6 +31,12 @@ auto-reload. After editing `src/`, run `npm run build:board` first.
 > rendered as a narrow column, a `VirtualList` laid out in flow, a toolbar collapsed to 17 px —
 > showed a perfect a11y snapshot and a green benchmark. Screenshot and look.
 
+> **`browser_click` and `browser_press_key` are synthetic.** A click arrives with no `pointerdown`
+> behind it and a key arrives with `isTrusted: false` — so a gesture the grid resolves on the press
+> looks ignored, and `Ctrl+C` writes nothing on a browser where it works fine. Synthesise the whole
+> pointer sequence in `browser_evaluate`, or drive the API. Full recipe, with what each event has
+> to carry: [Driving the grid from an agent](api.md#driving-the-grid-from-an-agent).
+
 > **`document.hidden` invalidates every timing.** A backgrounded webview is throttled and
 > `requestAnimationFrame` does not run, so anything awaiting a settle helper hangs. Keep the
 > window visible while measuring.

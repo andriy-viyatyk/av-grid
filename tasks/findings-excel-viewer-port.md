@@ -157,11 +157,13 @@ That explains all three:
   `getFocus()` before and after is byte-identical, and identical again after `grid.element.focus()`.
   Most likely the A1 came from an arrow key pressed while nothing was focused yet, which does start
   at the first cell.
-- **#3 is not disproved, but its evidence does not hold.** A synthetic `keydown` never produces a
-  `copy` event on *any* browser, so "keydown arrives, no copy event follows" is what a synthetic
-  key looks like everywhere, not what a board iframe looks like. A document that does not have
-  focus — which is every MCP-driven page — will not copy either. Whether a *real* Ctrl+C works in a
-  board is still open and needs a human at the keyboard.
+- **#3 does not reproduce either.** A synthetic `keydown` never produces a `copy` event on *any*
+  browser, so "keydown arrives, no copy event follows" is what a synthetic key looks like
+  everywhere, not what a board iframe looks like. A document that does not have focus — which is
+  every MCP-driven page — will not copy either. Settled by hand, since no tool here produces
+  trusted key input: **a real Ctrl+C copies correctly in a board**, confirmed in both this
+  project's test boards and the Excel Viewer itself. The board's keydown binding is unnecessary,
+  though harmless — it takes a different path to the same clipboard.
 
 **Both #1 and #2 were nonetheless worth the trip**, because #1 pointed at a real bug next door.
 
@@ -193,9 +195,15 @@ probe can be deleted.
   affordances and the "unknown column" check, with the row-number gutter as the example.
 - `focus()` — says plainly that it is DOM focus only and leaves the cell focus alone, and that a
   press already does it.
-- The clipboard section — how to bind Ctrl+C to `copySelection()` where the native event does not
-  fire, **and** how to tell that case apart from a synthetic-key test harness before concluding
-  anything.
+- The clipboard section — that no host suppressing the native event has actually turned up, the
+  binding to write if one ever does, and how to tell that case apart from a synthetic-key harness.
+- **A new section, [Driving the grid from an agent](../docs/api.md#driving-the-grid-from-an-agent)**,
+  which is the real fix for three of these four. It states that `browser_click` and
+  `browser_press_key` are synthetic and what that breaks, gives the API-first path, gives the full
+  pointer sequence for when a real gesture is needed — including that `pointerup` goes on `window`
+  and that a cold cell takes two presses to edit — and notes that keyboard *navigation* works
+  synthetically while the clipboard keys do not. `docs/boards.md` points at it from the running
+  instructions, where an agent driving a board is looking.
 
 The read-only context menu and the `--p-*` chain were already documented as the port found them;
 nothing to change there.
