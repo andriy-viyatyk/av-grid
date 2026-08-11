@@ -28,8 +28,30 @@ then restarts at the current phase, carrying forward the standing rules and a po
 
 ## 📊 Current state
 
-**Phase 6 — customization — is under way.** Tasks 21–25 in [`plan.md`](tasks/plan.md); **tasks 21,
-22 and 23 are done**, and 24–25 (`copyValue`, then docs and an example) are not started.
+**Phase 6 — customization — is under way.** Tasks 21–26 in [`plan.md`](tasks/plan.md); **tasks 21,
+22, 23 and 24 are done**. Left: **26** (`sortValue`, added to the plan after a question task 24
+raised) and then **25**, the customization docs, example and board, which demonstrates all of them.
+
+**One table now says which hook feeds what**, in [`docs/api.md`](docs/api.md#which-hook-feeds-what):
+screen, sort, search, a filter's row test, a filter's option list, copy and paste, each with the
+order it tries. Writing it by reading the code rather than recalling it found **two documented claims
+that were false** — `formatValue` was said to feed sorting, and `dataType` to govern the comparator;
+neither does, because `defaultCompare` compares `row[key]` by its *runtime* type — and one real
+asymmetry that stays: **copy prefers `formatValue` over `render` while the screen prefers `render`**,
+because a `formatValue` is already the plain text a spreadsheet wants. A column that wants its
+rendered text copied says so with `copyValue`, which is the other half of task 24: a hook used by
+every copy path — ctrl+C, ctrl+X, all four Copy as… modes, `getSelectionText()` — for the cell whose
+screen form is a bar, a badge or an icon. It is **6× cheaper than the fallback it overrides** (0.20 ms
+against 1.24 ms for 1,000 cells), because reducing `render`'s markup to text costs an `innerHTML`
+write and a `textContent` read per cell. There is no `pasteValue`: `validate` already coerces an
+incoming value on typing, pasting and range-delete alike.
+
+**Sorting by something other than the value is `Column.rowCompare`, and it has been there all
+along** — the docs just never said so beyond one line in a type block, which is how the question got
+asked. A status priority is `rowCompare: (a, b) => RANK[a.status] - RANK[b.status]`, ascending only,
+because a descending header click reverses the sorted array. Task 26 adds the shorter form,
+`sortValue: (row) => RANK[row.status]`, and reads it **once per row** rather than inside a comparator
+that runs O(n log n) times.
 
 **A column can bring its own filter type, and the grid still draws everything around it.**
 `Column.filter` takes a definition — `{ name, create, label, match }`, plus `serialize` /
@@ -42,12 +64,12 @@ shared `const` and there is no order of calls to get right. `filterType: null` s
 funnel off; a filter naming a type its column is not filtered by is rejected, which is what makes
 a stored filter whose definition has gone drop with a warning instead of silently matching nothing.
 
-**A host `match` is *cheaper* than the built-in test it replaces — and 24× more expensive written
+**A host `match` is *cheaper* than the built-in test it replaces — and 56× more expensive written
 the obvious way.** On 100,000 rows at matching selectivity: a definition whose `getValue` parses
-its bounds once and whose `match` is two numeric comparisons filters in **14.0 ms** against
-**19.9 ms** for the built-in `"options"` test, which resolves each row through `filterValue` and
+its bounds once and whose `match` is two numeric comparisons filters in **1.7 ms** against
+**2.1 ms** for the built-in `"options"` test, which resolves each row through `filterValue` and
 `optionMatches` before it reaches `===`. The same date-range filter re-parsing its bounds inside
-`match` takes **336 ms**. That is why there is no `prepare`-style second hook: the value is data
+`match` takes **90 ms**. That is why there is no `prepare`-style second hook: the value is data
 the definition controls, and putting the parsed form in it is the whole optimization.
 
 **A column can supply its own editor, and it takes four lines.** `Column.editor` receives the

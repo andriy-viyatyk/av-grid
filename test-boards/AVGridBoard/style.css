@@ -159,3 +159,10 @@ button.secondary {
     border: solid 1px var(--p-border, #3c3c3c);
     border-radius: 3px;
 }
+
+/* Task 24. The `rating` column's glyphs — the cell whose screen form is not what a spreadsheet
+   wants, which is what `copyValue` is for. */
+.stars {
+    letter-spacing: 1px;
+    color: #d9a13b;
+}

@@ -87,6 +87,62 @@ describe("AVGridModel", () => {
             ]);
         });
 
+        // The `rowCompare` row of the precedence table in docs/api.md, and the snippet next to
+        // it: a priority order the values do not have on their own.
+        it("sorts by a column's own rowCompare, ascending and reversed", () => {
+            const RANK: Record<string, number> = { high: 0, normal: 1, low: 2 };
+            const priorities = [
+                { id: 1, name: "low", score: 1 },
+                { id: 2, name: "high", score: 2 },
+                { id: 3, name: "normal", score: 3 },
+            ];
+            const { model: m } = makeModel({
+                rows: priorities,
+                columns: [
+                    {
+                        key: "name",
+                        // Ascending only — the comparator never sees the direction.
+                        rowCompare: (a, b) => RANK[a.name] - RANK[b.name],
+                    },
+                    { key: "score" },
+                ],
+            });
+
+            m.setSort({ key: "name", direction: "asc" });
+            expect(m.data.rows.map((r) => r.name)).toEqual([
+                "high",
+                "normal",
+                "low",
+            ]);
+
+            m.setSort({ key: "name", direction: "desc" });
+            expect(m.data.rows.map((r) => r.name)).toEqual([
+                "low",
+                "normal",
+                "high",
+            ]);
+        });
+
+        it("ignores formatValue when sorting, which is what rowCompare is for", () => {
+            const { model: m } = makeModel({
+                columns: [
+                    // The text on screen is reversed; the sort still reads `name`.
+                    {
+                        key: "name",
+                        formatValue: (_c, r) =>
+                            r.name.split("").reverse().join(""),
+                    },
+                    { key: "score" },
+                ],
+            });
+            m.setSort({ key: "name", direction: "asc" });
+            expect(m.data.rows.map((r) => r.name)).toEqual([
+                "Ada",
+                "Bob",
+                "Charlie",
+            ]);
+        });
+
         it("marks only the header row dirty when the sort changes", () => {
             model.setSort({ key: "name", direction: "asc" });
             // { rows: [0] } from the indicator, { all: true } from the reordered rows.

@@ -221,7 +221,9 @@ describe("copying", () => {
         expect(g.getSelectionText()).toBe("[Row 1]\n[Row 2]\n");
     });
 
-    it("lets formatValue win over render, as the cell does", () => {
+    // The one place copy and the screen disagree: on screen `render` wins, in a copy
+    // `formatValue` does. See *Which hook feeds what* in docs/api.md.
+    it("lets formatValue win over render, unlike the cell", () => {
         const g = grid(3, {
             columns: [
                 {
@@ -281,6 +283,173 @@ describe("copying", () => {
     it("returns nothing when nothing is selected", () => {
         const g = grid();
         expect(g.getSelectionText()).toBe("");
+    });
+});
+
+/**
+ * The precedence table in `docs/api.md`, walked top to bottom:
+ * `copyValue` → `formatValue` → `displayFormat` → text of `render` → `row[key]`.
+ *
+ * Each test removes the winner and asserts the next rung down, so the ladder is covered as a
+ * ladder rather than as five unrelated cases — the table and the code cannot drift apart without
+ * one of these failing.
+ */
+describe("what a cell copies, in order", () => {
+    /**
+     * One column over `note`, whose value is replaced with a `Date` so `displayFormat` has
+     * something to format and the raw property has something to fall back to. `note` rather than
+     * a new key because a column whose key no row has is only legal when it is computed.
+     */
+    function dateGrid(extra: Record<string, any>): AVGrid<Row> {
+        const g = grid(2, {
+            columns: [{ key: "note", name: "When", width: 120, ...extra }],
+        });
+        g.getRows().forEach((r, i) => {
+            (r as any).note = new Date(Date.UTC(2026, 0, i + 1));
+        });
+        return g;
+    }
+
+    it("1. copyValue wins over every other hook", () => {
+        const g = dateGrid({
+            copyValue: (c: any) => `copy:${c.row.id}`,
+            formatValue: (_c: any, r: any) => `format:${r.id}`,
+            displayFormat: "date",
+            render: () => "<b>rendered</b>",
+        });
+        g.selectRange(0, 0, 1, 0);
+        expect(g.getSelectionText()).toBe("copy:1\ncopy:2\n");
+    });
+
+    it("2. formatValue wins once copyValue is gone", () => {
+        const g = dateGrid({
+            formatValue: (_c: any, r: any) => `format:${r.id}`,
+            displayFormat: "date",
+            render: () => "<b>rendered</b>",
+        });
+        g.selectRange(0, 0, 1, 0);
+        expect(g.getSelectionText()).toBe("format:1\nformat:2\n");
+    });
+
+    it("3. displayFormat wins over render", () => {
+        const g = dateGrid({ displayFormat: "date", render: () => "<b>rendered</b>" });
+        g.selectRange(0, 0, 1, 0);
+        const expected = g
+            .getRows()
+            .map((r) => (r as any).note.toLocaleDateString())
+            .join("\n");
+        expect(g.getSelectionText()).toBe(`${expected}\n`);
+    });
+
+    it("4. render's text wins over the raw property", () => {
+        const g = dateGrid({ render: (c: any) => `<b>${c.row.id}!</b>` });
+        g.selectRange(0, 0, 1, 0);
+        expect(g.getSelectionText()).toBe("1!\n2!\n");
+    });
+
+    it("5. the raw property, when nothing is set", () => {
+        const g = dateGrid({});
+        g.selectRange(0, 0, 1, 0);
+        // The raw `Date` reaches the CSV writer as a `Date`, which serializes it as ISO —
+        // unlike `displayFormat: "date"` above, which localizes it first.
+        expect(g.getSelectionText()).toBe(
+            "2026-01-01T00:00:00.000Z\n2026-01-02T00:00:00.000Z\n",
+        );
+    });
+
+    it("hands copyValue the same CellContext a renderer gets", () => {
+        const seen: any[] = [];
+        const g = grid(3, {
+            columns: [
+                { key: "name", name: "Name", width: 100 },
+                {
+                    key: "score",
+                    name: "Score",
+                    width: 80,
+                    copyValue: (c) => {
+                        seen.push(c);
+                        return c.value;
+                    },
+                },
+            ],
+        });
+        g.selectRange(1, 1, 1, 1);
+        expect(g.getSelectionText()).toBe("20");
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({
+            value: 20,
+            rowIndex: 1,
+            colIndex: 1,
+            rowKey: "2",
+        });
+        expect(seen[0].row).toBe(g.getRows()[1]);
+        expect(seen[0].column.key).toBe("score");
+    });
+
+    it("keeps a copyValue's type through copyAsJson", () => {
+        const g = grid(2, {
+            columns: [
+                {
+                    key: "score",
+                    name: "Score",
+                    width: 80,
+                    render: (c) => `<span class="bar" style="width:${c.value}px"></span>`,
+                    copyValue: (c) => c.value,
+                },
+            ],
+        });
+        g.selectRange(0, 0, 1, 0);
+        expect(JSON.parse(g.getSelectionText("copyAsJson"))).toEqual([
+            { score: 10 },
+            { score: 20 },
+        ]);
+    });
+
+    it("is used by every copy path, not just ctrl+C", () => {
+        const g = grid(2, {
+            columns: [
+                { key: "name", name: "Name", width: 100 },
+                {
+                    key: "score",
+                    name: "Score",
+                    width: 80,
+                    render: () => `<span class="dot"></span>`,
+                    copyValue: (c) => `#${c.value}`,
+                },
+            ],
+        });
+        g.selectRange(0, 0, 0, 1);
+
+        expect(g.getSelectionText()).toBe("Row 1\t#10\n");
+        expect(g.getSelectionText("copyWithHeaders")).toBe(
+            "Name\tScore\nRow 1\t#10\n",
+        );
+        expect(g.model.models.copyPaste.selectionHtml()).toContain("#10");
+
+        const e = clipboardEvent("copy");
+        g.element.dispatchEvent(e);
+        expect(e.written.get("text/plain")).toBe("Row 1\t#10\n");
+
+        const cut = clipboardEvent("cut");
+        g.element.dispatchEvent(cut);
+        expect(cut.written.get("text/plain")).toBe("Row 1\t#10\n");
+    });
+
+    it("copies one cell as the bare copyValue", () => {
+        const g = grid(2, {
+            columns: [
+                {
+                    key: "score",
+                    name: "Score",
+                    width: 80,
+                    copyValue: () => 'has\ta tab',
+                },
+            ],
+        });
+        g.focusCell(0, 0);
+        // The single-cell rule is about the *shape* of the copy, so it applies to a
+        // `copyValue` exactly as to a raw one: no quoting, no trailing newline.
+        expect(g.getSelectionText()).toBe("has\ta tab");
     });
 });
 

@@ -898,6 +898,33 @@ once the window was in front — an 8× difference with identical code, and rAF 
 nothing that awaits a frame completes. Any number quoted from this board is only meaningful with the
 window visible; check `document.hidden` before believing a timing.
 
+## Task 24 — `copyValue` — 2026-08-11
+
+Not the render path: `copyValue` is read by `CopyPasteModel.cellText` and by nothing that paints,
+so there is no gate to re-run. What is worth recording is that the hook is **cheaper than the
+alternative it replaces**, for a reason specific to what it replaces.
+
+The board's `Rating` column renders five glyphs and carries `copyValue: (c) => stars(c.row)`.
+`window.avg.measureCopyValue(1000)` copies that column's 1,000 cells both ways — 20 alternating
+pairs, the order inside the pair flipped every iteration:
+
+| | |
+|---|---|
+| With `copyValue` | **0.20 ms** |
+| Without it, reducing `render`'s markup to text | **1.24 ms** |
+| **Ratio** | **0.16×** |
+
+**Six times cheaper, because the fallback is expensive rather than because the hook is fast.** With
+no `copyValue`, a column that has a `render` and no `formatValue` is copied by calling `render` per
+cell and then reducing what comes back to its text — for a string that means an `innerHTML` write
+into a scratch `<div>` and a `textContent` read out of it, per cell. `copyValue` skips both, and the
+copied text shrinks from 6,000 characters of `★★★☆☆` to 2,000 of digits.
+
+The behavioural half, in the browser rather than in happy-dom: a real `ClipboardEvent` over rows
+1–3 × all nine data columns copies `1 Ada Lovelace platform Ada Lovelace open 0 **1** false`,
+tab-separated, and `copyAsJson` writes `"rating": 1` as a **number** — the hook's return value is
+not stringified on the way out.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -923,4 +950,5 @@ window visible; check `document.hidden` before believing a timing.
 | 2026-08-11 | polish | 8.8 ms | 0.86× | 60.0 / 60.0 | 0 | Row hover follows the pointer during a drag and during a wheel scroll. Hover moved from `mousemove` to `pointermove`, because `preventDefault()` on `pointerdown` suppresses the compat mouse events — and a stationary pointer now re-resolves after the paint on `scroll`. The gate is unchanged (drag **2 cells a move** at both ends, full repaint **0 mutations**, select-all **0 mutations**) because `onScrolled` returns immediately with no pointer over the grid, which is every programmatic scroll. A real wheel scroll under the pointer costs **0.291 ms a paint against 0.120 ms**; hover moving on its own is **0 mutations, 0.045 ms**. |
 | 2026-08-11 | 21 | 9.2 ms | 0.96× | 60.0 / 60.0 | 0 | The four class hooks — `Column.cellClass`, `Column.headerClass`, `onCellClass`, `rowClass` — all live on the board's 100k grid. Full repaint 0.200 ms and **0 DOM mutations**; the hooks themselves add **+0.012–0.015 ms (1.24×–1.32×)** to a full repaint of every visible cell, measured as 40 alternating pairs run twice with the pair order reversed, because measured in blocks the comparison came back backwards. A class **disappears** when its hook stops asking for it: 70/10/130/1 marked cells → 0/0/0/0 with the hooks removed, and back again. |
 | 2026-08-11 | 22 | 11.8 ms | 0.95× | 60.0 / 60.0 | 0 | Custom cell editors. A host's editor at rows 100 and 99,000: **1 cell marked on open, 0 mutations on a full repaint, same element back**. Found and fixed a pre-existing leak — a long scroll *evicts* the editing cell rather than repainting it, so the edit stayed open around a detached element. |
+| 2026-08-11 | 24 | — | — | — | — | `copyValue`. Not the render path, so no gate re-run. Copying 1,000 cells of a glyph-rendered column costs **0.20 ms with the hook against 1.24 ms without it (0.16×)** — the fallback reduces `render`'s markup through a scratch element per cell. `copyAsJson` keeps the returned number a number. |
 | 2026-08-11 | 23 | 6.9 ms | 0.78× | 60.0 / 60.0 | 0 | Custom filter types. A filter change on 100,000 rows: **1 repaint, 0 DOM mutations**; opening a host's filter body marks **1 cell** and mutates **0**. The host `match` costs **1.7 ms against the built-in test's 2.1 ms (0.78×)** — cheaper, because the built-in path resolves `formatValue` and `optionMatches` per row and a definition's `match` does not. The same filter re-parsing its bounds per row costs **90 ms, 56×** as much, which is the number the docs' warning now quotes. |

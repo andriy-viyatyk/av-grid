@@ -167,8 +167,35 @@ export interface Column<R = any> {
      */
     editor?: CellEditorFactory<R>;
 
-    /** Plain-text value used for sorting, filtering, and clipboard copy. */
+    /**
+     * The column's plain-text projection: what it shows, what the search box matches, what a
+     * filter tests and what a copy writes.
+     *
+     * Not sorting — that compares `row[key]` directly, so a computed column needs a `rowCompare`
+     * as well. See *Which hook feeds what* in [`docs/api.md`](../docs/api.md) for the whole table.
+     */
     formatValue?: (column: Column<R>, row: R) => string;
+
+    /**
+     * What this column's cells copy, when what they *show* is the wrong thing to put in a
+     * spreadsheet — a bar chart, a badge, an icon, a colour swatch.
+     *
+     * ```js
+     * {
+     *     key: "status",
+     *     render: (c) => `<span class="dot ${c.value}"></span>${c.value}`,
+     *     copyValue: (c) => c.value,
+     * }
+     * ```
+     *
+     * Used by every copy path — ctrl+C, ctrl+X, Copy as… and `getSelectionText()` — so they
+     * cannot disagree, and it wins over `formatValue`, `displayFormat` and the text of `render`.
+     * The return value is not stringified before `copyAsJson`, so a number copies as a number.
+     *
+     * Copy only: paste coerces through `validate`. See *Which hook feeds what* in
+     * [`docs/api.md`](../docs/api.md) for the whole precedence table.
+     */
+    copyValue?: (cell: CellContext<R>) => any;
 
     dataType?: DataType;
     displayFormat?: DisplayFormat;
@@ -179,6 +206,18 @@ export interface Column<R = any> {
     /** Marks a non-data column (row selection checkbox, row number) pinned to the left. */
     isStatusColumn?: boolean;
 
+    /**
+     * This column's sort order, in place of comparing `row[key]` by its runtime type. The hook
+     * for an order the value does not have on its own — a status priority, a natural sort:
+     *
+     * ```js
+     * const RANK = { critical: 0, high: 1, normal: 2, low: 3 };
+     * { key: "priority", rowCompare: (a, b) => RANK[a.priority] - RANK[b.priority] }
+     * ```
+     *
+     * Ascending only: a descending header click reverses the sorted array, so a comparator never
+     * sees the direction.
+     */
     rowCompare?: RowCompare<R>;
     /**
      * Which filter body the header funnel opens. Defaults to `"options"` — every column is

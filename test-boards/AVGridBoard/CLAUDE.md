@@ -49,6 +49,7 @@ await window.avg.measureSelectAll()       // the task-11 gate: select-all cost a
 await window.avg.measureEditing(row)      // the task-12 check: does the editor survive a repaint
 await window.avg.measureCustomEditor(row) // the task-22 gate: a host's editor, and its teardown
 await window.avg.measureClipboard(row, n) // the task-13 check: copy cost, and what a paste repaints
+await window.avg.measureCopyValue(n)      // the task-24 check: what `copyValue` copies, and its cost
 await window.avg.measureStructure(row)    // the task-14 check: does an insert move the viewport
 await window.avg.measureFilter(count)    // the task-15 gate: filter down, narrow, back up, search
 await window.avg.measureCustomFilter(count) // the task-23 gate: a host's `match` in the 100k row loop
@@ -166,6 +167,13 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   with a `formatValue` returning a token found nowhere else (`Grace~Thompson` matches 12,500
   rows with it and 0 without) — and note the board's eight first names and eight last names
   pair up into only eight combinations, so `Grace~Hopper` is not one of them.
+- **`copyValue`** — the `Rating` column renders five glyphs (`★★★☆☆`) and copies the number behind
+  them. It is the case the hook exists for: without it the column copies its stars, which sum and
+  sort as nothing. `measureCopyValue(n)` reports both forms of the same cell side by side and times
+  them as alternating pairs — the hook comes out **0.16×**, six times *cheaper*, because the
+  fallback runs `render` per cell and reduces the markup through a scratch element. To see it end to
+  end, dispatch a real `ClipboardEvent("copy")` at `grid.element` and read `text/plain`; the
+  sandbox's clipboard permissions block the programmatic `copySelection()` path, not this one.
 - **A custom filter type** — the `Score` column carries a `filter` definition (`scoreRangeFilter`
   in `app.js`), so its funnel opens a **min/max panel** instead of a checklist, which is the right
   body for a column whose 100,000 values are nearly all distinct. Its two bounds are parsed once in

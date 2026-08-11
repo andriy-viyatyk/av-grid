@@ -349,7 +349,7 @@ once per row, so keep it a property read rather than a search.
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
-| `sort` | `SortColumn \| null` | `null` | Initial sort. Clicking a header cycles ascending → descending → none. |
+| `sort` | `SortColumn \| null` | `null` | Initial sort. Clicking a header cycles ascending → descending → none. A column sorts by `row[key]` unless it has a `rowCompare` — see [Which hook feeds what](#which-hook-feeds-what). |
 | `searchString` | `string` | — | Free-text filter. Every whitespace-separated word must appear in some column's *displayed* value — so a computed column with `formatValue` is searchable too. |
 | `filters` | `Filter[]` | `[]` | Applied column filters. See [Filtering](#filtering). |
 | `persistFilters` | `PersistFiltersOptions` | — | Remember the filters across reloads. Passing this **is** the consent to write. |
@@ -409,7 +409,8 @@ interface Column<R = any> {
     headerRender?: HeaderRenderer<R>;
     editor?: CellEditorFactory<R>;  // the control this column is edited with
 
-    formatValue?: (column: Column<R>, row: R) => string;  // text used for sort/filter/copy
+    formatValue?: (column: Column<R>, row: R) => string;  // plain-text projection: screen/search/filter/copy
+    copyValue?: (cell: CellContext<R>) => any;            // what this column copies, overriding all of the above
 
     dataType?: "string" | "number" | "boolean";
     displayFormat?: DisplayFormat;
@@ -419,7 +420,7 @@ interface Column<R = any> {
     readonly?: boolean;
     isStatusColumn?: boolean;       // a non-data column, pinned left
 
-    rowCompare?: (left: R, right: R) => number;
+    rowCompare?: (left: R, right: R) => number;  // this column's sort order; ascending, reversed for desc
     filterType?: "options" | null;  // default "options"; null takes the funnel off
     filter?: FilterDefinition<R>;   // a filter type of your own, in place of the checklist
 
@@ -462,14 +463,71 @@ interface CellContext<R = any> {
 }
 ```
 
-A cell with `render` is still sorted, filtered and copied by its raw value — unless you also give
-it `formatValue`, which is the plain-text projection those three use. A computed column (no row
-property at all) needs `formatValue` to take part in them.
+A cell with `render` is still **sorted, searched and filtered by its raw value** — `render` output
+is never parsed for those. `formatValue` is the plain-text projection search and filtering use, and
+a computed column (no row property at all) needs it to take part in them; sorting is the one that
+`formatValue` does *not* reach — give the column a `rowCompare` instead. Copy has its own hook,
+`copyValue`, and its own order. All of it in one table below.
+
+### `copyValue` — what a cell copies
+
+For the cell whose screen form is not what belongs in a spreadsheet: a bar, a badge, an icon, a
+colour swatch.
+
+```js
+{
+    key: "status",
+    render: (c) => `<span class="dot ${c.value}"></span>${c.value}`,
+    copyValue: (c) => c.value,
+}
+```
+
+It receives the same `CellContext` as `render` and is used by **every** copy path — ctrl+C,
+ctrl+X, all four Copy as… modes and `getSelectionText()` — so they cannot disagree. The return
+value is not stringified on the way out, so `copyAsJson` keeps a number a number.
+
+Copy only. There is no `pasteValue`: `validate` already coerces an incoming value on typing,
+pasting and range-delete alike, and a paste-only hook would be a second place to do one job.
+
+### Which hook feeds what
+
+Six consumers read a cell, and they do not all read it the same way. Left to right is the order
+each one tries; the first hook present wins.
+
+| Consumer | Order |
+|---|---|
+| **What the cell shows** | `render` → the checkbox/tick (`dataType: "boolean"`) → `formatValue` → `displayFormat` → `row[key]` |
+| **Sorting** | `rowCompare` → `row[key]`, compared by its runtime type (number, string via `localeCompare`, `Date` by instant, boolean) |
+| **The search box** | `formatValue` → `displayFormat` → `row[key]` |
+| **A filter's row test** | `filter.match(value, row, column)` when the column has a custom `filter`, which reads whatever it likes; otherwise `formatValue` → `row[key]` |
+| **A filter's option list** | values from `formatValue` → `row[key]`; each label through `displayFormat` |
+| **Copy** | `copyValue` → `formatValue` → `displayFormat` → text of `render` → `row[key]` |
+| **Paste** | `validate` → `defaultValidate` for the column's `dataType` |
+
+Two rows in that table surprise people, and both are deliberate:
+
+- **Copy prefers `formatValue` over `render`; the screen prefers `render`.** A `formatValue` is
+  already the plain text a spreadsheet wants, so copy takes it rather than reducing a fragment of
+  markup to find the same string. A column that wants the *rendered* text copied says so with
+  `copyValue`.
+- **Sorting reads neither `formatValue` nor `displayFormat`.** It compares `row[key]` directly, so
+  a computed column — one with no row property — does not sort until you give it a `rowCompare`.
+  That is also the hook for a sort order that is not the value's own, like a status priority:
+
+  ```js
+  const RANK = { critical: 0, high: 1, normal: 2, low: 3 };
+  { key: "priority", rowCompare: (a, b) => RANK[a.priority] - RANK[b.priority] }
+  ```
+
+  It sorts ascending; the header's descending click reverses the result, so a comparator never has
+  to know the direction.
 
 ### `dataType`
 
-Governs coercion on edit, the comparator, and the editor. `"boolean"` also replaces the text
-editor with a checkbox and a toggle gesture.
+Governs coercion on edit and the editor: `"number"` commits through `Number()`, and `"boolean"`
+replaces the text editor with a checkbox and a toggle gesture. It does **not** govern the sort — the
+comparator dispatches on each value's runtime type, so a numeric column whose values are strings
+sorts as strings whatever its `dataType` says. Give it a `rowCompare` if that is wrong.
 
 ### `displayFormat`
 

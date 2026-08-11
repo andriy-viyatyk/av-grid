@@ -24,7 +24,7 @@
 
 import { csvToRecords, recordsToCsv } from "../core/csv";
 import { columnDisplayValue } from "../gridUtils";
-import type { Column } from "../types";
+import type { CellContext, Column } from "../types";
 import type { AVGridModel } from "./AVGridModel";
 import type { GridSelection } from "./FocusModel";
 
@@ -111,25 +111,51 @@ export class CopyPasteModel<R> {
      * one. The reference had the same hole, in `columnDisplayValue`.
      *
      * `render` may return markup or an element, and neither belongs in a spreadsheet cell, so
-     * both are reduced to their text. `formatValue` and `displayFormat` still win over `render`,
-     * matching the order `DataCell` paints in.
+     * both are reduced to their text. `formatValue` and `displayFormat` win over `render` here,
+     * which is *not* the order `DataCell` paints in — on screen `render` wins over both. The
+     * divergence is deliberate: a `formatValue` is already the plain text a spreadsheet wants,
+     * and preferring it skips parsing a fragment of markup to find the same string. A column that
+     * wants the rendered text copied instead says so with `copyValue`.
+     *
+     * `copyValue` wins over all of them: it exists precisely for the cell whose screen form —
+     * a bar, a badge, an icon — reduces to text nobody wants pasted. It is the only hook here
+     * that is copy-only, and every mode goes through this method, so they cannot disagree.
      */
     private cellText(column: Column<R>, row: R, rowIndex: number, colIndex: number): any {
+        if (column.copyValue) {
+            return column.copyValue(this.cellContext(column, row, rowIndex, colIndex));
+        }
+
         if (column.formatValue || column.displayFormat || !column.render) {
             return columnDisplayValue(column, row);
         }
 
-        const rendered = column.render({
+        const rendered = column.render(
+            this.cellContext(column, row, rowIndex, colIndex),
+        );
+        if (rendered === null || rendered === undefined) return "";
+        if (typeof rendered !== "string") return rendered.textContent ?? "";
+        return rendered.includes("<") ? this.textOf(rendered) : rendered;
+    }
+
+    /**
+     * The `CellContext` a hook is handed. Built only when one is set — `cellText`'s first branch
+     * is the no-hook case and allocates nothing, which is the same discipline `DataCell` keeps.
+     */
+    private cellContext(
+        column: Column<R>,
+        row: R,
+        rowIndex: number,
+        colIndex: number,
+    ): CellContext<R> {
+        return {
             value: (row as any)[column.key],
             row,
             column,
             rowIndex,
             colIndex,
             rowKey: this.model.options.getRowKey(row),
-        });
-        if (rendered === null || rendered === undefined) return "";
-        if (typeof rendered !== "string") return rendered.textContent ?? "";
-        return rendered.includes("<") ? this.textOf(rendered) : rendered;
+        };
     }
 
     /** Reduce a fragment of markup to its text, through one reused detached element. */

@@ -143,6 +143,9 @@ const scoreRangeFilter = {
 // The grid
 // ---------------------------------------------------------------------------
 
+/** One to five stars from a 0–1000 score. The `rating` column's only source of truth. */
+const stars = (row) => Math.min(5, Math.max(1, Math.round(row.score / 200)));
+
 /** Explicit columns, exercising every column feature the grid layer has so far. */
 function columns() {
     return [
@@ -191,6 +194,20 @@ function columns() {
             // Task 23. The funnel on this column opens a min/max panel instead of a checklist —
             // which is the right body for a column whose 100,000 values are nearly all distinct.
             filter: scoreRangeFilter,
+        },
+        {
+            key: "rating",
+            name: "Rating",
+            width: 110,
+            readonly: true,
+            // Task 24. The case `copyValue` exists for: what the cell *shows* is five glyphs, and
+            // what a spreadsheet wants is the number behind them. Without `copyValue` this column
+            // copies "★★★☆☆", which sorts and sums as nothing.
+            render: (c) => {
+                const n = stars(c.row);
+                return `<span class="stars">${"★".repeat(n)}${"☆".repeat(5 - n)}</span>`;
+            },
+            copyValue: (c) => stars(c.row),
         },
         { key: "active", name: "Active", width: 80, dataType: "boolean" },
         {
@@ -897,6 +914,88 @@ async function measureClipboard(row = 100, rowCount = 1000) {
         // The paste tiled one clipboard row across the whole selection.
         firstPastedValue: grid.model.data.rows[row][key],
         lastPastedValue: grid.model.data.rows[lastRow][key],
+    };
+}
+
+/**
+ * Task 24. What `copyValue` changes, and what it costs.
+ *
+ * The `rating` column renders five glyphs and carries `copyValue: (c) => stars(c.row)`, which is
+ * the whole case for the hook: `withHook.rating` is a number a spreadsheet can sum and
+ * `withoutHook.rating` is `★★★☆☆`, from the same cells, in the same browser.
+ *
+ * The cost is measured as alternating pairs rather than in blocks — a copy of 1,000 rows is a
+ * couple of milliseconds and block ordering swamps the difference, which is the trap recorded
+ * three times over in benchmark-results.md. Copy is O(selection) by definition; what this answers
+ * is whether one extra host call per cell is visible next to building the CSV around it.
+ */
+async function measureCopyValue(rowCount = 1000, pairs = 20) {
+    const cols = grid.model.data.columns;
+    const ratingIndex = cols.findIndex((c) => String(c.key) === "rating");
+    if (ratingIndex < 0) return { error: "no `rating` column — createGrid() with columns first" };
+
+    const lastRow = Math.min(rowCount - 1, grid.getVisibleRows().length - 1);
+    grid.selectRange(0, ratingIndex, lastRow, ratingIndex);
+    await settle(2);
+
+    /** One cell's copied text, so the two forms can be compared without reading 1,000 lines. */
+    const oneCell = () => {
+        grid.focusCell(0, ratingIndex);
+        const value = grid.getSelectionText();
+        grid.selectRange(0, ratingIndex, lastRow, ratingIndex);
+        return value;
+    };
+
+    const original = columns();
+    const stripped = columns().map((c) =>
+        String(c.key) === "rating" ? { ...c, copyValue: undefined } : c,
+    );
+
+    const setColumns = (list) => {
+        grid.setOptions({ columns: list });
+        grid.selectRange(0, ratingIndex, lastRow, ratingIndex);
+    };
+
+    setColumns(original);
+    const withHook = { rating: oneCell(), chars: grid.getSelectionText().length };
+    setColumns(stripped);
+    const withoutHook = { rating: oneCell(), chars: grid.getSelectionText().length };
+
+    const time = () => {
+        const startedAt = performance.now();
+        grid.getSelectionText();
+        return performance.now() - startedAt;
+    };
+
+    const alternating = () => {
+        let hook = 0;
+        let bare = 0;
+        for (let i = 0; i < pairs; i++) {
+            // The order inside the pair flips every iteration, so neither form is always second.
+            if (i % 2 === 0) {
+                setColumns(original);
+                hook += time();
+                setColumns(stripped);
+                bare += time();
+            } else {
+                setColumns(stripped);
+                bare += time();
+                setColumns(original);
+                hook += time();
+            }
+        }
+        return { hookMs: hook / pairs, bareMs: bare / pairs };
+    };
+
+    const timings = alternating();
+    setColumns(original);
+
+    return {
+        rows: lastRow + 1,
+        withHook,
+        withoutHook,
+        ...timings,
+        ratio: Number((timings.hookMs / timings.bareMs).toFixed(2)),
     };
 }
 
@@ -2155,6 +2254,7 @@ window.avg = {
     measureEditing,
     measureCustomEditor,
     measureClipboard,
+    measureCopyValue,
     measureStructure,
     measureFilter,
     measureCustomFilter,

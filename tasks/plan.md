@@ -1,4 +1,4 @@
-# av-grid — Implementation Plan 02: customization (tasks 21–25)
+# av-grid — Implementation Plan 02: customization (tasks 21–26)
 
 The task-by-task build order for the current phase. [`goal.md`](goal.md) is the *what* and
 *why*; this document is the *in what order*, with a definition of done for each step.
@@ -26,12 +26,14 @@ Reference paths and the read-only rule: [`../CLAUDE.md`](../CLAUDE.md).
 | 21 | Styling hooks — `cellClass`, `rowClass`, `headerClass` | Customization | ✅ Done |
 | 22 | Custom cell editors — `column.editor` | Customization | ✅ Done |
 | 23 | Custom filters — `column.filter` | Customization | ✅ Done |
-| 24 | `copyValue`, and the value-precedence table | Customization | ⬜ Not started |
+| 24 | `copyValue`, and the value-precedence table | Customization | ✅ Done |
 | 25 | Customization docs, example, and board | Customization | ⬜ Not started |
+| 26 | Custom sorting — `sortValue` | Customization | ⬜ Not started |
 
 Status values: ⬜ Not started · 🟡 In progress · ✅ Done · ⏸️ Blocked (say why).
 
-Order is 21 → 24 → 22 → 23 → 25: the two cheap render-path tasks first, the largest last.
+Order is 21 → 24 → 22 → 23 → 26 → 25: the two cheap render-path tasks first, then the two large
+ones, then 25 last because it documents and demonstrates all of them.
 
 ---
 
@@ -54,7 +56,7 @@ Carried forward from plan 01 unchanged. Applied to all tasks; not repeated in ea
 
 ---
 
-## Phase 6 — Customization (tasks 21–25)
+## Phase 6 — Customization (tasks 21–26)
 
 Five of the six extension points a host reaches for exist already: `render`, `headerRender`,
 `formatValue`, `options`, `onCellClass`. This phase closes the gaps found by asking the only
@@ -268,15 +270,61 @@ them in four different places.
 table exists and matches the code in every row, and `CopyPasteModel`'s tests cover the
 precedence order top to bottom.
 
+### Task 26 — Custom sorting — `sortValue`
+
+Added after task 24, from a question asked while reviewing it: *a status column should sort by
+priority, not alphabetically — can it?* It can, and the answer is worse than it should be.
+`Column.rowCompare` has existed since the port and does exactly this; it was documented by one line
+in the type block and nothing else, which is why the question came up at all. Task 24's precedence
+table now carries the priority snippet, so **the gap left is ergonomics and cost, not capability**.
+
+**The snippet, written first**
+
+```js
+const RANK = { critical: 0, high: 1, normal: 2, low: 3 };
+
+columns: [
+    { key: "priority", sortValue: (row) => RANK[row.priority] },   // the new hook
+    { key: "name", rowCompare: (a, b) => natural(a.name, b.name) }, // still there for the rest
+];
+```
+
+`sortValue` is the 90% case written the short way: a projection, sorted by the same typed
+comparison the grid already applies to numbers, strings, dates and booleans. `rowCompare` stays for
+an order that is genuinely pairwise — a natural sort, a locale with options, a tie-break across two
+properties.
+
+**Build**
+- `Column.sortValue?: (row: R) => any`, ranking below `rowCompare` and above `row[key]`: one more
+  row in task 24's precedence table, and it is the *only* line of that table this task changes.
+- **Decorate–sort–undecorate.** `Array.sort` calls a comparator O(n log n) times, so a hook read
+  inside one runs ~1.7 million times on 100,000 rows. `sortValue` is instead read **once per row**
+  into a parallel array, which is sorted and unwrapped — n calls, not n log n. That is the reason
+  the hook is worth adding rather than telling a host to write the comparator: it is both shorter
+  *and* the fast way round, and a host cannot get the fast way from `rowCompare` at all.
+- `RowsModel.sort` is the only place that changes shape. It must keep returning the same array when
+  there is nothing to sort, and keep sorting-then-reversing for `"desc"`.
+
+**Done when**
+- The priority snippet sorts ascending and descending, and a `sortValue` returning `undefined` for
+  some rows puts them at one end rather than scrambling the rest.
+- `rowCompare` still wins where both are set, with a test that says so.
+- Benchmark: sorting 100,000 rows by `sortValue` against the same order expressed as a
+  `rowCompare`, on the board, as alternating pairs — the expected result is that `sortValue` is
+  *faster* despite being the higher-level hook, and if it is not, the decoration is not paying for
+  itself and the plan changes here rather than silently.
+- Task 24's table gains its row; the `dataType` note stays true.
+
 ### Task 25 — Customization docs, example, and board
 
 **Build**
 - `docs/api.md`: the three class hooks, `editor` (with the popup-editor and blur notes),
   the filter-definition interface, `copyValue`, and the precedence table. `editRender` moves to
   the removed-names table next to the misspellings it already lists.
-- `examples/customization.html` — one standalone file doing all four: status colours from
-  `cellClass`, an overdue row from `rowClass`, a date-picker `editor`, a date-range `filter`,
-  and a `copyValue` on a rendered column. Copy-pasteable whole, like the other ten.
+- `examples/customization.html` — one standalone file doing all of them: status colours from
+  `cellClass`, an overdue row from `rowClass`, a date-picker `editor`, a date-range `filter`, a
+  `copyValue` on a rendered column, and a priority `sortValue` (task 26). Copy-pasteable whole,
+  like the other ten.
 - A `CustomizationBoard` under `test-boards/`, scaffolded with `create_board` per
   *Creating a new board*, and its `CLAUDE.md` written once it works.
 
@@ -310,3 +358,7 @@ tasks 1–20 is in [`plan-done-01.md`](plan-done-01.md) and is still required re
 | 2026-08-11 | 23 | **Apply is never disabled on a custom body, and that is a decision rather than an omission.** The checklist disables it with nothing ticked because it can see the selection; a `FilterBody` has no change event, and inventing one to grey out a button would put a host callback on every keystroke. Applying a nullish value removes the filter, so the worst a premature Apply can do is Clear.
 | 2026-08-11 | 23 | **A host `label` is guarded and untruncated.** Guarded because it runs on the bar's redraw path, where a throw would leave every chip stale rather than one chip wrong — it falls back to the definition's `name`. Untruncated because `MAX_LABEL_CHARS` exists to stop twenty checklist values pushing the other chips off the bar; how long a custom label is was decided by whoever wrote it, and the chip ellipsizes the rest.
 | 2026-08-11 | 23 | **`sameFilter` compares a custom value with `JSON.stringify`, not `===`.** `getValue` builds a fresh object every apply, so identity would report every `setFilters` as a change and a host echoing `onFiltersChange` straight back would loop over a 100,000-row filter pass. The stringify comparison is the same one persistence relies on; a value it cannot take falls back to identity.
+| 2026-08-11 | 24 | **The precedence table found two documented claims that were false, and one real asymmetry.** Writing the table meant reading each consumer rather than recalling it: `formatValue` was documented as "used for sorting, filtering and clipboard copy" and sorting never reads it — `defaultCompare` compares `row[key]` by its runtime type — and `dataType` was documented as governing "the comparator", which it also does not. Both corrected in the docs and in the type's own docblock, and both now have a test. The asymmetry is deliberate and stays: **copy prefers `formatValue` over `render`, while the screen prefers `render`** — a `formatValue` is already the plain text a spreadsheet wants, so copy takes it rather than parsing markup to find the same string, and a column that wants the rendered text copied now says so with `copyValue`. A comment in `CopyPasteModel` claiming the two orders matched has been fixed, along with the test name that repeated it. |
+| 2026-08-11 | 24 | **`copyValue` is *cheaper* than the fallback it overrides — 0.16× on 1,000 cells.** Not because a host callback is fast but because reducing `render`'s output to text costs an `innerHTML` write into a scratch element and a `textContent` read per cell. Second time in this phase that a customization hook came out ahead of the built-in path it replaces, after task 23's `match`; the pattern is that the built-in paths are general and the hooks are specific. |
+| 2026-08-11 | 24 | **No `hasCopyValue` in `getState()`.** The snapshot reports `hasRender` / `hasOptions` because both change what a *cell* is on screen, which is what a post-mortem of a rendering complaint needs. A copy hook cannot be the explanation of anything visible, so it would be a field nobody reads. |
+| 2026-08-11 | 26 | **Custom sorting is task 26, and it is an ergonomics task rather than a capability one.** Asked while task 24 was in review: can a status column sort by priority? `Column.rowCompare` has done exactly that since the port — the real defect was that it was documented by one line in a type block, which is why the question arose. Task 24's precedence table now carries the priority snippet, so 26 is left with `sortValue`, a projection instead of a comparator. It earns its place on cost as much as on shape: a hook read *inside* a comparator runs O(n log n) times, ~1.7 million on 100,000 rows, and a decorate–sort–undecorate reads it n times — the short way round is also the fast one, and a host cannot get the fast one out of `rowCompare` at all. |
