@@ -39,7 +39,12 @@ import { Popover, type PopoverPlacement } from "./Popover";
 export const MENU_SEARCH_THRESHOLD = 20;
 /** How long the pointer must rest on an item before its submenu opens. */
 export const MENU_SUBMENU_DELAY_MS = 400;
-const MENU_ROW_HEIGHT = 24;
+/**
+ * The reference's `ROW_HEIGHT`, and it has to stay in step with `.avg-menu-item`'s `height` in
+ * the stylesheet — this is only how many rows a PageDown moves, so a mismatch does not break
+ * anything visible, it just makes the key jump by the wrong amount.
+ */
+const MENU_ROW_HEIGHT = 26;
 
 export interface MenuOptions {
     /** An element, or a point in viewport coordinates — a context menu uses the point. */

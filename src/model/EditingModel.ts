@@ -31,7 +31,7 @@
  */
 
 import { defaultValidate, gridBoolean } from "../gridUtils";
-import type { CellEdit, Column } from "../types";
+import type { CellEdit, Column, EditOrigin } from "../types";
 import type { AVGridModel } from "./AVGridModel";
 
 /** What an editor factory returns. `DataCell` mounts `element`; the model calls `focus`. */
@@ -55,8 +55,15 @@ export interface EditorContext<R = any> {
     value: any;
     row: R;
     column: Column<R>;
-    /** True when the edit began by typing, so the caret goes to the end instead of selecting. */
-    dontSelect: boolean;
+    /** How the edit was opened. Decides where the caret lands — see `EditOrigin`. */
+    openedBy: EditOrigin;
+    /**
+     * Where the pointer was, in client coordinates, when `openedBy` is `"pointer"`.
+     *
+     * The editor uses it to put the caret where the user clicked rather than at one end of the
+     * text — which is what clicking into text means everywhere else on the platform.
+     */
+    pointerX?: number;
     /** Record a new value. Marks the edit changed, so a commit is not a no-op. */
     setValue: (value: any) => void;
     commit: () => void;
@@ -71,6 +78,7 @@ const NO_EDIT = {
     rowKey: "",
     columnKey: "",
     value: undefined,
+    openedBy: "key" as EditOrigin,
     changed: false,
 };
 
@@ -145,8 +153,17 @@ export class EditingModel<R> {
      * `initial` is the character that started a type-to-edit; passing it replaces the cell's
      * value and puts the caret after it, which is what typing over a selected cell does in
      * every spreadsheet.
+     *
+     * `openedBy` decides where the caret starts — see `EditOrigin`. It defaults from `initial`,
+     * so only the pointer callers have to say anything, and `pointerX` is theirs to supply.
      */
-    openEdit = (dataRow: number, colIndex: number, initial?: string): void => {
+    openEdit = (
+        dataRow: number,
+        colIndex: number,
+        initial?: string,
+        openedBy: EditOrigin = initial !== undefined ? "typing" : "key",
+        pointerX?: number,
+    ): void => {
         const column = this.model.data.columns[colIndex];
         const row = this.model.data.rows[dataRow];
         if (row === undefined || !this.canEdit(column)) return;
@@ -164,7 +181,8 @@ export class EditingModel<R> {
                 rowKey: this.model.options.getRowKey(row),
                 columnKey: column.key,
                 value,
-                dontSelect: initial !== undefined,
+                openedBy,
+                pointerX,
                 changed: initial !== undefined,
             };
         });
@@ -436,7 +454,8 @@ export class EditingModel<R> {
             value: edit.value,
             row,
             column,
-            dontSelect: Boolean(edit.dontSelect),
+            openedBy: edit.openedBy ?? "key",
+            pointerX: edit.pointerX,
             setValue: this.setEditValue,
             commit: this.commitEdit,
             cancel: this.cancelEdit,
@@ -574,10 +593,11 @@ export class EditingModel<R> {
         // Already open on this cell — a press inside the editor, or the second half of a
         // double-click. Re-opening would commit and rebuild it, losing the caret.
         if (this.isEditingCell(data.rowIndex, data.colIndex)) return;
-        this.openEdit(data.rowIndex, data.colIndex);
+        this.openEdit(data.rowIndex, data.colIndex, undefined, "pointer", data.e.clientX);
     };
 
     private onCellDoubleClick = (data: {
+        e: MouseEvent;
         rowIndex: number;
         colIndex: number;
         col: Column<R>;
@@ -590,7 +610,7 @@ export class EditingModel<R> {
         // The press that began this double-click already opened it, on the cell its predecessor
         // focused. Only a boolean, above, still has work to do here.
         if (this.isEditingCell(data.rowIndex, data.colIndex)) return;
-        this.openEdit(data.rowIndex, data.colIndex);
+        this.openEdit(data.rowIndex, data.colIndex, undefined, "pointer", data.e?.clientX);
     };
 
     /**

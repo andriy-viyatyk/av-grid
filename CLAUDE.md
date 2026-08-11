@@ -30,6 +30,16 @@ UI needed and the library did not have — **14a `Popover`** and **14b `VirtualL
 rather than ported from UIKit. What is left is documentation: task 19 (`docs/api.md`) and task 20
 (`examples/`).
 
+**On a board the grid now looks like Persephone's own.** Four tokens stopped being derived and
+started naming their `--p-*` counterparts, so they resolve to the reference's exact values: the
+header band and the filter bar take `--p-bg-dark` (#181818 against a #1f1f1f body — *darker* than
+the grid, which a `color-mix` tint of the text colour could never be), and the cell lines moved to
+a token of their own, `--avg-grid-line` = `--p-border-light` (#2b2b2b), so they recede without
+thinning the popover borders that shared `--avg-border-color` with them. The two `+` buttons
+brighten to `--p-text-strong` on hover instead of turning blue, and a menu row takes the full
+`--p-selection-bg` / `--p-selection-text` pair rather than the 18% tint a checklist wants. Every
+fallback is the old value, so a bare HTML page is unchanged.
+
 **Right-click has a menu, and a host can take it over.** Copy, Copy as… (headers / JSON / HTML
 table), Paste, and Insert / Add / Delete for both rows and columns, each label counting what the
 selection actually covers — a header gets the two column items instead. `getContextMenuItems`
@@ -97,7 +107,9 @@ labels, widths, row keys and data types all inferred — with header sorting, co
 reorder, custom cell renderers, a search filter, cell focus, full keyboard navigation, range
 selection by drag or by shift, row selection through a checkbox column, in-cell editing
 (`editable: true`, opened by a press on the cell that already has the focus — so a cold cell
-takes two clicks and a focused one takes a single click, as the reference did; an editable boolean
+takes two clicks and a focused one takes a single click, as the reference did, and the caret lands
+**where the click landed**, with nothing selected, while Enter / F2 / `startEdit()` select the whole
+value instead; an editable boolean
 cell carries a checkbox that toggles on the first click, and only the box toggles — the cell
 around it just selects; Tab and the vertical arrows commit and move on, while the horizontal ones
 stay with the caret), Excel-compatible clipboard copy/cut/paste, rows and columns added and

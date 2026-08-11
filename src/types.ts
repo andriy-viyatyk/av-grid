@@ -292,11 +292,29 @@ export type CellFocus<R = any> = {
     };
 };
 
+/**
+ * How an edit was opened, which is the only thing that decides where the caret starts.
+ *
+ * - `"key"` — Enter, F2, or `grid.startEdit()`: the value is **selected**, so the next keystroke
+ *   replaces it and an arrow key keeps it. The user asked to edit *this cell*, not a place in it.
+ * - `"pointer"` — a click on the focused cell: the caret goes **where the click landed**, falling
+ *   back to the end of the text. Nothing is selected. Someone who wanted to replace the value
+ *   would have typed over the cell instead of reaching for it with the mouse.
+ * - `"typing"` — a printable key over the focused cell: the value **is** that character and the
+ *   caret sits after it.
+ *
+ * The reference had a `dontSelect` boolean covering the first two and used it in `CellSelect` to
+ * mean the third, which is one flag doing two unrelated jobs and has one impossible state.
+ */
+export type EditOrigin = "key" | "pointer" | "typing";
+
 export type CellEdit<R = any> = {
     rowKey: string;
     columnKey: keyof R | string;
     value: any;
-    dontSelect?: boolean;
+    openedBy: EditOrigin;
+    /** Client x of the click that opened it, when `openedBy` is `"pointer"`. */
+    pointerX?: number;
     changed: boolean;
 };
 

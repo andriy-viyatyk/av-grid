@@ -58,7 +58,7 @@ async function open(over: Partial<EditorContext<Row>> = {}): Promise<Harness> {
         value: "open",
         row: { status: "open" },
         column: { key: "status", options: ["open", "pending", "closed"] } as any,
-        dontSelect: false,
+        openedBy: "key",
         setValue,
         commit,
         cancel,
@@ -247,7 +247,7 @@ describe("type-to-edit", () => {
     it("seeds the search box, and leaves the cell's value alone", async () => {
         const { editor } = await open({
             value: "c",
-            dontSelect: true,
+            openedBy: "typing",
             row: { status: "open" },
         });
 
@@ -261,7 +261,7 @@ describe("type-to-edit", () => {
     it("cancels when dismissed, so the typed character is never written", async () => {
         const { cancel, commit } = await open({
             value: "p",
-            dontSelect: true,
+            openedBy: "typing",
             row: { status: "closed" },
         });
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

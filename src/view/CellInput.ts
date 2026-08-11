@@ -14,6 +14,81 @@
 
 import type { EditorContext, CellEditor } from "../model/EditingModel";
 
+/**
+ * Which character boundary the given client x falls on, or `undefined` when it cannot be worked
+ * out — so a caller can fall back rather than land the caret somewhere invented.
+ *
+ * The text is measured by real layout rather than by canvas metrics: a hidden span carrying the
+ * input's own computed font, and a `Range` over its text node, which gets kerning, ligatures and
+ * `letter-spacing` right because it *is* the same shaping the input will do. It runs once, when
+ * an editor opens, so a handful of rect reads costs nothing that anyone can perceive.
+ *
+ * `undefined` covers the environment with no layout at all — happy-dom, or a `display: none`
+ * ancestor — where every rect is zero and a search would confidently answer 0 for any x.
+ */
+function caretIndexAt(input: HTMLInputElement, clientX: number): number | undefined {
+    const text = input.value;
+    if (!text) return 0;
+    const doc = input.ownerDocument;
+    const host = input.parentElement ?? doc.body;
+    if (!host || typeof doc.createRange !== "function") return undefined;
+
+    const cs = getComputedStyle(input);
+    const span = doc.createElement("span");
+    span.style.cssText =
+        "position:absolute;top:0;left:-9999px;visibility:hidden;white-space:pre;" +
+        "pointer-events:none;margin:0;padding:0;border:0";
+    span.style.font = cs.font;
+    span.style.letterSpacing = cs.letterSpacing;
+    span.textContent = text;
+    host.append(span);
+
+    try {
+        const node = span.firstChild;
+        if (!node) return undefined;
+        const range = doc.createRange();
+        if (typeof range.getBoundingClientRect !== "function") return undefined;
+        const widthTo = (i: number): number => {
+            range.setStart(node, 0);
+            range.setEnd(node, i);
+            return range.getBoundingClientRect().width;
+        };
+
+        const full = widthTo(text.length);
+        if (!(full > 0)) return undefined;
+
+        // Where the text starts, which is not the input's left edge for a right-aligned column.
+        const rect = input.getBoundingClientRect();
+        const num = (v: string): number => parseFloat(v) || 0;
+        const left = rect.left + num(cs.borderLeftWidth) + num(cs.paddingLeft);
+        const right = rect.right - num(cs.borderRightWidth) - num(cs.paddingRight);
+        const align = cs.textAlign;
+        const origin =
+            align === "right" || align === "end"
+                ? right - full
+                : align === "center"
+                  ? left + (right - left - full) / 2
+                  : left;
+
+        const target = clientX - origin;
+        if (target <= 0) return 0;
+        if (target >= full) return text.length;
+
+        // Binary search for the boundary before the point, then take whichever of the two
+        // neighbours is nearer: clicking the right half of a glyph puts the caret after it.
+        let lo = 0;
+        let hi = text.length;
+        while (hi - lo > 1) {
+            const mid = (lo + hi) >> 1;
+            if (widthTo(mid) <= target) lo = mid;
+            else hi = mid;
+        }
+        return target - widthTo(lo) <= widthTo(hi) - target ? lo : hi;
+    } finally {
+        span.remove();
+    }
+}
+
 export function createCellInput<R>(ctx: EditorContext<R>): CellEditor {
     const input = document.createElement("input");
     input.className = "avg-cell-editor";
@@ -71,15 +146,21 @@ export function createCellInput<R>(ctx: EditorContext<R>): CellEditor {
         element: input,
         focus: () => {
             input.focus();
-            // Typing over a cell replaces it, so the caret goes after the character just
-            // typed; opening with F2 or a double-click selects the value instead, so the next
-            // keystroke can replace it or an arrow key can keep it.
-            if (ctx.dontSelect) {
-                const end = input.value.length;
-                input.setSelectionRange?.(end, end);
-            } else {
+            // Enter, F2 and `startEdit()` select the value: the user named the cell, not a place
+            // in it, so the next keystroke should replace what is there. A click named a place —
+            // the caret goes where it landed, and nothing is selected, because someone who meant
+            // to replace the value would have typed over the cell instead of reaching for it.
+            // Typing already replaced the value with one character, so the caret follows it.
+            if (ctx.openedBy === "key") {
                 input.select();
+                return;
             }
+            const end = input.value.length;
+            const at =
+                ctx.openedBy === "pointer" && ctx.pointerX !== undefined
+                    ? (caretIndexAt(input, ctx.pointerX) ?? end)
+                    : end;
+            input.setSelectionRange?.(at, at);
         },
     };
 }

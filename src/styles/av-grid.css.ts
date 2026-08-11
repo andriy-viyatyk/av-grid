@@ -30,7 +30,13 @@ export const css = `
     --avg-accent: var(--p-accent, #0078d4);
 
     --avg-border-color: color-mix(in srgb, var(--avg-text) 22%, transparent);
-    --avg-header-bg: color-mix(in srgb, var(--avg-text) 7%, var(--avg-bg));
+    /* The cell lines are not structural borders and should not read like them: they are
+       texture between values, so they sit well below --avg-border-color. Persephone draws
+       them from --color-border-light for exactly that reason, which is --p-border-light here. */
+    --avg-grid-line: var(--p-border-light, color-mix(in srgb, var(--avg-text) 11%, transparent));
+    /* The header band is chrome rather than content, so it takes the app's chrome surface —
+       darker than the grid in a dark theme, not a tint of the grid's own background. */
+    --avg-header-bg: var(--p-bg-dark, color-mix(in srgb, var(--avg-text) 7%, var(--avg-bg)));
     --avg-header-text: var(--avg-text);
     --avg-cell-bg: var(--avg-bg);
     --avg-cell-text: var(--avg-text);
@@ -63,7 +69,7 @@ export const css = `
     text-overflow: ellipsis;
     background-color: var(--avg-header-bg);
     color: var(--avg-header-text);
-    border-bottom: solid 1px var(--avg-border-color);
+    border-bottom: solid 1px var(--avg-grid-line);
     user-select: none;
     cursor: default;
 }
@@ -170,14 +176,14 @@ export const css = `
     text-overflow: ellipsis;
     background-color: var(--avg-cell-bg);
     color: var(--avg-cell-text);
-    border-bottom: solid 1px var(--avg-border-color);
-    border-right: solid 1px var(--avg-border-color);
+    border-bottom: solid 1px var(--avg-grid-line);
+    border-right: solid 1px var(--avg-grid-line);
     outline: none;
     user-select: none;
 }
 
 .avg-grid .avg-data-cell[data-col="0"] {
-    border-left: solid 1px var(--avg-border-color);
+    border-left: solid 1px var(--avg-grid-line);
 }
 
 .avg-grid .avg-align-center {
@@ -440,9 +446,12 @@ export const css = `
     opacity: 0.6;
 }
 
+/* Brighter, not different: these two are chrome, and the accent is reserved for state the grid
+   is reporting — a sort, a filter, a selection edge. Persephone lights them the same way, from
+   icon.light to icon.default. */
 .avg-grid .avg-add-row:hover {
     opacity: 1;
-    color: var(--avg-accent);
+    color: var(--p-text-strong, var(--avg-text));
 }
 
 .avg-grid .avg-add-column {
@@ -466,7 +475,7 @@ export const css = `
 
 .avg-grid .avg-add-column:hover {
     opacity: 1;
-    color: var(--avg-accent);
+    color: var(--p-text-strong, var(--avg-text));
 }
 
 /* --- Popover ---------------------------------------------------------------------------
@@ -483,6 +492,11 @@ export const css = `
     --avg-border-color: color-mix(in srgb, var(--avg-text) 22%, transparent);
     --avg-hover-bg: color-mix(in srgb, var(--avg-text) 6%, transparent);
     --avg-selection-bg: color-mix(in srgb, var(--avg-accent) 18%, transparent);
+    /* A menu row is picked, not marked. A checklist can tint its rows — several are on at once
+       and the text under them has to stay readable — but exactly one menu row is under the
+       pointer, and the platform draws that one in the full selection colour. */
+    --avg-menu-selection-bg: var(--p-selection-bg, var(--avg-accent));
+    --avg-menu-selection-text: var(--p-selection-text, #ffffff);
 
     position: fixed;
     z-index: 1000;
@@ -560,7 +574,9 @@ export const css = `
     display: flex;
     align-items: center;
     gap: 8px;
-    height: 24px;
+    /* The reference's ROW_HEIGHT — kept in step with MENU_ROW_HEIGHT in Menu.ts, which is what
+       a PageDown counts by. */
+    height: 26px;
     padding: 0 8px;
     white-space: nowrap;
     cursor: pointer;
@@ -572,7 +588,26 @@ export const css = `
 .avg-menu-item:hover,
 .avg-menu-item[data-active],
 .avg-menu-item[data-submenu-open] {
-    background-color: var(--avg-selection-bg);
+    background-color: var(--avg-menu-selection-bg);
+    color: var(--avg-menu-selection-text);
+}
+
+/* The row's furniture follows its label onto the highlight. A hotkey or a chevron left at
+   --avg-text-muted is barely legible against a solid accent, and the check mark left at the
+   accent itself disappears into it entirely. */
+.avg-menu-item:hover .avg-menu-hotkey,
+.avg-menu-item:hover .avg-menu-icon,
+.avg-menu-item:hover .avg-menu-chevron,
+.avg-menu-item:hover .avg-menu-check,
+.avg-menu-item[data-active] .avg-menu-hotkey,
+.avg-menu-item[data-active] .avg-menu-icon,
+.avg-menu-item[data-active] .avg-menu-chevron,
+.avg-menu-item[data-active] .avg-menu-check,
+.avg-menu-item[data-submenu-open] .avg-menu-hotkey,
+.avg-menu-item[data-submenu-open] .avg-menu-icon,
+.avg-menu-item[data-submenu-open] .avg-menu-chevron,
+.avg-menu-item[data-submenu-open] .avg-menu-check {
+    color: var(--avg-menu-selection-text);
 }
 
 .avg-menu-item[data-start-group] {
@@ -585,8 +620,14 @@ export const css = `
     cursor: default;
 }
 
-.avg-menu-item[data-disabled]:hover {
+/* A disabled row does not light up, so it also does not take the highlight's text colour. */
+.avg-menu-item[data-disabled]:hover,
+.avg-menu-item[data-disabled]:hover .avg-menu-hotkey,
+.avg-menu-item[data-disabled]:hover .avg-menu-icon,
+.avg-menu-item[data-disabled]:hover .avg-menu-chevron,
+.avg-menu-item[data-disabled]:hover .avg-menu-check {
     background-color: transparent;
+    color: var(--avg-text-muted);
 }
 
 /* A secondary action sharing the menu with the primary ones — the column items under the row
@@ -879,7 +920,10 @@ export const css = `
     --avg-bg: var(--p-bg, #ffffff);
     --avg-accent: var(--p-accent, #0078d4);
     --avg-border-color: color-mix(in srgb, var(--avg-text) 22%, transparent);
-    --avg-header-bg: color-mix(in srgb, var(--avg-text) 7%, var(--avg-bg));
+    /* The same two the header band uses: the bar is the grid's chrome, and reading as a
+       separate surface is the point of it. */
+    --avg-header-bg: var(--p-bg-dark, color-mix(in srgb, var(--avg-text) 7%, var(--avg-bg)));
+    --avg-grid-line: var(--p-border-light, color-mix(in srgb, var(--avg-text) 11%, transparent));
     --avg-hover-bg: color-mix(in srgb, var(--avg-text) 6%, transparent);
 
     box-sizing: border-box;
@@ -892,7 +936,7 @@ export const css = `
     font-size: var(--avg-font-size);
     color: var(--avg-text);
     background-color: var(--avg-header-bg);
-    border-bottom: solid 1px var(--avg-border-color);
+    border-bottom: solid 1px var(--avg-grid-line);
 }
 
 /* No filters, no bar — not an empty strip of chrome, and no height taken from the grid. */

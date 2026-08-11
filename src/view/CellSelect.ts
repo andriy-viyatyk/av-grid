@@ -52,9 +52,12 @@ function label(value: unknown): string {
 
 export function createCellSelect<R>(ctx: EditorContext<R>): CellEditor {
     // The value the cell actually holds. On a type-to-edit `ctx.value` is the character that
-    // started it, not the cell's value — that character is the search text, below.
-    const current = ctx.dontSelect ? (ctx.row as any)[ctx.column.key] : ctx.value;
-    const initialSearch = ctx.dontSelect ? label(ctx.value) : "";
+    // started it, not the cell's value — that character is the search text, below. Only
+    // `"typing"`: a click is the other origin that leaves the text alone, and it must not seed
+    // the search box with the value the list is already scrolled to.
+    const typed = ctx.openedBy === "typing";
+    const current = typed ? (ctx.row as any)[ctx.column.key] : ctx.value;
+    const initialSearch = typed ? label(ctx.value) : "";
 
     const element = document.createElement("div");
     element.className = "avg-cell-editor avg-cell-select";
