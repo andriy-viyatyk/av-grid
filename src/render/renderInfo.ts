@@ -152,6 +152,29 @@ export function buildLengthArray(
     return res as Array<number>;
 }
 
+/**
+ * Does any element ask for a percentage length?
+ *
+ * A percentage means "fill the space available", so its presence puts `buildLengthArray` on the
+ * fit path whether or not `fitToWidth` asked for it — and a fitted set of columns already lands
+ * exactly on the viewport width, so it must not carry the trailing slack `calcInnerSize` adds.
+ * Without this a single `width: "35%"` column produced a horizontal scrollbar exactly
+ * `whiteSpace` wide, on a grid whose columns fit perfectly.
+ *
+ * One extra pass over the *columns* — tens of them, and never the rows, which cannot be
+ * percentages of anything.
+ */
+export function hasPercentLength(
+    elementCount: number,
+    elementLength: ElementLength,
+): boolean {
+    if (typeof elementLength === "number") return false;
+    for (let i = 0; i < elementCount; i++) {
+        if (typeof elementLength(i) === "string") return true;
+    }
+    return false;
+}
+
 /** Running start offset for each element. A uniform length needs no array at all. */
 export function buildStarts(length: RenderLength): RenderLength {
     if (typeof length === "number") {
@@ -216,13 +239,18 @@ export const calcInnerSize = (
     stickyLeft: number,
     columnLength: RenderLength,
     rowLength: RenderLength,
-    fitToWidth: boolean,
+    /**
+     * The columns were fitted to the viewport — `fitToWidth`, or a percentage width, which
+     * fits on its own. Either way they already total the usable width, so the trailing slack
+     * would be pure overflow. See `hasPercentLength`.
+     */
+    columnsFitted: boolean,
     whiteSpaceY?: number,
     whiteSpaceX?: number,
 ): RenderInnerSize => ({
     width:
         calcLength(columnLength, 0, columnCount) +
-        (stickyRight || fitToWidth ? 0 : (whiteSpaceX ?? whiteSpace)),
+        (stickyRight || columnsFitted ? 0 : (whiteSpaceX ?? whiteSpace)),
     height:
         calcLength(rowLength, 0, rowCount) +
         (stickyBottom ? 0 : (whiteSpaceY ?? whiteSpace)),
@@ -445,6 +473,12 @@ export function calcRenderInfo(
         }
     }
 
+    // A percentage width fits on its own, so the columns can already fill the viewport with
+    // `fitToWidth` off. Everything downstream that means "the columns total the usable width"
+    // has to read this rather than the option.
+    const columnsFitted =
+        fitToWidth || hasPercentLength(columnCount, columnWidth);
+
     const columnLength = buildLengthArray(
         columnCount,
         columnWidth,
@@ -463,7 +497,7 @@ export function calcRenderInfo(
         stickyLeft,
         columnLength,
         rowLength,
-        fitToWidth,
+        columnsFitted,
         whiteSpaceY,
         whiteSpaceX,
     );
@@ -494,6 +528,7 @@ export function calcRenderInfo(
             input,
             columnLength,
             rowLength,
+            columnsFitted,
         );
         // Second fast path: the new visible range is contained by what is already rendered
         // and the geometry is unchanged, so the existing render still covers the viewport.

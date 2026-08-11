@@ -6,6 +6,7 @@ import {
     calcScrollOffsetX,
     calcScrollOffsetY,
     renderInfoInitialState,
+    whiteSpace,
 } from "./renderInfo";
 import type {
     CalcRenderInfoInput,
@@ -206,6 +207,36 @@ describe("calcRenderInfo — visible window", () => {
         );
 
         expect(info.columnLength).toEqual([240, 240]);
+    });
+
+    it("adds no trailing whitespace when a percentage width fits without fitToWidth", () => {
+        const info = calcRenderInfo(
+            renderInfoInitialState,
+            makeInput({
+                columnCount: 2,
+                columnWidth: (i) => (i === 0 ? 100 : "100%"),
+                size: { width: 500, height: 200 },
+                scrollBarWidth: 20,
+            }),
+        );
+
+        // The percentage fits on its own, so the columns already total the usable width and
+        // the slack past the last one would be a horizontal scrollbar exactly that wide.
+        expect(info.columnLength).toEqual([100, 380]);
+        expect(info.innerSize.width).toBe(480);
+    });
+
+    it("still adds trailing whitespace when every width is fixed", () => {
+        const info = calcRenderInfo(
+            renderInfoInitialState,
+            makeInput({
+                columnCount: 2,
+                columnWidth: () => 100,
+                size: { width: 500, height: 200 },
+            }),
+        );
+
+        expect(info.innerSize.width).toBe(200 + whiteSpace);
     });
 });
 

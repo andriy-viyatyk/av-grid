@@ -53,6 +53,17 @@ filters and sort; `RowsModel.refilterRows()` is now that path, called from `Filt
 `setSearchString`. Three tests and a board check. No unit test could have found it — it takes an
 edit, then a filter change, then a look at what is actually on screen.
 
+**A percentage column width fits the grid to its container on its own — and used to guarantee a
+horizontal scrollbar while doing it.** `calcInnerSize` adds 20 px of slack past the last column so
+it can scroll clear of the edge, and drops it under `fitToWidth` because the columns already total
+the width. But the fit runs whenever *any* width is a percentage, `fitToWidth` or not — so one
+`width: "35%"` column got a perfect fit **and** the slack on top: measured on the board, columns
+fitted to exactly 1203 = 1215 − a 12 px scrollbar, `area` 1223. The vertical scrollbar was never
+the problem; `hasPercentLength()` now decides `columnsFitted`, which `calcInnerSize` and
+`rerender-check`'s resize branch read in place of the option. The reference has the same hole and
+never falls in it, because Persephone only ever writes a percentage alongside `fitToWidth`. Gate
+unmoved at 1.03×, 60/60 fps.
+
 **One table now says which hook feeds what**, in [`docs/api.md`](docs/api.md#which-hook-feeds-what):
 screen, sort, search, a filter's row test, a filter's option list, copy and paste, each with the
 order it tries. Writing it by reading the code rather than recalling it found **two documented claims

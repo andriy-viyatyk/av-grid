@@ -195,6 +195,20 @@ describe("prepareRerender", () => {
             expect(res?.all ?? false).toBe(false);
         });
 
+        it("marks everything on a width change when a percentage width did the fitting", () => {
+            const old = makeOld();
+            const res = prepareRerender(
+                undefined,
+                old,
+                { ...old.input, size: { width: 800, height: 200 } },
+                old.columnLength,
+                old.rowLength,
+                true, // columnsFitted — `fitToWidth` is off, a "50%" column is not
+            );
+
+            expect(res!.all).toBe(true);
+        });
+
         it("marks the sticky bottom band under both counts when the row count changes", () => {
             const old = makeOld({ stickyBottom: 1 });
             const res = prepareRerender(

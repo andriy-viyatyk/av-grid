@@ -240,6 +240,11 @@ export function prepareRerender(
     input: RenderInput,
     columnLength: RenderLength,
     rowLength: RenderLength,
+    /**
+     * The columns were fitted to the viewport — by `fitToWidth`, or by a percentage width,
+     * which fits on its own. Defaults to the option, for callers that have only that.
+     */
+    columnsFitted = input.fitToWidth,
 ): RerenderInfoPrepared | null {
     let res: RerenderInfoPrepared;
     let empty: boolean;
@@ -289,10 +294,10 @@ export function prepareRerender(
         };
     }
 
-    // Under fitToWidth every column's width is derived from the viewport width, so a resize
-    // invalidates all of them at once.
+    // When the columns are fitted, every width is derived from the viewport width, so a resize
+    // — or a scrollbar appearing, which changes the usable width — invalidates all of them.
     if (
-        input.fitToWidth &&
+        columnsFitted &&
         (old.input.scrollBarWidth !== input.scrollBarWidth ||
             old.input.size.width !== input.size.width)
     ) {

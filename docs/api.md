@@ -280,7 +280,7 @@ clears, on an `editable` grid. A paste writes through the same path as typing, s
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `rowHeight` | `number` | `24` | Uniform. Variable row heights are not supported. |
-| `fitToWidth` | `boolean` | `false` | Stretch the columns to fill the width instead of scrolling horizontally. |
+| `fitToWidth` | `boolean` | `false` | Stretch the columns to fill the width instead of scrolling horizontally. Not needed when a column has a percentage [`width`](#width) — that fills the width on its own. |
 | `cellBorders` | `boolean` | `true` | `false` gives a borderless list look. |
 | `growToHeight` | `string` | — | CSS height cap: the grid grows to its content up to this, instead of filling its parent. |
 | `growToWidth` | `string` | — | The same, horizontally. |
@@ -602,6 +602,12 @@ type DisplayFormat = "text" | "date" | "dateTime" | "phone" | `date:${string}` |
 A number of pixels, or a percentage string (`"25%"`). Omitted, the width is detected from the
 content — see [What is inferred](#what-is-inferred). A user resize overrides it and is reported
 through `onColumnResize`; `getState().columns[i].width` reports what the grid is actually drawing.
+
+**A percentage is measured against the width left over after the fixed columns and the vertical
+scrollbar**, and it re-resolves on every resize. One is enough to make the grid fit its container:
+the percentage columns divide whatever remains, so there is no horizontal scrollbar and no
+[`fitToWidth`](#layout) needed. Set `fitToWidth` as well only to stretch a set of columns that
+are *all* fixed widths.
 
 ### `validate`
 
