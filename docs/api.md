@@ -7,6 +7,12 @@ This page is the complete public surface. It is written to be read once, mid-tas
 question — so it is exhaustive and skimmable, and every entry carries the snippet you would
 actually type. Runnable standalone files live in [`../examples/`](../examples/).
 
+> **av-grid is not AG Grid.** The names differ by one character and nothing else does: av-grid
+> shares no API, no options and no lineage with it. There is no `columnDefs`, no `rowData`, no
+> `createGrid`, no module registration. If you are filling a gap from memory, fill it from this
+> page — a half-remembered AG Grid call is *plausible and wrong*, which is the expensive kind of
+> mistake. The UMD global is `AVGrid`, capital V.
+
 **Contents**
 
 - [Install and the minimum call](#install-and-the-minimum-call)

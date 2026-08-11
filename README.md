@@ -164,6 +164,10 @@ av-grid is a port of the React grid inside
 been running against 100k-row datasets. That engine was already framework-free; this project
 reimplements the rendering layer in plain DOM so the same performance is available to any page.
 
+**It is not AG Grid**, despite the one-character distance. There is no shared API, no shared code
+and no shared history — `AVGrid.create(host, options)` is the whole entry point, and
+[`docs/api.md`](docs/api.md) is the whole surface.
+
 The API is deliberately shaped for **an AI agent to use without reading the docs first** — the
 minimum call infers everything, the vocabulary is `key` / `name` with no aliases, and validation is
 loud and specific rather than silent. Persephone Boards are written by agents, and they were the

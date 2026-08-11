@@ -1,8 +1,17 @@
 {
     "name": "av-grid",
-    "version": "0.0.0",
+    "version": "2.0.0",
     "description": "Framework-agnostic virtualized data grid for the DOM. No dependencies. Built for 100k+ rows.",
     "license": "MIT",
+    "author": "Andriy Viyatyk (https://github.com/andriy-viyatyk)",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/andriy-viyatyk/av-grid.git"
+    },
+    "homepage": "https://github.com/andriy-viyatyk/av-grid#readme",
+    "bugs": {
+        "url": "https://github.com/andriy-viyatyk/av-grid/issues"
+    },
     "type": "module",
     "main": "./dist/av-grid.umd.cjs",
     "module": "./dist/av-grid.js",
@@ -29,12 +38,13 @@
     ],
     "scripts": {
         "dev": "vite",
-        "build": "tsc --noEmit && vite build && node scripts/build-css.mjs",
+        "build": "tsc --noEmit && vite build && tsc -p tsconfig.build.json && node scripts/build-css.mjs",
         "build:board": "npm run build:board:render && npm run build:board:grid && npm run build:board:custom",
         "build:board:render": "vite build --outDir test-boards/RenderGridTest/lib --emptyOutDir false",
         "build:board:grid": "vite build --outDir test-boards/AVGridBoard/lib --emptyOutDir false",
         "build:board:custom": "vite build --outDir test-boards/CustomizationBoard/lib --emptyOutDir false",
         "typecheck": "tsc --noEmit",
+        "prepublishOnly": "npm run build",
         "test": "vitest run",
         "test:watch": "vitest"
     },

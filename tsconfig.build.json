@@ -1,0 +1,18 @@
+/*
+ * Declaration emit for the published package.
+ *
+ * The root tsconfig type-checks everything — `src`, `bench`, `vite.config.ts` — which makes the
+ * common root the project directory, so declarations would land in `dist/src/index.d.ts` while
+ * `package.json` points `types` at `dist/index.d.ts`. This config narrows the input to `src`
+ * alone, minus the tests, so `rootDir` is `src` and the paths line up.
+ */
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "rootDir": "src",
+        "noEmit": false,
+        "types": ["node"]
+    },
+    "include": ["src"],
+    "exclude": ["src/**/*.test.ts"]
+}
