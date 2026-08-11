@@ -102,7 +102,7 @@ The reference's misspellings are **not** carried over. Type the correct spelling
 |---|---|
 | `haderRenderer` | `headerRender` |
 | `cellRenderer` + `cellFormater` | `render` (one hook) |
-| `editFormater` | `editRender` |
+| `editFormater` | `editor` (a `CellEditor` factory, not a renderer — see [`editor`](#editor--a-custom-cell-editor)) |
 | `resizible` | `resizable` |
 | `dataAlignment` | `align` |
 | `TSortColumn`, `TFilter`, … | `SortColumn`, `Filter`, … (no `T` prefix) |
@@ -218,7 +218,8 @@ Boolean columns have no text editor: `Space`, `Enter` or a double-click toggles 
 whole selection, and an editable boolean cell carries a checkbox that toggles on the first click
 (only the box toggles — the cell around it just selects). `Delete` clears every editable cell in
 the selection. A column with `options` opens the library's own themed dropdown rather than a
-native `<select>`. Per-column opt-outs: `readonly: true`, and any `isStatusColumn`.
+native `<select>`, and one with [`editor`](#editor--a-custom-cell-editor) opens whatever you
+build. Per-column opt-outs: `readonly: true`, and any `isStatusColumn`.
 
 `EditOrigin` — the value on `CellEdit.openedBy`, and the only thing that decides where the caret
 starts:
@@ -406,7 +407,7 @@ interface Column<R = any> {
 
     render?: CellRenderer<R>;       // custom cell content
     headerRender?: HeaderRenderer<R>;
-    editRender?: CellRenderer<R>;   // content while the cell is being edited
+    editor?: CellEditorFactory<R>;  // the control this column is edited with
 
     formatValue?: (column: Column<R>, row: R) => string;  // text used for sort/filter/copy
 
@@ -420,6 +421,7 @@ interface Column<R = any> {
 
     rowCompare?: (left: R, right: R) => number;
     filterType?: "options" | null;  // default "options"; null takes the funnel off
+    filter?: FilterDefinition<R>;   // a filter type of your own, in place of the checklist
 
     validate?: (column: Column<R>, row: R, value: any) => any;
     options?: any[] | (() => any[] | Promise<any[]>);
@@ -498,6 +500,78 @@ Return the value to commit. Return `undefined` to reject the edit, which fires `
 With no `validate`, `defaultValidate` coerces to `dataType`: `"number"` through `Number()`
 (rejecting `NaN`), `"boolean"` treating `"false"` / `"no"` / `"0"` as false, and a column with an
 `options` array rejecting anything not in it.
+
+### `editor` — a custom cell editor
+
+The control the column is edited with, in place of the text box or the dropdown: a date picker, a
+colour swatch, a lookup that queries a server. Return an element and you are done.
+
+```js
+{
+    key: "due",
+    editor: (ctx) => {
+        const input = document.createElement("input");
+        input.type = "date";
+        input.value = ctx.value ?? "";
+        input.addEventListener("input", () => ctx.setValue(input.value));
+        input.addEventListener("blur", () => ctx.commit());   // your call — see below
+        return input;
+    },
+}
+```
+
+What the grid does for you, so the snippet above is the whole editor:
+
+- **Positions it.** `avg-cell-editor` is added to whatever classes you set, which fills the cell
+  and inherits its font and colours. Style further with your own class alongside it.
+- **Binds `Escape` and `Tab`.** Escape cancels, Tab commits and moves the focus to the next cell.
+  Handle either yourself and call `preventDefault()`, and the grid stands aside.
+- **Keeps the grid's keys and clipboard out of it.** Arrow keys move your caret, not the cell
+  focus; `ctrl+C` copies your text, not the cell range.
+- **Tears it down** on commit, on cancel, when the focus leaves the cell, when the row scrolls far
+  enough out of view, and on `grid.destroy()`.
+
+**What is yours to decide is when a blur commits.** The built-in text box commits on blur, because
+clicking away from a half-typed value should keep it. An editor that opens a panel — a calendar, a
+colour picker, a list — must *not*, or it closes the instant its own panel takes the focus. That is
+why the policy lives in the editor rather than in the grid.
+
+`EditorContext`, the argument:
+
+| Field | Type | What it is |
+|---|---|---|
+| `value` | `any` | The current edit value: the typed character for a type-to-edit, else the cell's value. |
+| `row` | `R` | The row object. |
+| `column` | `Column<R>` | This column. |
+| `rowIndex` / `colIndex` | `number` | Position in the *displayed* rows and columns. |
+| `rowKey` | `string` | The row's key. |
+| `openedBy` | `"key" \| "pointer" \| "typing"` | How the edit started — where a caret should land. |
+| `pointerX` | `number \| undefined` | Client x of the click, when `openedBy` is `"pointer"`. |
+| `setValue(v)` | | Record a value. Does not write it: a commit does. |
+| `commit()` / `cancel()` | | End the edit, with or without writing. |
+| `commitAndPass(e)` | | Commit and hand the key back to the grid, which is how Tab moves on. Rarely needed — the grid already does this for Tab. |
+
+Return `{ element, focus?, destroy? }` instead of a bare element when the editor owns something
+beyond that element:
+
+```js
+editor: (ctx) => {
+    const button = document.createElement("button");
+    const panel = buildCalendar(ctx, document.body);       // lives outside the grid
+    return {
+        element: button,
+        focus: () => button.focus(),                        // default is element.focus()
+        destroy: () => panel.remove(),                      // your only chance to clean up
+    };
+}
+```
+
+The value goes through `validate` (or the column's `dataType` coercion) on commit exactly as a
+typed one does, so an editor may hand back any type: a `Date`, a number, an object.
+
+A column with an `editor` opens it **whatever its `dataType`** — including `boolean`, which
+otherwise toggles rather than opening anything, and which then shows a tick instead of a checkbox
+so that a press reaches the editor.
 
 ### `options`
 
@@ -642,7 +716,7 @@ scrolled out from under an open popover re-anchors it to a different row.
 
 | Method | Returns | Notes |
 |---|---|---|
-| `startEdit(rowIndex, colIndex)` | `void` | Opens with the value selected. No-op when the grid is not `editable`, the column is `readonly`, or the column is a boolean. |
+| `startEdit(rowIndex, colIndex)` | `void` | Opens with the value selected. No-op when the grid is not `editable`, the column is `readonly`, or the column is a boolean **without an `editor` of its own**. |
 | `isEditing()` | `boolean` | |
 | `getEdit()` | `CellEdit<R> \| undefined` | The open edit and the value the editor is holding. |
 | `commitEdit()` | `void` | Write and close. |
@@ -764,6 +838,8 @@ interface ColumnStateSnapshot {
     isStatusColumn?: boolean;
     hasRender: boolean;             // a custom renderer is installed
     hasOptions: boolean;            // edits through the dropdown
+    hasEditor: boolean;             // the column supplies its own editor
+    filterType: string | null;      // "options", a custom definition's name, or null
 }
 
 interface ViewportSnapshot {
@@ -871,14 +947,119 @@ the chips read and what `persistFilters` stores, and it is safe to hand straight
 An empty or absent `value` means **no filter at all**, which is why applying one and removing it
 are the same call: applying an empty selection means "no filter", not "no rows".
 
-`FilterType` is `"options"` today. The popover is built as a dispatch point for more.
+`FilterType` is `"options"` — the built-in checklist — or the `name` of a `FilterDefinition` you
+put on the column. Do not write `type` by hand for a custom filter: it is taken from the column,
+and a filter naming a type the column does not have is rejected.
 
 ### The funnel
 
 Every column carries one by default. `filterType: null` takes it off one column,
 `disableFiltering: true` off all of them. Clicking it opens a searchable checklist of that
 column's distinct values, **cascaded against the other filters**, with select-all, Apply and
-Clear. A column with 100,000 distinct values puts 12 rows in the checklist.
+Clear. A column with 100,000 distinct values puts 12 rows in the checklist. Give the column a
+`filter` definition and the same funnel opens that instead — see below.
+
+### `column.filter` — a filter type of your own
+
+A date range, a number range, a slider, a tag picker. You write the body of the popover; the grid
+draws the panel around it, the Apply and Clear buttons, the chip, and the persistence.
+
+```js
+const dateRangeFilter = {
+    name: "dateRange",
+    create: (ctx) => {                       // the popover body
+        const el = document.createElement("div");
+        el.innerHTML = `<input type="date" data-from><input type="date" data-to>`;
+        return {
+            element: el,
+            getValue: () => ({
+                from: el.querySelector("[data-from]").value,
+                to: el.querySelector("[data-to]").value,
+            }),
+        };
+    },
+    label: (value) => `${value.from || "…"} – ${value.to || "…"}`,   // the chip's text
+    match: (value, row, column) => {                                 // keep the row?
+        const v = row[column.key];
+        return (!value.from || v >= value.from) && (!value.to || v <= value.to);
+    },
+};
+
+AVGrid.create(el, {
+    rows,
+    columns: [{ key: "created", filter: dateRangeFilter }],
+    filterBar: true,
+});
+```
+
+**No registration call.** The definition is an object on the column; reuse across columns is a
+shared `const`. There is no order of calls to get right, which is the same rule as everything else
+in this API.
+
+```ts
+interface FilterDefinition<R = any> {
+    name: string;                                          // stored as the filter's `type`
+    create: (ctx: FilterBodyContext<R>) => FilterBody;
+    label: (value: any, column: Column<R>) => string;
+    match: (value: any, row: R, column: Column<R>) => boolean;
+    serialize?: (value: any) => any;                       // only if the value is not JSON
+    deserialize?: (stored: any) => any;
+}
+
+interface FilterBody {
+    element: HTMLElement;
+    getValue: () => any;      // read when Apply is pressed; nullish removes the filter
+    focus?: () => void;       // defaults to the first control in `element`
+    destroy?: () => void;     // called every way the popover closes
+}
+
+interface FilterBodyContext<R = any> {
+    column: Column<R>;
+    value: any;               // the applied value, or undefined the first time
+    filter: Filter;           // the whole applied filter, normalized
+    apply: (value: any) => void;   // apply and close — for a body with its own Enter
+    close: () => void;             // close without applying
+}
+```
+
+What the grid does, so the snippet above is the whole filter:
+
+- **The funnel** on that column opens your body instead of the checklist. `filterType: null` still
+  takes the funnel off; `disableFiltering` still takes them all off.
+- **Apply and Clear.** Apply reads `getValue()`; Clear applies nothing. A **nullish value removes
+  the filter**, so Apply with an empty body is Clear — the same rule as an empty checklist.
+- **The chip**, reading `label(value, column)`, reopening your body anchored to itself, removing
+  the filter from its ✕.
+- **Persistence**, if `persistFilters` is on, and the cascade: an `"options"` filter on another
+  column offers only the values your filter leaves reachable.
+- **Teardown.** `destroy()` is called when the popover closes, however it closes.
+
+⚠ **`match` runs once per row, on every filter pass.** Do the parsing in `getValue` and put the
+result in the value:
+
+```js
+getValue: () => ({
+    from: fromInput.value,                    // for the chip and for storage
+    fromMs: Date.parse(fromInput.value),      // parsed once, here
+    toMs: Date.parse(toInput.value),
+}),
+match: (v, row) => row.created >= v.fromMs && row.created <= v.toMs,   // two comparisons
+```
+
+The value is data you control, which is why there is no second `prepare`-style hook. Measured on
+100,000 rows: a `match` written this way filters them in **1.7 ms** — *less* than the built-in
+options test on the same rows, which resolves `formatValue` and `optionMatches` per row — and the
+identical filter re-parsing its bounds inside `match` takes **90 ms**, fifty-six times as long.
+That is the whole cost of getting this wrong. See
+[`tasks/benchmark-results.md`](../tasks/benchmark-results.md).
+
+**Persistence is JSON.** The value is stored as it stands, with ISO date strings revived into
+`Date`. Add `serialize` / `deserialize` only when the value cannot survive that — a `RegExp`, a
+`Map`, or an `Infinity` you would rather rebuild than trust. A stored filter whose column no longer
+has that definition is **dropped with a warning** rather than silently filtering nothing.
+
+A definition missing `name`, `create`, `label` or `match` throws from `create()`, naming the column
+and the field.
 
 ### `onGetOptions` — supply the options yourself
 
@@ -1063,11 +1244,12 @@ by one, when the matching `can*` option is on.
 |---|---|
 | `Enter` / `F2` | Open the editor, value selected |
 | any printable key | Open the editor with that character |
-| `Space` | Toggle a boolean column |
+| `Space` | Toggle a boolean column — or open its `editor`, if it has one |
 | `Enter` (boolean) | Toggle the selection to the focused cell's opposite |
 | `Escape` | Cancel |
 | `Enter` / `Tab` / `↑` / `↓` (in the editor) | Commit, then move |
 | `←` / `→` / `Home` / `End` (in the editor) | Move the caret; the grid does not act |
+| `Escape` / `Tab` (in a custom `editor`) | Cancel / commit-and-move, bound by the grid unless the editor calls `preventDefault()` |
 | `Delete` | Clear every editable cell in the selection |
 
 ### Clipboard
@@ -1204,7 +1386,10 @@ is up.
 
 Root-level classes worth knowing: `avg-grid` (the root), `avg-grid-wrap` (the flex column a
 `filterBar` grid lives in), `avg-header-cell`, `avg-data-cell`, `avg-filter-bar`, `avg-popover`,
-`avg-menu`, `avg-list`.
+`avg-menu`, `avg-list`. Inside a filter popover: `avg-filter-content` (either body),
+`avg-filter-buttons` (the Apply / Clear row), and for a `column.filter`,
+`avg-custom-filter-content` on the panel with `avg-custom-filter-body` around the element your
+`create()` returned.
 
 **If you write your own cell renderer returning an element, the stylesheet must position it
 absolutely.** The engine writes `top` and `left`; nothing writes `position`. A cell that lays out

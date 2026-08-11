@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AVGrid } from "../AVGrid";
 import type { AVGridOptions } from "../options";
 import type { RerenderInfo } from "../render/types";
+import type { CellEditor, EditorContext } from "../types";
 
 /**
  * In-cell editing.
@@ -903,5 +904,246 @@ describe("the editor element", () => {
         g.destroy();
         expect(onEdit).not.toHaveBeenCalled();
         expect(g.getRows()[0].name).toBe("Row 1");
+    });
+});
+
+/**
+ * `Column.editor` — a control the host supplies, in place of the text box or the dropdown.
+ *
+ * What is worth testing here is not that the element appears: it is the three things the grid
+ * does *for* the editor, which are the three an agent writing one will not have thought about.
+ * `adopt()` positions and marks it, the grid binds Escape and Tab on it, and `destroy` is called
+ * on every one of the four ways an edit can end.
+ */
+describe("a column's own editor", () => {
+    interface Built {
+        g: AVGrid<Row>;
+        contexts: EditorContext<Row>[];
+        destroyed: () => number;
+        focused: () => number;
+    }
+
+    /** A grid whose `name` column is edited by a host-supplied input. */
+    function withEditor(
+        build: (ctx: EditorContext<Row>) => HTMLElement | CellEditor = () => {
+            const el = document.createElement("input");
+            el.className = "my-editor";
+            return el;
+        },
+        count = 20,
+    ): Built {
+        const contexts: EditorContext<Row>[] = [];
+        let destroyed = 0;
+        let focused = 0;
+        const g = grid(count, {
+            columns: [
+                {
+                    key: "name",
+                    name: "Name",
+                    width: 120,
+                    editor: (ctx) => {
+                        contexts.push(ctx);
+                        const built = build(ctx);
+                        if (built instanceof HTMLElement) return built;
+                        const own = built.focus;
+                        return {
+                            element: built.element,
+                            focus: own
+                                ? () => {
+                                      focused++;
+                                      own();
+                                  }
+                                : undefined,
+                            destroy: () => {
+                                destroyed++;
+                                built.destroy?.();
+                            },
+                        };
+                    },
+                },
+                { key: "score", name: "Score", width: 80, dataType: "number" },
+                { key: "active", name: "Active", width: 70, dataType: "boolean" },
+            ],
+        });
+        return { g, contexts, destroyed: () => destroyed, focused: () => focused };
+    }
+
+    it("is built instead of the built-in one, and gets the whole context", async () => {
+        const { g, contexts } = withEditor();
+        g.focusCell(0, 0);
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+
+        expect(contexts).toHaveLength(1);
+        const ctx = contexts[0];
+        expect(ctx.value).toBe("Row 1");
+        expect(ctx.row).toBe(g.getRows()[0]);
+        expect(ctx.column.key).toBe("name");
+        expect(ctx.rowIndex).toBe(0);
+        expect(ctx.colIndex).toBe(0);
+        expect(ctx.rowKey).toBe("1");
+        expect(ctx.openedBy).toBe("key");
+
+        const el = editor(g);
+        expect(el?.classList.contains("my-editor")).toBe(true);
+        // The two things the grid adds: the class that positions it inside the cell, and the
+        // attribute that tells `GridInteractions` its keys are not the grid's.
+        expect(el?.classList.contains("avg-cell-editor")).toBe(true);
+        expect(el?.getAttribute("data-type")).toBe("cell-editor");
+        expect(cellAt(g, 0, 0)?.contains(el!)).toBe(true);
+    });
+
+    it("commits what it records through setValue", async () => {
+        const { g, contexts } = withEditor();
+        g.focusCell(0, 0);
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+
+        contexts[0].setValue("picked");
+        contexts[0].commit();
+        expect(g.getRows()[0].name).toBe("picked");
+        expect(g.isEditing()).toBe(false);
+    });
+
+    it("cancels on Escape and commits on Tab with no handling of its own", async () => {
+        const first = withEditor();
+        first.g.focusCell(0, 0);
+        key(first.g, { key: "F2", code: "F2" });
+        await paint(first.g);
+        first.contexts[0].setValue("discarded");
+        keyOn(editor(first.g), { key: "Escape", code: "Escape" });
+        expect(first.g.getRows()[0].name).toBe("Row 1");
+        expect(first.g.isEditing()).toBe(false);
+
+        const second = withEditor();
+        second.g.focusCell(0, 0);
+        key(second.g, { key: "F2", code: "F2" });
+        await paint(second.g);
+        second.contexts[0].setValue("kept");
+        keyOn(editor(second.g), { key: "Tab", code: "Tab" });
+        expect(second.g.getRows()[0].name).toBe("kept");
+        expect(second.g.isEditing()).toBe(false);
+        // Committed *and* moved on, which is the half an editor would have had to know
+        // `commitAndPass` to get right.
+        expect(second.g.getFocus()?.columnKey).toBe("score");
+    });
+
+    it("stands aside for an editor that handles the key itself", async () => {
+        const handled: string[] = [];
+        const { g } = withEditor(() => {
+            const el = document.createElement("input");
+            el.addEventListener("keydown", (e) => {
+                handled.push(e.key);
+                e.preventDefault();
+            });
+            return el;
+        });
+        g.focusCell(0, 0);
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+
+        keyOn(editor(g), { key: "Escape", code: "Escape", cancelable: true });
+        expect(handled).toEqual(["Escape"]);
+        expect(g.isEditing()).toBe(true);
+    });
+
+    it("calls the focus it supplied, and falls back to the element's when it did not", async () => {
+        const supplied = withEditor((): CellEditor => {
+            const el = document.createElement("input");
+            return { element: el, focus: () => el.focus() };
+        });
+        supplied.g.focusCell(0, 0);
+        key(supplied.g, { key: "F2", code: "F2" });
+        await paint(supplied.g);
+        await Promise.resolve();
+        expect(supplied.focused()).toBe(1);
+
+        // A bare element: nothing to call but `element.focus()`, which the grid fills in.
+        const bare = withEditor();
+        bare.g.focusCell(0, 0);
+        key(bare.g, { key: "F2", code: "F2" });
+        await paint(bare.g);
+        await Promise.resolve();
+        expect(document.activeElement).toBe(editor(bare.g));
+    });
+
+    it("is destroyed on commit, on cancel, and with the grid", async () => {
+        for (const end of ["commit", "cancel", "destroy"] as const) {
+            const { g, destroyed } = withEditor(
+                (): CellEditor => ({ element: document.createElement("input") }),
+            );
+            g.focusCell(0, 0);
+            key(g, { key: "F2", code: "F2" });
+            await paint(g);
+            expect(destroyed()).toBe(0);
+
+            if (end === "commit") g.commitEdit();
+            else if (end === "cancel") g.cancelEdit();
+            else g.destroy();
+
+            expect(destroyed(), end).toBe(1);
+        }
+    });
+
+    it("is destroyed when its cell is recycled out from under it", async () => {
+        const { g, destroyed } = withEditor(
+            (): CellEditor => ({ element: document.createElement("input") }),
+            400,
+        );
+        g.focusCell(0, 0);
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+
+        // The editing row scrolled 160 rows out of view in one jump, which is the case
+        // `releaseCell` does *not* cover: the pool evicted the cell holding the editor rather
+        // than repainting it as another one, so the element left the DOM with nobody noticing.
+        // The scroll is dispatched as an event because happy-dom fires none for a `scrollTop`
+        // write, and it is the event both the engine and `GridInteractions` listen to.
+        const container = g.render.model.containerRef.current!;
+        container.scrollTop = 4000;
+        container.dispatchEvent(new Event("scroll"));
+        await paint(g);
+
+        expect(editor(g)).toBeNull();
+        expect(destroyed()).toBe(1);
+        expect(g.isEditing()).toBe(false);
+    });
+
+    it("opens on a boolean column, which otherwise only toggles", async () => {
+        const contexts: EditorContext<Row>[] = [];
+        const g = grid(20, {
+            columns: [
+                { key: "name", name: "Name", width: 120 },
+                {
+                    key: "active",
+                    name: "Active",
+                    width: 70,
+                    dataType: "boolean",
+                    editor: (ctx) => {
+                        contexts.push(ctx);
+                        return document.createElement("input");
+                    },
+                },
+            ],
+        });
+
+        g.focusCell(0, 1);
+        key(g, { key: "F2", code: "F2" });
+        await paint(g);
+        expect(contexts).toHaveLength(1);
+        expect(editor(g)).not.toBeNull();
+        g.cancelEdit();
+        await paint(g);
+
+        // And the checkbox is gone: a press on it toggles, which would have made the editor
+        // unreachable with the pointer.
+        expect(cellAt(g, 0, 1)?.querySelector('[data-type="bool-toggle"]')).toBeNull();
+
+        // Space opens it too, rather than flipping the cell or typing a space.
+        key(g, { key: " ", code: "Space" });
+        await paint(g);
+        expect(contexts).toHaveLength(2);
+        expect(contexts[1].value).toBe(true);
+        expect(g.getRows()[0].active).toBe(true);
     });
 });

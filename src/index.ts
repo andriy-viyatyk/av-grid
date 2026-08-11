@@ -62,7 +62,6 @@ export type { SelectAllState } from "./model/SelectedModel";
 export { CopyPasteModel } from "./model/CopyPasteModel";
 export type { CopyMode } from "./model/CopyPasteModel";
 export { EditingModel } from "./model/EditingModel";
-export type { CellEditor, EditorContext } from "./model/EditingModel";
 export { createCellInput } from "./view/CellInput";
 export { createCellSelect } from "./view/CellSelect";
 export { createDefaultEditor } from "./view/DefaultEditFormatter";
@@ -91,6 +90,8 @@ export {
     OPTIONS_FILTER_MIN_WIDTH,
 } from "./view/OptionsFilterContent";
 export type { OptionsFilterContentOptions } from "./view/OptionsFilterContent";
+export { CustomFilterContent } from "./view/CustomFilterContent";
+export type { CustomFilterContentOptions } from "./view/CustomFilterContent";
 export { FilterBar, optionsFilterValues } from "./view/FilterBar";
 export type { FilterBarOptions } from "./view/FilterBar";
 export { createButton, createIconButton } from "./view/Button";

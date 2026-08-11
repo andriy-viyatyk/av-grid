@@ -208,7 +208,10 @@ export function renderDataCell<R>(
         // costs two comparisons rather than a repaint. Every branch is a constant, so a cell
         // whose state did not change compares equal and is not touched at all.
         let wanted: string;
-        if (!editing.canEdit(column)) {
+        // A column with its own editor gets a tick and no box, even when editable: the box's
+        // press is intercepted by `GridInteractions` and toggles, which would make the editor
+        // unreachable by pointer.
+        if (!editing.canEdit(column) || column.editor) {
             wanted = checked ? TICK : "";
         } else if (
             model.data.hovered.row === dataRow &&

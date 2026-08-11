@@ -28,9 +28,48 @@ then restarts at the current phase, carrying forward the standing rules and a po
 
 ## 📊 Current state
 
-**Phase 6 — customization — is under way.** Tasks 21–25 in [`plan.md`](tasks/plan.md); **task 21
-is done**, and 22–25 (custom cell editors, custom filter types, `copyValue`, then docs and an
-example) are not started.
+**Phase 6 — customization — is under way.** Tasks 21–25 in [`plan.md`](tasks/plan.md); **tasks 21,
+22 and 23 are done**, and 24–25 (`copyValue`, then docs and an example) are not started.
+
+**A column can bring its own filter type, and the grid still draws everything around it.**
+`Column.filter` takes a definition — `{ name, create, label, match }`, plus `serialize` /
+`deserialize` if the value is not JSON-shaped — and the funnel then opens the host's element
+instead of the checklist. `create(ctx)` returns `{ element, getValue, focus?, destroy? }` and
+nothing more: the grid keeps the panel, the **Apply** and **Clear**, the chip that reads `label`
+and reopens the body anchored to itself, the cascade into the other columns' option lists, and the
+persistence. **No registration call** — the definition is an object on the column, so reuse is a
+shared `const` and there is no order of calls to get right. `filterType: null` still takes the
+funnel off; a filter naming a type its column is not filtered by is rejected, which is what makes
+a stored filter whose definition has gone drop with a warning instead of silently matching nothing.
+
+**A host `match` is *cheaper* than the built-in test it replaces — and 24× more expensive written
+the obvious way.** On 100,000 rows at matching selectivity: a definition whose `getValue` parses
+its bounds once and whose `match` is two numeric comparisons filters in **14.0 ms** against
+**19.9 ms** for the built-in `"options"` test, which resolves each row through `filterValue` and
+`optionMatches` before it reaches `===`. The same date-range filter re-parsing its bounds inside
+`match` takes **336 ms**. That is why there is no `prepare`-style second hook: the value is data
+the definition controls, and putting the parsed form in it is the whole optimization.
+
+**A column can supply its own editor, and it takes four lines.** `Column.editor` receives the
+`EditorContext` the built-in text box and dropdown already use — value, row, column, indices,
+`openedBy`, and `setValue` / `commit` / `cancel` — and returns an element, or `{ element, focus?,
+destroy? }` when it owns a panel somewhere else. The broken `editRender` is gone: it was handed a
+`CellContext`, so whatever it drew had no way to record a value or end the edit. The grid **adopts**
+whatever comes back — adds `avg-cell-editor`, which is what positions it inside the cell, marks it
+`data-type="cell-editor"` so its keys and clipboard are not the grid's, and binds Escape and Tab so
+an editor that handles neither still cancels and still lets the user move on. **Commit-on-blur is
+deliberately not the grid's**: it lives in `CellInput`, which is what lets a date picker take the
+focus without closing the edit underneath it. A column with an `editor` opens it whatever its
+`dataType`, including `boolean` — which then shows a tick and no checkbox, because the checkbox's
+press toggles and would make the editor unreachable.
+
+Writing that task's teardown test found **a fifth way an edit can end, and a real bug**: scroll the
+editing row far enough and the pool *evicts* the cell instead of repainting it as another one, so
+`releaseCell` never fired and the edit stayed open around an element no longer in the document — a
+`CellSelect`-style editor would have left its popover on `document.body`. `onViewportScrolled` now
+closes it, reading the render window synchronously rather than waiting a frame to ask the DOM. It
+affected the built-in editors identically, and only a browser can see it, because the pool needs
+real layout to evict anything.
 
 **Styling reaches the granularity a host actually styles at.** `Column.cellClass` and
 `Column.headerClass` take a constant string or a function of the cell; `rowClass` on the options
@@ -416,6 +455,14 @@ const el = p.previous ?? p.recycle?.() ?? document.createElement("div");
 Dropping `previous` costs ~12× on full repaints and breaks in-cell editing; dropping `recycle`
 allocates on every scroll frame. Prefer `firstChild.nodeValue` over `textContent`, which
 allocates a text node per cell per frame.
+
+**A cell that owns something cannot rely on its own repaint to hear that it lost it.** An element
+scrolled out of the window is often *evicted* — removed from the DOM and replaced at the new
+coordinate by a different element — and a renderer is never called for an element that is merely
+evicted. `EditingModel` learned this the expensive way: `releaseCell`, which fires when the editing
+cell is repainted as another coordinate, covers a short scroll and misses a long one, so an open
+editor was left attached to nothing. The fix is to ask the render window on the scroll
+(`onViewportScrolled`) rather than to wait for a paint that will not come.
 
 And whatever a renderer returns, **the stylesheet has to position it absolutely**. The engine
 writes `top` and `left`; nothing writes `position`. A cell class that forgets it lays out in

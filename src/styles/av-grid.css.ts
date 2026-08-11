@@ -863,6 +863,20 @@ export const css = `
     border-top: solid 1px var(--avg-border-color);
 }
 
+/* A custom filter body is host DOM, so the grid styles only the space around it: the panel
+   scrolls if the body is taller than the room under its anchor, and the buttons keep the row they
+   have under the checklist. No grip on this popover, so the 20px reserved for one comes back. */
+.avg-custom-filter-content > .avg-filter-buttons {
+    padding: 6px;
+}
+
+.avg-custom-filter-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 8px;
+}
+
 .avg-button {
     padding: 3px 12px;
     font: inherit;

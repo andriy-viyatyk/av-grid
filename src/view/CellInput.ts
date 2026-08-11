@@ -12,7 +12,7 @@
  * outlives its edit.
  */
 
-import type { EditorContext, CellEditor } from "../model/EditingModel";
+import type { EditorContext, MountedCellEditor } from "../types";
 
 /**
  * Which character boundary the given client x falls on, or `undefined` when it cannot be worked
@@ -89,7 +89,7 @@ function caretIndexAt(input: HTMLInputElement, clientX: number): number | undefi
     }
 }
 
-export function createCellInput<R>(ctx: EditorContext<R>): CellEditor {
+export function createCellInput<R>(ctx: EditorContext<R>): MountedCellEditor {
     const input = document.createElement("input");
     input.className = "avg-cell-editor";
     // A text input even for a number column, deliberately. `type="number"` rejects the very

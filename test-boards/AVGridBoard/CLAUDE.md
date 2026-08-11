@@ -47,9 +47,11 @@ await window.avg.measureClassHooks()      // the task-21 check: cost, and does a
 await window.avg.measureRangeDrag(row)    // the task-10 gate: drag cost at any row
 await window.avg.measureSelectAll()       // the task-11 gate: select-all cost and dirty rows
 await window.avg.measureEditing(row)      // the task-12 check: does the editor survive a repaint
+await window.avg.measureCustomEditor(row) // the task-22 gate: a host's editor, and its teardown
 await window.avg.measureClipboard(row, n) // the task-13 check: copy cost, and what a paste repaints
 await window.avg.measureStructure(row)    // the task-14 check: does an insert move the viewport
 await window.avg.measureFilter(count)    // the task-15 gate: filter down, narrow, back up, search
+await window.avg.measureCustomFilter(count) // the task-23 gate: a host's `match` in the 100k row loop
 await window.avg.measureFilterStorage()  // filters round-tripped through an injected store
 await window.avg.measureFilterPopover(count) // the task-16 gate: what a popover costs the grid
 await window.avg.measureFilterBar(count)  // the task-17 check: chip cost, and where a chip's popover lands
@@ -164,6 +166,18 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   with a `formatValue` returning a token found nowhere else (`Grace~Thompson` matches 12,500
   rows with it and 0 without) — and note the board's eight first names and eight last names
   pair up into only eight combinations, so `Grace~Hopper` is not one of them.
+- **A custom filter type** — the `Score` column carries a `filter` definition (`scoreRangeFilter`
+  in `app.js`), so its funnel opens a **min/max panel** instead of a checklist, which is the right
+  body for a column whose 100,000 values are nearly all distinct. Its two bounds are parsed once in
+  `getValue`, which is the shape the docs prescribe. `measureCustomFilter(count)` holds that to a
+  number: **`rowLoop`** compares a host `match` against the built-in `"options"` test at matching
+  selectivity, and **`parsing`** compares the same filter written the two ways — bounds resolved
+  once against re-parsed per row. Both are measured by **alternating within pairs and then
+  reversing the order inside the pair**; timed in blocks this comparison reports whichever ran
+  second as faster, which is the third time this board has hit that. The grid half must read
+  **1 repaint / 0 mutations** for apply and clear, and `popover.dirtyOnOpen: 1` — the header cell
+  the funnel lives in. The panel's own look comes from `.range-filter` in `style.css`: host DOM in
+  the grid's popover, which is the point.
 - **The filter popover** — click any header's funnel. `measureFilterPopover(count)` opens one on
   a five-value column and on `score`, whose 100,000 values are nearly all distinct. Quote the
   two right-hand numbers: opening a popover marks **1** thing on the grid and mutates **0** DOM
@@ -237,6 +251,12 @@ The second is the task-9 requirement in one line: **theming is CSS, never JavaSc
 
 ## Gotchas
 
+- **Check `document.hidden` before believing any timing from this board.** A backgrounded webview
+  is throttled and `requestAnimationFrame` does not run at all, so anything awaiting `settle()`
+  hangs and every measurement inflates: the same 100k-row filter pass read **14.0 ms hidden and
+  1.7 ms visible**, identical code. `browser_evaluate` still works while hidden, which is what
+  makes this worth a line — the numbers come back, they are just wrong. Pure computation can be
+  measured that way if the ratio is what matters; anything counting paints cannot.
 - **`measurePaintCost` samples 300 steps, not 40.** A paint costs well under a millisecond, so
   a 40-step sample is dominated by timer noise and the top-to-bottom ratio swings between
   0.99× and 1.31× run to run. At 300 it settles within a percent or two.

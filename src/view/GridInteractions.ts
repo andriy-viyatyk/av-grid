@@ -741,6 +741,10 @@ export class GridInteractions<R> {
      * its scroll listener is bound before this one, so a frame requested here runs behind it.
      */
     private onScrolled = (): void => {
+        // Before the pointer gate below, and cheap for the same reason: it returns on one
+        // comparison unless an editor is open. An editing row scrolled out of view takes its
+        // editor's element out of the DOM with it, and the model has to hear about it.
+        this.model.models.editing.onViewportScrolled();
         // Nothing to recompute with no pointer over the grid, which is every programmatic
         // scroll and every scrollbar drag that started outside it. Checking here rather than
         // only in the callback keeps a `scrollTo` from queueing a frame per event.

@@ -9,10 +9,10 @@
  * layer opens an editor without importing the view layer.
  */
 
-import type { CellEditor, EditorContext } from "../model/EditingModel";
+import type { EditorContext, MountedCellEditor } from "../types";
 import { createCellInput } from "./CellInput";
 import { createCellSelect } from "./CellSelect";
 
-export function createDefaultEditor<R>(ctx: EditorContext<R>): CellEditor {
+export function createDefaultEditor<R>(ctx: EditorContext<R>): MountedCellEditor {
     return ctx.column.options ? createCellSelect(ctx) : createCellInput(ctx);
 }

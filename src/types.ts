@@ -157,8 +157,15 @@ export interface Column<R = any> {
     render?: CellRenderer<R>;
     /** Custom header content. */
     headerRender?: HeaderRenderer<R>;
-    /** Custom content while the cell is being edited. */
-    editRender?: CellRenderer<R>;
+    /**
+     * The control this column's cells are edited with — a date picker, a colour swatch, a
+     * lookup box. Replaces the built-in text box or dropdown for this column only.
+     *
+     * See `CellEditorFactory` for the shape and for the one thing it must decide itself.
+     * A column with an `editor` opens it whatever its `dataType`, including `"boolean"`, which
+     * otherwise toggles rather than opening anything.
+     */
+    editor?: CellEditorFactory<R>;
 
     /** Plain-text value used for sorting, filtering, and clipboard copy. */
     formatValue?: (column: Column<R>, row: R) => string;
@@ -184,6 +191,15 @@ export interface Column<R = any> {
      */
     filterType?: FilterType | null;
 
+    /**
+     * A filter type of this column's own, in place of the built-in checklist: a date range, a
+     * number range, a slider. See `FilterDefinition`.
+     *
+     * Wins over `filterType` — except `filterType: null`, which still takes the funnel off the
+     * column and so turns this off with it.
+     */
+    filter?: FilterDefinition<R>;
+
     /** Coerce/reject an edited value. Return the value to commit. */
     validate?: (column: Column<R>, row: R, value: any) => any;
     /** Choices for the in-cell editor. May be computed, and may be async. */
@@ -197,8 +213,14 @@ export type OnColumnsReorder = (sourceKey: string, targetKey: string) => void;
 // Filters
 // ---------------------------------------------------------------------------
 
-/** Only `"options"` exists today; the popover is built as a dispatch point for more. */
-export type FilterType = "options";
+/**
+ * Which filter body a column opens. `"options"` is the built-in checklist; any other string is
+ * the `name` of a `FilterDefinition` supplied as the column's `filter`.
+ *
+ * The `(string & {})` arm is what keeps `"options"` in an editor's autocomplete while still
+ * accepting a custom name — a plain `string` would offer nothing.
+ */
+export type FilterType = "options" | (string & {});
 
 /**
  * One applied column filter.
@@ -277,6 +299,97 @@ export type GetFilterOptions<R = any> = (
     columnKey: string,
     search?: string,
 ) => DisplayOption[] | Promise<DisplayOption[]>;
+
+// ---------------------------------------------------------------------------
+// Custom filters
+// ---------------------------------------------------------------------------
+
+/**
+ * What a filter body is given: the column, the value currently applied, and the two things only
+ * the grid can do — apply and close.
+ *
+ * `value` is `undefined` the first time the popover opens on a column, and the value the body
+ * last returned from `getValue()` every time after, so a reopened filter shows what is applied.
+ */
+export interface FilterBodyContext<R = any> {
+    column: Column<R>;
+    /** The applied value, or `undefined` when this column has no filter yet. */
+    value: any;
+    /** The whole applied filter, normalized. Rarely needed — `value` is the interesting part. */
+    filter: Filter;
+    /**
+     * Apply a value and close, exactly as the grid's Apply button does. For a body that wants
+     * Enter, or a swatch that applies on click. A nullish value removes the filter.
+     */
+    apply: (value: any) => void;
+    /** Close without applying. */
+    close: () => void;
+}
+
+/**
+ * The body of a filter popover: the part only the host can write. The grid draws the panel
+ * around it and the Apply / Clear buttons under it.
+ */
+export interface FilterBody {
+    element: HTMLElement;
+    /** The value to filter by, read when Apply is pressed. Nullish removes the filter. */
+    getValue: () => any;
+    /** Put the focus somewhere useful when the popover opens. Defaults to the element. */
+    focus?: () => void;
+    /** Release anything owned beyond `element`, which the grid removes itself. */
+    destroy?: () => void;
+}
+
+/**
+ * A filter type of your own — the second arm of the popover's dispatch, and the whole of what a
+ * host has to write to get one. No registration call: the definition is an object on the column,
+ * shared between columns with a `const`.
+ *
+ * ```js
+ * const dateRangeFilter = {
+ *     name: "dateRange",
+ *     create: (ctx) => {
+ *         const el = document.createElement("div");
+ *         el.innerHTML = `<input type="date" data-from><input type="date" data-to>`;
+ *         return {
+ *             element: el,
+ *             getValue: () => ({
+ *                 from: el.querySelector("[data-from]").value,
+ *                 to: el.querySelector("[data-to]").value,
+ *             }),
+ *         };
+ *     },
+ *     label: (value) => `${value.from || "…"} – ${value.to || "…"}`,
+ *     match: (value, row, column) => {
+ *         const v = row[column.key];
+ *         return (!value.from || v >= value.from) && (!value.to || v <= value.to);
+ *     },
+ * };
+ *
+ * columns: [{ key: "created", filter: dateRangeFilter }]
+ * ```
+ *
+ * ⚠ **`match` runs once per row.** Do the parsing in `getValue` and put the result in the value —
+ * a value of `{ from, to, fromMs, toMs }` has parsed its dates once and its `match` is two
+ * integer comparisons. The alternative is host code doing `new Date()` a hundred thousand times
+ * inside the filter pass.
+ */
+export interface FilterDefinition<R = any> {
+    /** Identifies this filter type. Stored as the filter's `type`, so keep it stable. */
+    name: string;
+    /** Build the popover body. Called each time the popover opens. */
+    create: (ctx: FilterBodyContext<R>) => FilterBody;
+    /** The chip's text in the filter bar, and its tooltip. */
+    label: (value: any, column: Column<R>) => string;
+    /** Keep this row? Called once per row, per filter, on every filter pass. */
+    match: (value: any, row: R, column: Column<R>) => boolean;
+    /**
+     * Only if the value is not JSON-shaped. `persistFilters` stores it with `JSON.stringify` and
+     * revives ISO date strings on the way back, which covers most values as they stand.
+     */
+    serialize?: (value: any) => any;
+    deserialize?: (stored: any) => any;
+}
 
 // ---------------------------------------------------------------------------
 // Filter persistence
@@ -363,6 +476,102 @@ export type CellEdit<R = any> = {
     pointerX?: number;
     changed: boolean;
 };
+
+/**
+ * What a `Column.editor` factory is given: everything it needs to read the cell, record a new
+ * value, and end the edit. The grid's own text box and dropdown are built from this same
+ * context, so a custom editor is not a second-class one.
+ */
+export interface EditorContext<R = any> {
+    /** The current edit value — the typed character for a type-to-edit, else the cell's value. */
+    value: any;
+    row: R;
+    column: Column<R>;
+    /** Index into the currently displayed rows (after sorting and filtering). */
+    rowIndex: number;
+    colIndex: number;
+    rowKey: string;
+    /** How the edit was opened. Decides where the caret lands — see `EditOrigin`. */
+    openedBy: EditOrigin;
+    /**
+     * Where the pointer was, in client coordinates, when `openedBy` is `"pointer"`.
+     *
+     * The editor uses it to put the caret where the user clicked rather than at one end of the
+     * text — which is what clicking into text means everywhere else on the platform.
+     */
+    pointerX?: number;
+    /** Record a new value. Marks the edit changed, so a commit is not a no-op. */
+    setValue: (value: any) => void;
+    /** Write the recorded value and close. */
+    commit: () => void;
+    /** Close without writing. */
+    cancel: () => void;
+    /**
+     * Commit, then hand the key back to the grid so it moves the focus — what Tab and the
+     * vertical arrows do in the built-in editor.
+     *
+     * Rarely needed: the grid already binds Escape and Tab on the editor's element for you. Use
+     * it to give another key the same "commit and move on" behaviour.
+     */
+    commitAndPass: (e: KeyboardEvent) => void;
+}
+
+/**
+ * What an editor factory returns when a single element is not enough.
+ *
+ * `Column.editor` may return a bare `HTMLElement` — the common case — or this, when the editor
+ * owns something beyond that element: a picker panel mounted on `document.body`, a listener on
+ * the document, a timer. `destroy` is then the only chance to release it.
+ */
+export interface CellEditor {
+    element: HTMLElement;
+    /**
+     * Put the caret in the control. Called once, after `element` is in the document — which is
+     * why it is a callback rather than something the factory can do itself.
+     *
+     * Optional for a `Column.editor`; the grid falls back to `element.focus()`.
+     */
+    focus?: () => void;
+    /**
+     * Release anything the editor owns beyond `element`, which the grid removes itself. Called on
+     * commit, on cancel, on `grid.destroy()`, and if the cell is recycled out from under the
+     * edit.
+     */
+    destroy?: () => void;
+}
+
+/**
+ * A cell editor factory. Return an element, or a `CellEditor` when the editor owns more than one.
+ *
+ * ```js
+ * {
+ *     key: "due",
+ *     editor: (ctx) => {
+ *         const input = document.createElement("input");
+ *         input.type = "date";
+ *         input.value = ctx.value ?? "";
+ *         input.addEventListener("input", () => ctx.setValue(input.value));
+ *         input.addEventListener("blur", () => ctx.commit());
+ *         return input;
+ *     },
+ * }
+ * ```
+ *
+ * Escape and Tab already work — the grid binds them on whatever element you return. What is
+ * yours to decide is **when a blur commits**: the built-in text box commits on blur, and an
+ * editor whose control lives in a popover must *not*, or it closes the moment its own panel
+ * takes the focus.
+ */
+export type CellEditorFactory<R = any> = (
+    ctx: EditorContext<R>,
+) => HTMLElement | CellEditor;
+
+/**
+ * A `CellEditor` whose `focus` is settled — what the grid holds once an editor is built, having
+ * filled in `element.focus()` for a host that left it out. The built-in editors are written to
+ * this shape directly; a host never needs the name.
+ */
+export type MountedCellEditor = CellEditor & { focus: () => void };
 
 /**
  * A committed edit, handed to `onEdit` just before the grid writes it.

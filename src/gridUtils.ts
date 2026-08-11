@@ -152,6 +152,25 @@ function filtersMatch<R>(row: R, filters?: ResolvedFilter<R>[]): boolean {
     if (filters?.length) {
         for (const resolved of filters) {
             const filter = resolved.filter;
+            const column = resolved.column;
+
+            // A column with its own `filter` owns the whole row test: no value is read for it,
+            // because a custom filter may compare several properties or none. Resolved once for
+            // the pass, so this is a property read rather than a lookup per row.
+            const definition = column?.filter;
+            if (definition) {
+                const value = filter.value;
+                if (
+                    value !== undefined &&
+                    value !== null &&
+                    !definition.match(value, row, column!)
+                ) {
+                    match = false;
+                }
+                if (!match) break;
+                continue;
+            }
+
             const rowValue = filterValue(row, resolved);
 
             switch (filter.type ?? "options") {

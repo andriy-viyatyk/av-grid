@@ -25,6 +25,7 @@ import type {
     Column,
     DisplayOption,
     Filter,
+    FilterDefinition,
     PersistFiltersOptions,
     SortColumn,
 } from "./types";
@@ -306,10 +307,12 @@ export function validateColumns<R>(
         }
         seen.add(key);
 
+        const col = column as Column<R>;
+        if (col.filter !== undefined) validateFilterDefinition(col.filter, key);
+
         // A key that matches nothing in the data renders an empty column and looks like a
         // rendering bug. Two exemptions: computed columns never read the row property, and a
         // column being *added* is empty by definition — the data arrives when it is typed in.
-        const col = column as Column<R>;
         const computed = Boolean(col.render || col.formatValue || col.isStatusColumn);
         if (
             !computed &&
@@ -328,6 +331,54 @@ export function validateColumns<R>(
     });
 
     return columns as Column<R>[];
+}
+
+/**
+ * Check a column's `filter` definition at `create()`, where the column key is still in hand.
+ *
+ * A definition missing `match` would filter nothing and one missing `label` would draw a blank
+ * chip — both silent, and silence is the failure mode this file exists to prevent. The message
+ * names the column and the field, because it is usually read by whoever can fix it in one edit.
+ */
+function validateFilterDefinition(filter: unknown, columnKey: string): void {
+    if (!filter || typeof filter !== "object") {
+        fail(
+            `Column "${columnKey}" has a \`filter\` that is ${describe(filter)}. ` +
+                `It must be a filter definition: { name, create, label, match }.`,
+        );
+    }
+
+    const f = filter as FilterDefinition;
+    if (typeof f.name !== "string" || !f.name.length) {
+        fail(
+            `Column "${columnKey}" has a \`filter\` with no \`name\`. ` +
+                `The name identifies the filter type and is what persistence stores: ` +
+                `{ name: "dateRange", create, label, match }.`,
+        );
+    }
+
+    const required: [keyof FilterDefinition, string][] = [
+        ["create", "create: (ctx) => ({ element, getValue })   // the popover body"],
+        ["label", "label: (value, column) => String(value)     // the chip's text"],
+        ["match", "match: (value, row, column) => boolean      // keep the row?"],
+    ];
+    for (const [field, example] of required) {
+        if (typeof f[field] !== "function") {
+            fail(
+                `Column "${columnKey}" has a \`filter\` named "${f.name}" with no \`${field}\` ` +
+                    `function (it was ${describe(f[field])}). Add:\n    ${example}`,
+            );
+        }
+    }
+
+    for (const field of ["serialize", "deserialize"] as const) {
+        if (f[field] !== undefined && typeof f[field] !== "function") {
+            fail(
+                `Column "${columnKey}": \`filter.${field}\` must be a function, but was ` +
+                    `${describe(f[field])}. Omit it unless the value is not JSON-shaped.`,
+            );
+        }
+    }
 }
 
 export function validateSort<R>(
@@ -402,11 +453,24 @@ export function validateFilters<R>(
             );
         }
 
-        const type = f.type ?? column.filterType ?? "options";
-        if (type !== "options") {
+        // The column's own definition decides the type, not the filter: a filter is written by
+        // hand — `{ columnKey, value }` — and having to name the type as well would be a second
+        // place to get it wrong.
+        const definition = column.filter;
+        const type = definition ? definition.name : (f.type ?? column.filterType ?? "options");
+        if (!definition && type !== "options") {
             fail(
-                `\`filters[${index}].type\` must be "options" — the only filter type there is ` +
-                    `today — but was ${JSON.stringify(type)}.`,
+                `\`filters[${index}].type\` is ${JSON.stringify(type)}, but column ` +
+                    `"${columnKey}" has no \`filter\` definition of that name — so nothing knows ` +
+                    `how to match it. Either give the column a \`filter\`, or use the built-in ` +
+                    `"options" type.`,
+            );
+        }
+        if (definition && f.type !== undefined && f.type !== definition.name) {
+            fail(
+                `\`filters[${index}].type\` is ${JSON.stringify(f.type)}, but column ` +
+                    `"${columnKey}" is filtered by "${definition.name}". Omit \`type\` — it is ` +
+                    `taken from the column.`,
             );
         }
 
@@ -418,6 +482,10 @@ export function validateFilters<R>(
             displayFormat: f.displayFormat ?? column.displayFormat,
             value: f.value,
         };
+
+        // A custom filter's value is whatever its own `getValue` returns — an object, a pair of
+        // numbers, a regexp. Only the built-in checklist has a shape to normalize.
+        if (definition) return normalized;
 
         if (normalized.value !== undefined && normalized.value !== null) {
             if (!Array.isArray(normalized.value)) {

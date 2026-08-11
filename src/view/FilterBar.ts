@@ -25,7 +25,7 @@
  */
 
 import type { AVGridModel } from "../model/AVGridModel";
-import type { DisplayFormat, Filter } from "../types";
+import type { Column, DisplayFormat, Filter } from "../types";
 import { formatDisplayValue } from "../gridUtils";
 import { createIconButton } from "./Button";
 import { chevronDownIcon, chevronUpIcon, closeIcon } from "./icons";
@@ -86,17 +86,41 @@ export function optionsFilterValues(filter: Filter, maxCharCount: number): strin
     return values.length ? `${text} (+${values.length})` : text;
 }
 
-/** The second dispatch point on filter type, after the popover's. One type today. */
-function filterValues(filter: Filter, maxCharCount: number): string {
-    switch (filter.type) {
-        case "options":
-        default:
-            return optionsFilterValues(filter, maxCharCount);
+/**
+ * The chip's text: a custom filter's own `label`, else the built-in value list.
+ *
+ * The host's label is not truncated. `MAX_LABEL_CHARS` exists because a checklist of twenty
+ * values would push every other chip off the bar; a `label` that long is the definition's
+ * decision, and the chip ellipsizes what does not fit.
+ *
+ * Guarded, because it is host code on the bar's redraw path: a throw here would leave the bar
+ * permanently stale rather than showing one wrong chip.
+ */
+function filterValues<R>(
+    filter: Filter,
+    maxCharCount: number,
+    column?: Column<R>,
+): string {
+    const definition = column?.filter;
+    if (definition) {
+        try {
+            return definition.label(filter.value, column!);
+        } catch (e) {
+            console.warn(
+                `av-grid: the "${definition.name}" filter's \`label\` threw for column ` +
+                    `"${filter.columnKey}":`,
+                e,
+            );
+            return definition.name;
+        }
     }
+    return optionsFilterValues(filter, maxCharCount);
 }
 
 /** Every value, for the chip's tooltip — the whole list the label had to cut short. */
-function fullValues(filter: Filter): string {
+function fullValues<R>(filter: Filter, column?: Column<R>): string {
+    // A custom filter has one label and no list behind it, so the tooltip is that label.
+    if (column?.filter) return filterValues(filter, MAX_LABEL_CHARS, column);
     const values = Array.isArray(filter.value) ? filter.value : [];
     return values.map((o) => optionText(o, filter.displayFormat)).join(", ");
 }
@@ -168,10 +192,11 @@ export class FilterBar<R = any> {
 
         for (const filter of filters) {
             const key = filter.columnKey;
-            const signature = this.signature(filter);
+            const column = this.columnFor(key);
+            const signature = this.signature(filter, column);
             let chip = this.chipElements.get(key);
             if (!chip || chip.getAttribute("data-signature") !== signature) {
-                chip = this.buildChip(filter, signature);
+                chip = this.buildChip(filter, signature, column);
                 this.chipElements.set(key, chip);
             }
             live.add(key);
@@ -207,14 +232,24 @@ export class FilterBar<R = any> {
     // =========================================================================================
 
     /** What a chip renders, as one string. Different signature, different chip. */
-    private signature(filter: Filter): string {
+    private signature(filter: Filter, column?: Column<R>): string {
         return `${filter.columnName ?? filter.columnKey} ${filterValues(
             filter,
             MAX_LABEL_CHARS,
+            column,
         )}`;
     }
 
-    private buildChip(filter: Filter, signature: string): HTMLElement {
+    /** The column a filter names, for its `filter` definition. Undefined if it has gone. */
+    private columnFor(columnKey: string): Column<R> | undefined {
+        return this.model.data.columns.find((c) => String(c.key) === columnKey);
+    }
+
+    private buildChip(
+        filter: Filter,
+        signature: string,
+        column?: Column<R>,
+    ): HTMLElement {
         const chip = document.createElement("span");
         chip.className = "avg-filter-chip";
         chip.setAttribute("data-signature", signature);
@@ -225,7 +260,7 @@ export class FilterBar<R = any> {
         const body = document.createElement("span");
         body.className = "avg-filter-chip-body";
         body.setAttribute("data-action", "edit");
-        body.title = `${filter.columnName ?? filter.columnKey}: ${fullValues(filter)}`;
+        body.title = `${filter.columnName ?? filter.columnKey}: ${fullValues(filter, column)}`;
 
         const name = document.createElement("span");
         name.className = "avg-filter-chip-name";
@@ -233,7 +268,7 @@ export class FilterBar<R = any> {
 
         const values = document.createElement("span");
         values.className = "avg-filter-chip-values";
-        values.textContent = filterValues(filter, MAX_LABEL_CHARS);
+        values.textContent = filterValues(filter, MAX_LABEL_CHARS, column);
 
         const caret = document.createElement("span");
         caret.className = "avg-filter-chip-caret";

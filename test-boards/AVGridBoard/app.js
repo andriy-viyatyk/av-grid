@@ -11,7 +11,9 @@
  * clicking.
  */
 
-import { AVGrid, Popover, VirtualList } from "./lib/av-grid.js";
+// `filterRows` on its own, because task 23's row-loop measurement times the filter pass without
+// a grid in the way — a paint would swamp it and a frame cannot be awaited in a hidden webview.
+import { AVGrid, Popover, VirtualList, filterRows } from "./lib/av-grid.js";
 
 const el = (id) => document.getElementById(id);
 const statusEl = el("status");
@@ -56,6 +58,86 @@ function buildRows(count) {
 
 /** Highest `id` handed out, so `newRow` can keep going from there. */
 let lastRowId = 0;
+
+/** How many times the `joined` column's date editor was built and torn down. */
+const editorStats = { built: 0, destroyed: 0 };
+
+/** A `Date` as `<input type="date">` wants it: yyyy-mm-dd, in local time. */
+function toDateInput(value) {
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** How many times the Score column's range filter body was built and torn down. */
+const filterStats = { built: 0, destroyed: 0 };
+
+/**
+ * Task 23. A filter type of the host's own: a numeric range, on `Score`.
+ *
+ * Written the way the docs tell a host to write one — the bounds are parsed **once**, in
+ * `getValue`, so `match` is two comparisons against numbers rather than a `Number()` call per
+ * row. `measureCustomFilter` is what holds that claim to a number.
+ */
+const scoreRangeFilter = {
+    name: "numberRange",
+    create: (ctx) => {
+        const el = document.createElement("div");
+        el.className = "range-filter";
+        const applied = ctx.value ?? {};
+        const field = (which, placeholder, value) => {
+            const label = document.createElement("label");
+            const input = document.createElement("input");
+            input.type = "number";
+            input.placeholder = placeholder;
+            input.value = value ?? "";
+            input.setAttribute(`data-${which}`, "");
+            label.append(document.createTextNode(placeholder), input);
+            // Enter applies, which is what `ctx.apply` exists for — the grid's Apply button is
+            // still there and does exactly the same thing.
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") ctx.apply(read());
+            });
+            return { label, input };
+        };
+        const from = field("min", "min", applied.min);
+        const to = field("max", "max", applied.max);
+        el.append(from.label, to.label);
+
+        const read = () => {
+            const min = from.input.value === "" ? undefined : Number(from.input.value);
+            const max = to.input.value === "" ? undefined : Number(to.input.value);
+            if (min === undefined && max === undefined) return undefined;
+            // Both forms in the value: the readable one for the chip and persistence, and the
+            // resolved bounds `match` compares against. Parsed here, once per apply.
+            return {
+                min,
+                max,
+                lo: min === undefined ? -Infinity : min,
+                hi: max === undefined ? Infinity : max,
+            };
+        };
+
+        filterStats.built++;
+        return {
+            element: el,
+            getValue: read,
+            focus: () => from.input.focus(),
+            destroy: () => filterStats.destroyed++,
+        };
+    },
+    label: (value) => `${value.min ?? "…"} – ${value.max ?? "…"}`,
+    match: (value, row) => row.score >= value.lo && row.score <= value.hi,
+    // `Infinity` does not survive `JSON.stringify`, so the bounds are rebuilt from the two
+    // numbers that do rather than trusted from storage.
+    serialize: (value) => ({ min: value.min, max: value.max }),
+    deserialize: (stored) => ({
+        ...stored,
+        lo: stored?.min ?? -Infinity,
+        hi: stored?.max ?? Infinity,
+    }),
+};
 
 // ---------------------------------------------------------------------------
 // The grid
@@ -106,9 +188,34 @@ function columns() {
             cellClass: (c) => (c.value < 250 ? "low-score" : undefined),
             // And the constant-string form, on the header.
             headerClass: "score-header",
+            // Task 23. The funnel on this column opens a min/max panel instead of a checklist —
+            // which is the right body for a column whose 100,000 values are nearly all distinct.
+            filter: scoreRangeFilter,
         },
         { key: "active", name: "Active", width: 80, dataType: "boolean" },
-        { key: "joined", name: "Joined", width: 170, displayFormat: "dateTime" },
+        {
+            key: "joined",
+            name: "Joined",
+            width: 170,
+            displayFormat: "dateTime",
+            // Task 22. A date picker in place of the text box, which is the whole point of the
+            // hook: a Date typed into a text box is the worst way to enter a date. The three
+            // lines that matter are `setValue` on input, `commit` on blur, and nothing at all
+            // for Escape or Tab — the grid binds those on whatever element this returns.
+            editor: (ctx) => {
+                const input = document.createElement("input");
+                input.type = "date";
+                input.value = toDateInput(ctx.value);
+                input.addEventListener("input", () => {
+                    ctx.setValue(input.value ? new Date(`${input.value}T00:00:00`) : undefined);
+                });
+                input.addEventListener("blur", () => ctx.commit());
+                editorStats.built++;
+                // The `CellEditor` form, so `destroy` can be counted: a real one would use it to
+                // close a panel it put on `document.body`.
+                return { element: input, destroy: () => editorStats.destroyed++ };
+            },
+        },
     ];
 }
 
@@ -590,6 +697,127 @@ async function measureEditing(row = 100) {
 }
 
 /**
+ * Task 22's gate: a **host-supplied** editor, held to task 12's numbers.
+ *
+ * The `joined` column's editor is an `<input type="date">` the board builds — see `columns()`.
+ * What is being measured is not the picker: it is that nothing about the grid changes when the
+ * editor is the host's. A full repaint of every visible cell while it is open must still mutate
+ * zero DOM nodes and hand back the same element, which is only true because the render path
+ * prefers `p.previous` and the editor is parented rather than rebuilt.
+ *
+ * The second half is teardown, and it is the half no happy-dom test can see. Scrolling the
+ * editing row far out of view **evicts** the cell holding the editor — the pool removes the
+ * element and gives the new coordinate a different one — so `releaseCell`, which only fires when
+ * an element is *repainted* as another cell, never runs. `EditingModel.onViewportScrolled` is
+ * what catches it, and `destroyed` reading 1 here is what says a popover-owning editor would
+ * have been closed rather than left on `document.body`.
+ */
+async function measureCustomEditor(row = 100) {
+    const rowHeight = grid.getState().rowHeight;
+    await scrollTo(Math.max(0, (row - 5) * rowHeight));
+    const col = grid.model.data.columns.findIndex((c) => c.key === "joined");
+    if (col < 0) return { error: "no joined column — run createGrid() with columns" };
+
+    grid.focusCell(row, col);
+    grid.refresh();
+    await settle(4);
+
+    const before = { ...editorStats };
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirty = 0;
+    model.update = (info) => {
+        if (!info || info.all) dirty = Infinity;
+        else dirty += (info.cells?.length ?? 0) + (info.rows?.length ?? 0);
+        return originalUpdate.call(model, info);
+    };
+
+    dirty = 0;
+    grid.startEdit(row, col);
+    const dirtyOnOpen = dirty;
+    await settle(3);
+
+    const editorEl = grid.element.querySelector('[data-type="cell-editor"]');
+    const cellOf = (e) => e?.closest('[data-type="data-cell"]');
+    const cellBefore = cellOf(editorEl);
+    const shape = {
+        tag: editorEl?.tagName.toLowerCase(),
+        type: editorEl?.getAttribute("type"),
+        // The class the grid adds, which is what positions a host's element inside the cell.
+        positioned: editorEl?.classList.contains("avg-cell-editor") ?? false,
+        seededValue: editorEl?.value,
+        built: editorStats.built - before.built,
+    };
+
+    // Task 12's gate, re-run against a host editor: a full repaint of every visible cell.
+    // No timing here — `measureFullRepaint` owns that, and anything measured across `settle`
+    // is three animation frames wide whatever the paint cost.
+    grid.render.resetStats();
+    grid.refresh();
+    await settle(3);
+    const stats = grid.render.stats;
+    const sameElementAfterRepaint =
+        grid.element.querySelector('[data-type="cell-editor"]') === editorEl &&
+        cellOf(editorEl) === cellBefore;
+
+    // Escape, which the editor does not handle: the grid binds it.
+    editorEl.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }));
+    await settle(2);
+    const escape = {
+        cancelled: !grid.isEditing(),
+        destroyed: editorStats.destroyed - before.destroyed,
+        valueUntouched: grid.model.data.rows[row].joined instanceof Date,
+    };
+
+    // Open again, write a date through `setValue`, and commit with Tab — also the grid's.
+    const wasAt = grid.model.data.rows[row].joined.getTime();
+    grid.startEdit(row, col);
+    await settle(3);
+    const second = grid.element.querySelector('[data-type="cell-editor"]');
+    second.value = "2031-03-04";
+    second.dispatchEvent(new Event("input", { bubbles: true }));
+    second.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" }));
+    await settle(3);
+    const committed = grid.model.data.rows[row].joined;
+    const tab = {
+        committed: committed instanceof Date && committed.getTime() !== wasAt,
+        // Local, not `toISOString()`: the editor wrote local midnight, and UTC would report
+        // the day before for any timezone behind it.
+        value: committed instanceof Date ? toDateInput(committed) : String(committed),
+        movedOn: grid.getFocus()?.columnKey,
+        closed: !grid.isEditing(),
+    };
+
+    // Teardown by eviction: open it, then scroll a thousand rows away.
+    const destroyedBeforeScroll = editorStats.destroyed;
+    grid.startEdit(row, col);
+    await settle(3);
+    const openedForScroll = grid.isEditing();
+    await scrollTo(Math.max(0, (row + 1000) * rowHeight));
+    await settle(4);
+    const eviction = {
+        openedForScroll,
+        closed: !grid.isEditing(),
+        destroyed: editorStats.destroyed - destroyedBeforeScroll,
+        editorLeftInDom: Boolean(grid.element.querySelector('[data-type="cell-editor"]')),
+    };
+
+    model.update = originalUpdate;
+
+    return {
+        row,
+        shape,
+        dirtyOnOpen,
+        mutationsWhileEditing: stats.cellsAppended + stats.cellsRemoved,
+        cellsRendered: stats.cellsRendered,
+        sameElementAfterRepaint,
+        escape,
+        tab,
+        eviction,
+    };
+}
+
+/**
  * The task-13 check: copy and paste over a large selection.
  *
  * Copy is unavoidably O(selection) — it has to produce a string containing every selected
@@ -816,6 +1044,229 @@ async function measureFilter(count = 100000) {
     await settle(3);
 
     return { count, down, narrow, up, search, computed, filteredFps: fps.fps };
+}
+
+/**
+ * Task 23's gate: what does a **host's** `match` cost inside the 100,000-row filter pass, and
+ * does a custom filter reach the grid by the same one-repaint, zero-mutation path the built-in
+ * one does?
+ *
+ * Four measurements, and the last two are the interesting ones:
+ *
+ * - **grid** — `applyFilter` with a custom value, and the clear after it. Must read one repaint
+ *   and zero DOM mutations, exactly as task 15's built-in filter does: the filter type decides
+ *   which rows survive and nothing else, so it cannot change what the paint costs.
+ * - **popover** — the Score funnel opened for real, its min/max typed into and applied. Reports
+ *   what the grid behind it repainted, which must be the one header cell the funnel lives in.
+ * - **rowLoop** — a host `match` against the built-in `"options"` test, on the same 100,000 rows
+ *   at the same selectivity, **alternated within pairs** and then again with the order reversed.
+ *   Timed in blocks this measurement lies; that trap has now been hit three times and is written
+ *   up in `benchmark-results.md`.
+ * - **parsing** — the same custom filter written the two ways the docs distinguish: bounds
+ *   resolved once in `getValue`, against a `match` that parses per row. This is the number
+ *   behind the warning, rather than an assertion that parsing is slow.
+ */
+async function measureCustomFilter(count = 100000) {
+    if (grid.getState().sourceRowCount !== count) createGrid(count);
+    grid.clearFilters();
+    grid.setSearchString(undefined);
+    await scrollTo(0);
+    await settle(4);
+
+    const model = grid.render.model;
+    const originalUpdate = model.update;
+    let dirty = 0;
+    model.update = (info) => {
+        dirty += 1;
+        return originalUpdate.call(model, info);
+    };
+
+    const time = async (fn) => {
+        dirty = 0;
+        grid.render.resetStats();
+        const t0 = performance.now();
+        fn();
+        const ms = performance.now() - t0;
+        await settle(3);
+        const s = grid.render.stats;
+        return {
+            ms: Number(ms.toFixed(2)),
+            dirty,
+            paints: s.paints,
+            mutations: s.cellsAppended + s.cellsRemoved,
+            rows: grid.getState().rowCount,
+        };
+    };
+
+    // Two thirds of the rows, which is what `active: true` keeps — see `rowLoop` below.
+    const value = { min: 0, max: 666, lo: 0, hi: 666 };
+    const down = await time(() => grid.applyFilter({ columnKey: "score", value }));
+    // The number that is actually the gate. `down` mutates ten nodes and always will: it is the
+    // first filter, so the bar appears, the grid loses 32px of height and one row of cells goes
+    // with it. A *change* to a filter, with the bar already up, must cost nothing at all.
+    const changed = await time(() =>
+        grid.applyFilter({
+            columnKey: "score",
+            value: { min: 0, max: 300, lo: 0, hi: 300 },
+        }),
+    );
+    // And a built-in filter on top of a custom one, which is the AND path across the two types.
+    const both = await time(() =>
+        grid.applyFilter({ columnKey: "status", value: ["open", "pending"] }),
+    );
+    const chip =
+        grid.element.parentElement?.querySelector(
+            '.avg-filter-chip[data-column-key="score"] .avg-filter-chip-values',
+        )?.textContent ?? null;
+    const chips = Array.from(document.querySelectorAll(".avg-filter-chip")).map((c) =>
+        c.textContent.trim(),
+    );
+    const up = await time(() => grid.clearFilters());
+
+    // The popover, opened the way the funnel opens it, and applied from its own inputs.
+    const builtBefore = { ...filterStats };
+    dirty = 0;
+    grid.render.resetStats();
+    const popoverPromise = grid.showFilterPopover("score");
+    const dirtyOnOpen = dirty;
+    await settle(3);
+    const panel = document.querySelector(".avg-custom-filter-body");
+    const minInput = document.querySelector(".avg-filter-popover [data-min]");
+    const maxInput = document.querySelector(".avg-filter-popover [data-max]");
+    if (minInput && maxInput) {
+        minInput.value = "0";
+        maxInput.value = "250";
+        document
+            .querySelector('.avg-filter-popover [data-action="apply"]')
+            .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    }
+    const applied = await popoverPromise;
+    await settle(3);
+    const openStats = grid.render.stats;
+    const popover = {
+        bodyMounted: Boolean(panel),
+        // No checklist was built at all — not built and hidden.
+        checklist: Boolean(document.querySelector(".avg-filter-popover .avg-filter-list")),
+        dirtyOnOpen,
+        gridMutations: openStats.cellsAppended + openStats.cellsRemoved,
+        appliedValue: applied ? `${applied.value.min} – ${applied.value.max}` : null,
+        rowsKept: grid.getState().rowCount,
+        built: filterStats.built - builtBefore.built,
+        destroyed: filterStats.destroyed - builtBefore.destroyed,
+    };
+    grid.clearFilters();
+    await settle(3);
+    model.update = originalUpdate;
+
+    // ---- the row loop -------------------------------------------------------
+    const cols = grid.getColumns();
+    const pass = (columns, filters) => {
+        const t0 = performance.now();
+        const kept = filterRows(rows, columns, undefined, filters);
+        return { ms: performance.now() - t0, kept: kept.length };
+    };
+
+    /**
+     * Alternate A and B within each pair, then do it again with the order inside the pair
+     * reversed. Block timing put the *cheaper* configuration ahead twice before this harness
+     * learned the lesson: whatever runs second inherits a warmed cache and a settled clock.
+     */
+    const alternating = (a, b, pairs = 20) => {
+        let aMs = 0;
+        let bMs = 0;
+        for (let i = 0; i < pairs; i++) {
+            aMs += pass(a.columns, a.filters).ms;
+            bMs += pass(b.columns, b.filters).ms;
+        }
+        for (let i = 0; i < pairs; i++) {
+            bMs += pass(b.columns, b.filters).ms;
+            aMs += pass(a.columns, a.filters).ms;
+        }
+        return {
+            aMs: Number((aMs / (pairs * 2)).toFixed(3)),
+            bMs: Number((bMs / (pairs * 2)).toFixed(3)),
+            ratio: Number((aMs / (bMs || 1)).toFixed(3)),
+        };
+    };
+
+    const customPass = {
+        columns: cols,
+        filters: [{ columnKey: "score", type: "numberRange", value }],
+    };
+    // The built-in test, kept as close as the two can be: one option, one property read, and
+    // ~66% of the rows surviving either way.
+    const builtinPass = {
+        columns: cols,
+        filters: [
+            { columnKey: "active", type: "options", value: [{ value: true, label: "true" }] },
+        ],
+    };
+    const rowLoop = {
+        customKept: pass(customPass.columns, customPass.filters).kept,
+        builtinKept: pass(builtinPass.columns, builtinPass.filters).kept,
+        ...alternating(customPass, builtinPass),
+    };
+
+    // ---- parsed once, or parsed per row ------------------------------------
+    const joinedIndex = cols.findIndex((c) => c.key === "joined");
+    const withDefinition = (definition) =>
+        cols.map((c, i) => (i === joinedIndex ? { ...c, filter: definition } : c));
+    const from = new Date(Date.UTC(2020, 6, 1));
+    const to = new Date(Date.UTC(2024, 0, 1));
+
+    const parsedColumns = withDefinition({
+        name: "dateRangeParsed",
+        create: () => ({ element: document.createElement("div"), getValue: () => undefined }),
+        label: () => "range",
+        // What the docs tell a host to write: the value arrives already resolved to numbers.
+        match: (v, row) => {
+            const ms = row.joined.getTime();
+            return ms >= v.fromMs && ms <= v.toMs;
+        },
+    });
+    const naiveColumns = withDefinition({
+        name: "dateRangeNaive",
+        create: () => ({ element: document.createElement("div"), getValue: () => undefined }),
+        label: () => "range",
+        // What a host writes first: the bounds re-parsed on every one of 100,000 rows.
+        match: (v, row) => {
+            const ms = Date.parse(row.joined);
+            return ms >= Date.parse(v.from) && ms <= Date.parse(v.to);
+        },
+    });
+    const parsing = alternating(
+        {
+            columns: parsedColumns,
+            filters: [
+                {
+                    columnKey: "joined",
+                    type: "dateRangeParsed",
+                    value: { fromMs: from.getTime(), toMs: to.getTime() },
+                },
+            ],
+        },
+        {
+            columns: naiveColumns,
+            filters: [
+                {
+                    columnKey: "joined",
+                    type: "dateRangeNaive",
+                    value: { from: from.toISOString(), to: to.toISOString() },
+                },
+            ],
+        },
+        10,
+    );
+
+    return {
+        count,
+        grid: { down, changed, both, up },
+        chip,
+        chips,
+        popover,
+        rowLoop,
+        parsing: { parsedMs: parsing.aMs, naiveMs: parsing.bMs, ratio: parsing.ratio },
+    };
 }
 
 /**
@@ -1682,6 +2133,8 @@ window.avg = {
     AVGrid,
     Popover,
     VirtualList,
+    filterRows,
+    scoreRangeFilter,
     measureList,
     closeList,
     get list() {
@@ -1700,9 +2153,11 @@ window.avg = {
     measureRangeDrag,
     measureSelectAll,
     measureEditing,
+    measureCustomEditor,
     measureClipboard,
     measureStructure,
     measureFilter,
+    measureCustomFilter,
     measureFilterStorage,
     measureFilterPopover,
     measureFilterBar,

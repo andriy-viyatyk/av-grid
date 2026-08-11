@@ -778,6 +778,126 @@ once per paint, so removing all four hooks from a live 100,000-row grid leaves
 `flagged: 0, low-score: 0, inactive: 0, score-header: 0` from 70/10/130/1, and restoring them
 brings back exactly those counts. `window.avg.measureClassHooks()` reports it as `cleared: true`.
 
+## Task 22 — custom cell editors — 2026-08-11
+
+`Column.editor` puts a host-built control in the cell. Nothing in it runs per paint — an editor is
+built once when an edit opens — so what had to be shown is that task 12's gate still holds when the
+element in the cell belongs to someone else, and that the editor is torn down every way an edit can
+end. The board's `joined` column is now edited by an `<input type="date">`;
+`window.avg.measureCustomEditor(row)` drives it.
+
+The gate on 100,000 rows, with the date editor installed:
+
+| | |
+|---|---|
+| First paint | 11.8 ms |
+| Paint cost at row 100 / near the bottom | 0.167 ms / 0.159 ms |
+| **Flat ratio** | **0.95×** |
+| Scroll fps, top / bottom | 60.0 / 60.0 |
+| Full repaint | 0.100 ms, **0 DOM mutations** |
+| Range drag, top / bottom | 2.0 cells a move at both ends, ratio 1.10× |
+| Select all 100k | 22.8 ms, 39 rows marked, 0 mutations |
+| Built-in editor (task 12's own gate) | 0 mutations while editing, same element after a repaint |
+
+**Task 22's own gate — a *host* editor, at row 100 and at row 99,000, identical both times:**
+opening it marks **1 cell** dirty, a full repaint of every visible cell while it is open does
+**0 DOM mutations** and hands back **the same element**, in the same cell. The element carries
+`avg-cell-editor` and fills the cell (167×21 px, screenshotted), Escape cancels and Tab commits and
+moves on with the editor handling neither, and `destroy` is called exactly once on each ending.
+
+**The teardown finding, which is why this section is longer than the numbers deserve.** Scrolling
+the editing row 1,000 rows away closes the edit and calls `destroy`: `closed: true`,
+`destroyed: 1`, nothing left in the DOM. It did not before. `releaseCell` fires when the editing
+cell is *repainted* as a different coordinate, and a long scroll does not do that — the pool
+**evicts** the element, removing it from the DOM and giving the new coordinate a different one, so
+no renderer ever runs for it. The edit stayed open around a detached element: a text box the user
+could no longer reach, and for a `CellSelect`-style editor a popover left on `document.body`.
+`EditingModel.onViewportScrolled` closes it, from the `scroll` listener `GridInteractions` already
+had, and returns on one comparison when nothing is open. Pre-existing, and it affected the built-in
+editors identically.
+
+Two things about how that check is written are load-bearing:
+
+- **It reads the render window, not `element.isConnected`.** The window is recomputed synchronously
+  inside `onScroll`, *before* the paint that evicts anything, so the answer is already correct and
+  costs nothing. The first version waited a frame and asked the DOM, which made it depend on
+  whether the paint's frame had been queued before the check's — it is, sometimes, and the test
+  failed intermittently for exactly that reason.
+- **`rendered`, not `visible`.** Overscan rows have cells too, and closing an edit on a row that is
+  merely off-screen-but-rendered would fire on an ordinary scroll of two rows.
+
+Verified in the other direction as well, because a check like this fails silently by firing too
+often: a two-row scroll leaves both a custom and a built-in editor open, still holding the same
+element.
+
+## Task 23 — custom filter types — 2026-08-11
+
+`Column.filter` puts host code where nothing else in this library puts it: **inside the row loop**,
+called once per row per pass. So the question is not what a filter costs — task 15 answered that —
+it is what the callback costs *against the built-in test it replaces*, and what the one piece of
+advice the docs give about writing one is worth. `window.avg.measureCustomFilter(count)` drives it;
+the board's `Score` column is now filtered by a min/max range whose bounds are parsed once in
+`getValue`.
+
+**The grid path, on 100,000 rows.** Applying, changing, ANDing with a built-in filter, clearing:
+
+| | ms | paints | DOM mutations | rows left |
+|---|---|---|---|---|
+| First apply (`0–666`) | 5.3 | 1 | **10** | 66,601 |
+| **Change it (`0–300`)** | **4.6** | **1** | **0** | 30,001 |
+| Plus a built-in `status` filter | 5.6 | 1 | **0** | 12,001 |
+| Clear everything | 0.1 | 1 | 10 | 100,000 |
+
+**The row that is the gate is the second one.** The ten mutations either end are the filter *bar*:
+the first filter makes it appear, the grid loses 32 px of height, and one row of cells goes with it
+— the same ten task 17 measured. A filter *change*, with the bar already up, costs **one repaint and
+zero DOM mutations**, and so does adding a built-in filter on top of a custom one. Clearing costs
+0.1 ms because an unfiltered pass returns the array it was given.
+
+**The popover.** Opening the Score funnel marks **1 cell** — the header cell the funnel lives in —
+and mutates **0** DOM nodes. The body is the host's element (`bodyMounted: true`), **no checklist is
+built at all**, `focus` reaches the `min` input, Apply reads `getValue()` and narrows to 25,001 rows,
+and `destroy` runs exactly once on the way out. The chip reads `Score: 0 – 300` from the
+definition's `label`, alongside `Status: open,pending` from the built-in one, in the same bar.
+
+**The row loop: a host `match` against the built-in `"options"` test.** Both keep ~66,600 of 100,000
+rows, so the survivor array costs the same and what is left is the test itself. Alternated within
+pairs, then again with the order inside the pair reversed; four runs:
+
+| | |
+|---|---|
+| A host `match` (two numeric comparisons) | **1.6–2.0 ms** |
+| The built-in `"options"` test (one option) | **2.1–3.2 ms** |
+| **Ratio** | **0.63×–0.93×**, four runs clustering at **0.78–0.82×** |
+
+**A custom filter is *cheaper* than the built-in one.** Worth stating plainly, because the intuition
+is the opposite. The built-in path resolves each row's value through `filterValue`, which checks the
+column for a `formatValue`, and then compares it with `optionMatches`, which tests for an option
+object and for two `Date`s before it reaches `===`. A definition's `match` skips all of that: its
+value arrived in the shape it wanted. The honest comparison is task 15's **+8.7%** for putting
+`columnDisplayValue` inside the search loop — a host callback in the row loop is not automatically
+expensive, and this is the other sign of the same thing.
+
+**Parsed once against parsed per row — the number behind the docs' warning.** The same date-range
+filter written the two ways, same rows, same 66,667 survivors:
+
+| | |
+|---|---|
+| Bounds resolved in `getValue`, `match` compares numbers | **1.6 ms** |
+| `match` calling `Date.parse` on the row and on both bounds | **90 ms** |
+| **Ratio** | **56×** |
+
+That is why `match` has no `prepare` companion: the value is data the definition controls, and
+putting the parsed form in it *is* the optimization. Fifty-six times is not a micro-optimization; it
+is the difference between a filter that applies imperceptibly and one that visibly stalls.
+
+**One measurement trap, and a new one.** The alternating-pairs discipline is now standing practice
+and was used here from the start. The new one is the environment: **a backgrounded webview throttles
+everything**. The same row-loop pass measured 14.0 ms with `document.hidden === true` and 1.7 ms
+once the window was in front — an 8× difference with identical code, and rAF does not run at all, so
+nothing that awaits a frame completes. Any number quoted from this board is only meaningful with the
+window visible; check `document.hidden` before believing a timing.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -802,3 +922,5 @@ brings back exactly those counts. `window.avg.measureClassHooks()` reports it as
 | 2026-08-11 | polish | 5.6 ms | 1.11× | 60.0 / 60.0 | 0 | The context menu, on a new `Menu` primitive. Opening one over 100,000 rows marks **0** things on the grid and mutates **0** DOM nodes — and costs **2.3 ms with all 100,000 rows selected against 2.9 ms with one cell**, because the items are built from `selectedCount` and `e.selection` is a getter nothing built-in reads. The render path is untouched: the only change inside the grid is one branch in the `contextmenu` handler. |
 | 2026-08-11 | polish | 8.8 ms | 0.86× | 60.0 / 60.0 | 0 | Row hover follows the pointer during a drag and during a wheel scroll. Hover moved from `mousemove` to `pointermove`, because `preventDefault()` on `pointerdown` suppresses the compat mouse events — and a stationary pointer now re-resolves after the paint on `scroll`. The gate is unchanged (drag **2 cells a move** at both ends, full repaint **0 mutations**, select-all **0 mutations**) because `onScrolled` returns immediately with no pointer over the grid, which is every programmatic scroll. A real wheel scroll under the pointer costs **0.291 ms a paint against 0.120 ms**; hover moving on its own is **0 mutations, 0.045 ms**. |
 | 2026-08-11 | 21 | 9.2 ms | 0.96× | 60.0 / 60.0 | 0 | The four class hooks — `Column.cellClass`, `Column.headerClass`, `onCellClass`, `rowClass` — all live on the board's 100k grid. Full repaint 0.200 ms and **0 DOM mutations**; the hooks themselves add **+0.012–0.015 ms (1.24×–1.32×)** to a full repaint of every visible cell, measured as 40 alternating pairs run twice with the pair order reversed, because measured in blocks the comparison came back backwards. A class **disappears** when its hook stops asking for it: 70/10/130/1 marked cells → 0/0/0/0 with the hooks removed, and back again. |
+| 2026-08-11 | 22 | 11.8 ms | 0.95× | 60.0 / 60.0 | 0 | Custom cell editors. A host's editor at rows 100 and 99,000: **1 cell marked on open, 0 mutations on a full repaint, same element back**. Found and fixed a pre-existing leak — a long scroll *evicts* the editing cell rather than repainting it, so the edit stayed open around a detached element. |
+| 2026-08-11 | 23 | 6.9 ms | 0.78× | 60.0 / 60.0 | 0 | Custom filter types. A filter change on 100,000 rows: **1 repaint, 0 DOM mutations**; opening a host's filter body marks **1 cell** and mutates **0**. The host `match` costs **1.7 ms against the built-in test's 2.1 ms (0.78×)** — cheaper, because the built-in path resolves `formatValue` and `optionMatches` per row and a definition's `match` does not. The same filter re-parsing its bounds per row costs **90 ms, 56×** as much, which is the number the docs' warning now quotes. |

@@ -11,8 +11,9 @@
  * when the popover closes** — is the whole API. It resolves with the filter that was applied,
  * or `undefined` if the popover was dismissed.
  *
- * The body is chosen by the column's `filterType`, falling back to the filter's own `type`,
- * exactly as the reference does: there is one type today and this is where the second one goes.
+ * The body is chosen by the column: a `filter` definition of its own, else its `filterType`,
+ * else the filter's own `type`. Two arms today — the built-in checklist and a host's element,
+ * which the grid wraps in the same panel and the same Apply / Clear.
  */
 
 import type { AVGridModel } from "../model/AVGridModel";
@@ -22,6 +23,18 @@ import {
     OptionsFilterContent,
     OPTIONS_FILTER_MIN_WIDTH,
 } from "./OptionsFilterContent";
+import { CustomFilterContent } from "./CustomFilterContent";
+
+/**
+ * What the popover needs of whatever is inside it. `OptionsFilterContent` and
+ * `CustomFilterContent` both satisfy it, which is what keeps the dispatch to two lines.
+ */
+interface FilterPopoverBody {
+    readonly element: HTMLElement;
+    focus(): void;
+    measure(): void;
+    destroy(): void;
+}
 
 export interface ShowFilterPopoverOptions {
     /**
@@ -77,10 +90,17 @@ export function showFilterPopover<R>(
     }
 
     const filter = filters.filterOrDefault(columnKey);
-    const type = column.filterType ?? filter.type ?? "options";
-    if (type !== "options") {
+    // The column's own definition wins, then `filterType`, then the filter's. One arm is the
+    // library's checklist and the other is the host's element; everything after this point is
+    // the same for both.
+    const definition = column.filter;
+    const type = definition
+        ? definition.name
+        : (column.filterType ?? filter.type ?? "options");
+    if (!definition && type !== "options") {
         console.warn(
-            `av-grid: no filter body for filterType "${type}" on column "${columnKey}".`,
+            `av-grid: no filter body for filterType "${type}" on column "${columnKey}". ` +
+                `A filter type of your own is a \`filter\` definition on the column.`,
         );
         return Promise.resolve(undefined);
     }
@@ -109,36 +129,64 @@ export function showFilterPopover<R>(
         className: "avg-filter-popover",
         placement: "bottom-start",
         offset: options.offset,
-        resizable: true,
+        // The checklist is resized because it is a scrolling list of unknown length. A host's
+        // body has an intrinsic size, so the popover takes it and offers no grip.
+        resizable: !definition,
         size: options.size,
-        minWidth: OPTIONS_FILTER_MIN_WIDTH,
-        minHeight: 160,
+        minWidth: definition ? undefined : OPTIONS_FILTER_MIN_WIDTH,
+        minHeight: definition ? undefined : 160,
         onResize: (size) => {
             resized = true;
             options.onResize?.(size);
         },
     });
 
-    // Declared before it is built: the body reports its preferred height from inside its own
-    // constructor, when the options resolve synchronously.
-    let body: OptionsFilterContent<R>;
-    body = new OptionsFilterContent<R>({
-        model,
-        filter,
-        // Apply, then close with what was applied. Both, in that order: the popover's promise
-        // is the caller's signal that the grid has already been filtered.
-        onApply: (applied) => {
-            filters.applyFilter(applied);
-            popover.close(filters.filterFor(applied.columnKey));
-        },
-        width,
-        onPreferredHeight: (height) => {
-            if (resized) return;
-            popover.setSize({ width, height });
-            // The list only draws the rows its viewport holds, and the viewport just changed.
-            body?.measure();
-        },
-    });
+    // Apply, then close with what was applied. Both, in that order: the popover's promise is
+    // the caller's signal that the grid has already been filtered.
+    const applyAndClose = (applied: Filter): void => {
+        filters.applyFilter(applied);
+        popover.close(filters.filterFor(applied.columnKey));
+    };
+
+    let body: FilterPopoverBody;
+    if (definition) {
+        try {
+            body = new CustomFilterContent<R>({
+                column,
+                definition,
+                filter,
+                onApply: applyAndClose,
+                onClose: () => popover.close(undefined),
+            });
+        } catch (e) {
+            // Host code, called for the first time here. A throw takes the popover with it and
+            // leaves the grid alone, rather than opening an empty panel.
+            console.warn(
+                `av-grid: the "${definition.name}" filter on column "${columnKey}" failed to ` +
+                    `build its body:`,
+                e,
+            );
+            popover.destroy();
+            return Promise.resolve(undefined);
+        }
+    } else {
+        // Declared before it is built: the body reports its preferred height from inside its own
+        // constructor, when the options resolve synchronously.
+        let optionsBody: OptionsFilterContent<R>;
+        optionsBody = new OptionsFilterContent<R>({
+            model,
+            filter,
+            onApply: applyAndClose,
+            width,
+            onPreferredHeight: (height) => {
+                if (resized) return;
+                popover.setSize({ width, height });
+                // The list only draws the rows its viewport holds, and the viewport just changed.
+                optionsBody?.measure();
+            },
+        });
+        body = optionsBody;
+    }
     popover.content.appendChild(body.element);
 
     // The funnel of the column being edited stays lit while the popover is open, so a user who

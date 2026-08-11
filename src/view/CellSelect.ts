@@ -34,7 +34,7 @@
  * definition time.
  */
 
-import type { CellEditor, EditorContext } from "../model/EditingModel";
+import type { EditorContext, MountedCellEditor } from "../types";
 import { chevronDownIcon } from "./icons";
 import { Popover } from "./Popover";
 import { VirtualList } from "./VirtualList";
@@ -50,7 +50,7 @@ function label(value: unknown): string {
     return value === null || value === undefined ? "" : String(value);
 }
 
-export function createCellSelect<R>(ctx: EditorContext<R>): CellEditor {
+export function createCellSelect<R>(ctx: EditorContext<R>): MountedCellEditor {
     // The value the cell actually holds. On a type-to-edit `ctx.value` is the character that
     // started it, not the cell's value — that character is the search text, below. Only
     // `"typing"`: a click is the other origin that leaves the text alone, and it must not seed

@@ -75,9 +75,24 @@ function reviveValue(value: any, isDateFilter: boolean): any {
  * where it came from — inside the option — and the shape is the same before and after a
  * reload. That is a reference bug fixed, not a divergence for its own sake.
  */
-export function reviveFilters(filters: readonly any[]): Filter[] {
+export function reviveFilters<R>(
+    filters: readonly any[],
+    /** Needed only to find a custom filter's `deserialize`; omit for the built-in type. */
+    columns?: readonly Column<R>[],
+): Filter[] {
     return filters.map((filter) => {
         const f = filter as AnyFilter;
+
+        // A custom filter's value has whatever shape its own `getValue` gave it, so the date
+        // revival below — which assumes an options array — must not touch it. `deserialize` is
+        // the definition's chance to rebuild anything JSON could not carry.
+        const definition = columns?.find((c) => String(c.key) === f.columnKey)?.filter;
+        if (definition) {
+            return definition.deserialize
+                ? { ...f, value: definition.deserialize(f.value) }
+                : f;
+        }
+
         if (!Array.isArray(f.value)) return f;
 
         const isDateFilter =
@@ -103,8 +118,9 @@ export function hasStoredFilters(persist: PersistFiltersOptions): boolean {
  * `undefined` and `[]` mean different things: nothing stored versus a stored decision to have
  * no filters. The first falls back to the `filters` option, the second overrides it.
  */
-export function readStoredFilters(
+export function readStoredFilters<R>(
     persist: PersistFiltersOptions | undefined,
+    columns?: readonly Column<R>[],
 ): Filter[] | undefined {
     const storage = resolveStorage(persist);
     if (!storage || !persist) return undefined;
@@ -118,7 +134,7 @@ export function readStoredFilters(
             config.configVersion === FILTERS_CONFIG_VERSION &&
             Array.isArray(config.filters)
         ) {
-            return reviveFilters(config.filters);
+            return reviveFilters(config.filters, columns);
         }
     } catch (e) {
         // A corrupt or foreign config is not worth throwing over — the grid renders unfiltered
@@ -132,17 +148,29 @@ export function readStoredFilters(
     return undefined;
 }
 
-export function writeStoredFilters(
+export function writeStoredFilters<R>(
     filters: readonly Filter[],
     persist: PersistFiltersOptions | undefined,
+    /** Needed only to find a custom filter's `serialize`; omit for the built-in type. */
+    columns?: readonly Column<R>[],
 ): void {
     const storage = resolveStorage(persist);
     if (!storage || !persist) return;
 
     try {
+        const stored = columns
+            ? filters.map((filter) => {
+                  const definition = columns.find(
+                      (c) => String(c.key) === filter.columnKey,
+                  )?.filter;
+                  return definition?.serialize
+                      ? { ...filter, value: definition.serialize(filter.value) }
+                      : filter;
+              })
+            : filters;
         storage.setItem(
             filtersStorageKey(persist.name),
-            JSON.stringify({ configVersion: FILTERS_CONFIG_VERSION, filters }),
+            JSON.stringify({ configVersion: FILTERS_CONFIG_VERSION, filters: stored }),
         );
     } catch (e) {
         // Quota, or a private-mode store that accepts nothing. Filtering still works; only
@@ -225,13 +253,31 @@ export function defaultFilterOptions<R>(
     return options.filter((o) => o.label.toLowerCase().includes(lower));
 }
 
+/**
+ * Two custom filter values, compared by content.
+ *
+ * A definition's `getValue` builds a fresh object every time, so `===` would report every
+ * `setFilters` as a change — and a host echoing `onFiltersChange` straight back would then loop.
+ * `JSON.stringify` is the comparison that matches how the value is persisted; anything it cannot
+ * take (a cycle, a function) falls back to identity.
+ */
+function sameCustomValue(a: any, b: any): boolean {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+    try {
+        return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+        return false;
+    }
+}
+
 function sameFilter(a: Filter, b: Filter): boolean {
     if (a === b) return true;
     if (!b || a.columnKey !== b.columnKey || a.type !== b.type) return false;
 
     const av = (a as AnyFilter).value;
     const bv = (b as AnyFilter).value;
-    if (!Array.isArray(av) || !Array.isArray(bv)) return av === bv;
+    if (!Array.isArray(av) || !Array.isArray(bv)) return sameCustomValue(av, bv);
     return av.length === bv.length && av.every((o, i) => sameOption(o, bv[i]));
 }
 
@@ -245,7 +291,7 @@ export class FiltersModel<R> {
         // stored list is what this user last chose. Only when nothing is stored does the
         // option apply — which is also what makes `persistFilters` safe to add to an existing
         // grid without changing its first render.
-        const stored = readStoredFilters(model.options.persistFilters);
+        const stored = readStoredFilters(model.options.persistFilters, this.columns);
         if (stored) this.model.options.filters = this.restore(stored);
     }
 
@@ -377,10 +423,18 @@ export class FiltersModel<R> {
         this.filtersChanged();
     };
 
-    private validate = (filters: readonly Filter[] | undefined): Filter[] =>
-        validateFilters<R>(filters, this.model.data.columns.length
+    /**
+     * The columns to resolve a filter against — the live set, or the option when the data model
+     * has not built one yet, which is the case while this model's own constructor runs.
+     */
+    private get columns(): Column<R>[] {
+        return this.model.data.columns.length
             ? this.model.data.columns
-            : this.model.options.columns);
+            : this.model.options.columns;
+    }
+
+    private validate = (filters: readonly Filter[] | undefined): Filter[] =>
+        validateFilters<R>(filters, this.columns);
 
     /**
      * Same filters? A `setFilters` that changes nothing must not re-run the pipeline — a host
@@ -395,7 +449,11 @@ export class FiltersModel<R> {
         a.length === b.length && a.every((f, i) => sameFilter(f, b[i]));
 
     private filtersChanged = (): void => {
-        writeStoredFilters(this.filters, this.model.options.persistFilters);
+        writeStoredFilters(
+            this.filters,
+            this.model.options.persistFilters,
+            this.columns,
+        );
         this.model.models.rows.updateRows();
         this.model.options.onFiltersChange?.(this.getFilters());
         // The filter bar redraws from this. Internal, and separate from the host callback above,

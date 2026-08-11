@@ -28,49 +28,30 @@
  * Listeners *are* bound directly to the editor's input, which does not violate the
  * root-delegation invariant: that invariant is about pooled elements, and this element is
  * created per edit and discarded with it.
+ *
+ * ### Custom editors, and where commit-on-blur lives
+ *
+ * A `Column.editor` is built through the same `editorElement()` path as the two built-in ones and
+ * given the same `EditorContext`, so there is one commit path rather than two. `adopt()` then adds
+ * the three things a host would otherwise have to know about — see its comment.
+ *
+ * **Commit-on-blur is `CellInput`'s, not this model's**, and that is deliberate rather than
+ * incidental. If the model committed on blur, no editor could open a panel: a date picker taking
+ * the focus would close the edit that owns it. So the policy belongs to whichever editor can say
+ * what leaving it means. What the model does guarantee is that focus leaving the *cell* commits —
+ * `onFocusMoved` — which is a different event and one no editor can get wrong.
  */
 
 import { defaultValidate, gridBoolean } from "../gridUtils";
-import type { CellEdit, Column, EditOrigin } from "../types";
+import type {
+    CellEdit,
+    CellEditor,
+    Column,
+    EditOrigin,
+    EditorContext,
+    MountedCellEditor,
+} from "../types";
 import type { AVGridModel } from "./AVGridModel";
-
-/** What an editor factory returns. `DataCell` mounts `element`; the model calls `focus`. */
-export interface CellEditor {
-    element: HTMLElement;
-    /** Put the caret in the control. Called once, after the element is in the document. */
-    focus: () => void;
-    /**
-     * Release anything the editor owns beyond `element`, which the model removes itself.
-     *
-     * Needed once an editor stopped being a single element: the dropdown mounts a popover on
-     * `document.body`, outside the grid's DOM entirely, and removing the cell's element would
-     * leave it — and its document listeners — behind.
-     */
-    destroy?: () => void;
-}
-
-/** What an editor factory is given. Everything it needs to read, write and end the edit. */
-export interface EditorContext<R = any> {
-    /** The current edit value — the typed character for a type-to-edit, else the cell's value. */
-    value: any;
-    row: R;
-    column: Column<R>;
-    /** How the edit was opened. Decides where the caret lands — see `EditOrigin`. */
-    openedBy: EditOrigin;
-    /**
-     * Where the pointer was, in client coordinates, when `openedBy` is `"pointer"`.
-     *
-     * The editor uses it to put the caret where the user clicked rather than at one end of the
-     * text — which is what clicking into text means everywhere else on the platform.
-     */
-    pointerX?: number;
-    /** Record a new value. Marks the edit changed, so a commit is not a no-op. */
-    setValue: (value: any) => void;
-    commit: () => void;
-    cancel: () => void;
-    /** Commit, then hand the key back to the grid — which is what Tab does. */
-    commitAndPass: (e: KeyboardEvent) => void;
-}
 
 /** Left untyped on purpose: `CellEdit<any>` widens `columnKey` to `keyof any`, which no
  *  `CellEdit<R>` accepts. The empty strings are what "no edit" means everywhere here. */
@@ -89,12 +70,12 @@ export class EditingModel<R> {
     readonly model: AVGridModel<R>;
 
     /**
-     * The factory used when a column supplies no `editRender`. Assigned from outside so the
-     * model layer does not import the view layer — the same shape the render hooks use.
+     * The factory used when a column supplies no `editor`. Assigned from outside so the model
+     * layer does not import the view layer — the same shape the render hooks use.
      */
-    createEditor?: (ctx: EditorContext<R>) => CellEditor;
+    createEditor?: (ctx: EditorContext<R>) => MountedCellEditor;
 
-    private editor?: CellEditor;
+    private editor?: MountedCellEditor;
     /** The coordinates the open editor belongs to, so a repaint can recognise its own cell. */
     private editRow = -1;
     private editCol = -1;
@@ -143,6 +124,21 @@ export class EditingModel<R> {
         );
     }
 
+    /**
+     * Does this column toggle instead of opening an editor?
+     *
+     * A boolean has two states and the checkbox already shows which, so there is nothing a text
+     * box could add — **unless the column supplied its own editor**, in which case it has
+     * something the grid does not know about (a tri-state, a reason picker) and the column wins.
+     * Read from all four places an edit can open — press, double-click, Enter/F2, Space — which
+     * have to agree or the cell becomes editable one way and not another. `DataCell` makes the
+     * matching decision on its side: a boolean column with an editor draws a tick and no
+     * checkbox, because a press on the box toggles and would make the editor unreachable.
+     */
+    togglesInsteadOfEditing(column: Column<R> | undefined): boolean {
+        return column?.dataType === "boolean" && !column.editor;
+    }
+
     // -----------------------------------------------------------------------
     // Opening and closing
     // -----------------------------------------------------------------------
@@ -167,9 +163,7 @@ export class EditingModel<R> {
         const column = this.model.data.columns[colIndex];
         const row = this.model.data.rows[dataRow];
         if (row === undefined || !this.canEdit(column)) return;
-        // A boolean has two states and a checkbox already shows which — Space and Enter flip
-        // it, and there is nothing a text box could add.
-        if (column.dataType === "boolean") return;
+        if (this.togglesInsteadOfEditing(column)) return;
 
         if (this.isEditing) this.closeEdit(true, false);
 
@@ -454,6 +448,9 @@ export class EditingModel<R> {
             value: edit.value,
             row,
             column,
+            rowIndex: this.editRow,
+            colIndex: this.editCol,
+            rowKey: edit.rowKey,
             openedBy: edit.openedBy ?? "key",
             pointerX: edit.pointerX,
             setValue: this.setEditValue,
@@ -462,26 +459,69 @@ export class EditingModel<R> {
             commitAndPass: this.commitAndPass,
         };
 
-        // A column's own `editRender` wins, exactly as `render` does for the display value. It
-        // is handed the same context, so a custom editor commits through the same path.
-        const custom = column.editRender?.({
-            value: edit.value,
-            row,
-            column,
-            rowIndex: this.editRow,
-            colIndex: this.editCol,
-            rowKey: edit.rowKey,
-        });
-        if (custom instanceof HTMLElement) {
-            this.editor = { element: custom, focus: () => custom.focus() };
+        // A column's own editor wins, exactly as `render` does for the display value, and is
+        // handed the same context the built-in ones get — so it commits through the same path
+        // rather than a parallel one that would have to be kept in step.
+        let editor: CellEditor;
+        if (column.editor) {
+            const custom = column.editor(context);
+            editor = custom instanceof HTMLElement ? { element: custom } : custom;
         } else if (this.createEditor) {
-            this.editor = this.createEditor(context);
+            editor = this.createEditor(context);
         } else {
             return undefined;
         }
 
+        this.adopt(editor);
+        this.editor = {
+            ...editor,
+            focus: editor.focus ?? (() => editor.element.focus()),
+        };
         return this.editor.element;
     }
+
+    /**
+     * Make a host's editor element behave like a built-in one, without taking anything over.
+     *
+     * Three things it would otherwise have to know, none of which an agent writing a date input
+     * would guess:
+     *
+     * - **`avg-cell-editor`** positions it absolutely inside the cell and gives it the cell's
+     *   font and colours. Without it the element lays out in flow, which looks nearly right on the
+     *   first row and wrong everywhere else — the same trap as a cell renderer that forgets
+     *   `position: absolute`. Added to whatever classes the host set, never replacing them.
+     * - **`data-type="cell-editor"`** is how `GridInteractions` recognises keys and clipboard
+     *   events as belonging to a control rather than to the grid's cell range.
+     * - **Escape and Tab.** The grid binds them here so an editor that does nothing still cancels
+     *   and still lets the user move on; an editor that handles either itself calls
+     *   `preventDefault()` and this listener stands aside. `CellInput` already does exactly that,
+     *   which is why running this over the built-in editors as well is safe: on those, all three
+     *   steps are no-ops, and having one path rather than two is what keeps them that way.
+     */
+    private adopt(editor: CellEditor): void {
+        const el = editor.element;
+        el.classList.add("avg-cell-editor");
+        if (!el.hasAttribute("data-type")) {
+            el.setAttribute("data-type", "cell-editor");
+        }
+        el.addEventListener("keydown", this.onEditorKeyDown);
+    }
+
+    private onEditorKeyDown = (e: KeyboardEvent): void => {
+        // Two ways an editor says "I handled this key". `preventDefault()` is the one to write
+        // about, and the edit no longer being open is the one that is actually load-bearing: a
+        // key dispatched without `cancelable` — a synthetic one, and every one in the test suite —
+        // leaves `defaultPrevented` false however hard the handler before this called it, and
+        // `CellInput`'s Tab would then commit and move twice.
+        if (!this.isEditing || e.defaultPrevented) return;
+        if (e.key === "Escape") {
+            e.preventDefault();
+            this.cancelEdit();
+        } else if (e.key === "Tab") {
+            e.preventDefault();
+            this.commitAndPass(e);
+        }
+    };
 
     /**
      * The editor is now in the document. Focus it.
@@ -514,6 +554,36 @@ export class EditingModel<R> {
         queueMicrotask(() => this.closeEdit(true, false));
     }
 
+    /**
+     * The viewport scrolled. Called from `GridInteractions`, and it returns immediately for a
+     * grid with nothing open, which is nearly every scroll of nearly every grid.
+     *
+     * `releaseCell` above catches the editing cell being *repainted* as a different one, and
+     * that is not the only way it can go: scroll far enough in one jump and the pool **evicts**
+     * the element instead — removes it from the DOM and hands a different one to the new
+     * coordinate — so nothing repaints it and nothing calls `releaseCell`. The edit then stays
+     * open around a detached element, which for a text box means a value that can no longer be
+     * typed into and for the dropdown means a popover on `document.body` with nothing left to
+     * anchor to.
+     *
+     * The test is the render window rather than the element's `isConnected`, and deliberately:
+     * the window is recomputed *inside* `onScroll`, before the paint that evicts anything, so
+     * asking it is both synchronous and already correct. Waiting a frame to look at the DOM
+     * instead makes the answer depend on whether the paint's frame was queued before this
+     * check's — which it is, some of the time.
+     */
+    onViewportScrolled = (): void => {
+        if (!this.isEditing) return;
+        // `rendered` rather than `visible`: it is the window that actually has cells in it,
+        // overscan included, and having a cell is the whole question here.
+        const rendered = this.model.renderModel?.renderInfo.current.rendered;
+        if (!rendered) return;
+        const gridRow = this.model.dataRowToGridRow(this.editRow);
+        if (gridRow < rendered.top || gridRow > rendered.bottom) {
+            this.closeEdit(true, false);
+        }
+    };
+
     private setEditValue = (value: any): void => {
         this.model.state.update((s) => {
             if (!s.cellEdit) return;
@@ -536,6 +606,10 @@ export class EditingModel<R> {
         // here, and the guard that stops the re-entry is this model no longer having an editor.
         this.editor = undefined;
         editor?.destroy?.();
+        // The element is discarded with the edit, so this matters only for a host that hands the
+        // same element back on every open — a cached editor, which is a reasonable thing to
+        // write and would otherwise collect one listener per edit.
+        editor?.element.removeEventListener("keydown", this.onEditorKeyDown);
         editor?.element.remove();
     }
 
@@ -589,7 +663,7 @@ export class EditingModel<R> {
         // Any modifier means the press is doing something else: shift extends the range, ctrl
         // and meta are the host's or the platform's.
         if (data.e.shiftKey || data.e.ctrlKey || data.e.altKey || data.e.metaKey) return;
-        if (!this.canEdit(data.col) || data.col.dataType === "boolean") return;
+        if (!this.canEdit(data.col) || this.togglesInsteadOfEditing(data.col)) return;
         // Already open on this cell — a press inside the editor, or the second half of a
         // double-click. Re-opening would commit and rebuild it, losing the caret.
         if (this.isEditingCell(data.rowIndex, data.colIndex)) return;
@@ -603,7 +677,7 @@ export class EditingModel<R> {
         col: Column<R>;
     }): void => {
         if (!this.canEdit(data.col)) return;
-        if (data.col.dataType === "boolean") {
+        if (this.togglesInsteadOfEditing(data.col)) {
             this.toggleBooleans(false);
             return;
         }
@@ -628,7 +702,7 @@ export class EditingModel<R> {
 
         if (OPEN_KEYS.has(e.code)) {
             e.preventDefault();
-            if (column.dataType === "boolean") {
+            if (this.togglesInsteadOfEditing(column)) {
                 // Enter makes the selection match the focused cell's opposite; F2 has nothing
                 // to open on a boolean, so it does the same thing.
                 this.toggleBooleans(true);
@@ -638,9 +712,16 @@ export class EditingModel<R> {
             return;
         }
 
+        // Space over a boolean column never types a space: it flips the cells, or opens the
+        // column's own editor if it has one. Falling through to type-to-edit below would put a
+        // literal " " into that editor's value.
         if (e.code === "Space" && column.dataType === "boolean") {
             e.preventDefault();
-            this.toggleBooleans(false);
+            if (this.togglesInsteadOfEditing(column)) {
+                this.toggleBooleans(false);
+            } else if (this.model.models.focus.singleCellSelected) {
+                this.openEdit(rowIndex, colIndex);
+            }
             return;
         }
 
@@ -662,7 +743,7 @@ export class EditingModel<R> {
         // holds for every layout, where a `code` allowlist would not.
         if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
             if (
-                column.dataType !== "boolean" &&
+                !this.togglesInsteadOfEditing(column) &&
                 this.model.models.focus.singleCellSelected
             ) {
                 e.preventDefault();

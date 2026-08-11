@@ -116,6 +116,13 @@ export interface ColumnStateSnapshot {
     hasRender: boolean;
     /** The column has `options`, so it edits through the dropdown rather than a text box. */
     hasOptions: boolean;
+    /** The column supplies its own editor, so neither built-in one opens here. */
+    hasEditor: boolean;
+    /**
+     * Which filter body the funnel opens: `"options"` for the checklist, the definition's `name`
+     * for a column with its own `filter`, `null` for a column that opted out.
+     */
+    filterType: string | null;
 }
 
 /**
@@ -927,6 +934,10 @@ export class AVGrid<R = any> {
                     isStatusColumn: column.isStatusColumn,
                     hasRender: Boolean(column.render),
                     hasOptions: Boolean(column.options),
+                    hasEditor: Boolean(column.editor),
+                    filterType: column.filterType === null
+                        ? null
+                        : (column.filter?.name ?? column.filterType ?? "options"),
                 };
             }),
             sort,

@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createCellSelect } from "./CellSelect";
-import type { CellEditor, EditorContext } from "../model/EditingModel";
+import type { EditorContext, MountedCellEditor } from "../types";
 
 /**
  * The dropdown editor, driven through the editor contract rather than through a whole grid —
@@ -37,7 +37,7 @@ function installLayout(): () => void {
 }
 
 interface Harness {
-    editor: CellEditor;
+    editor: MountedCellEditor;
     ctx: EditorContext<Row>;
     setValue: ReturnType<typeof vi.fn>;
     commit: ReturnType<typeof vi.fn>;
@@ -45,7 +45,7 @@ interface Harness {
     commitAndPass: ReturnType<typeof vi.fn>;
 }
 
-const editors: CellEditor[] = [];
+const editors: MountedCellEditor[] = [];
 
 /** Build the editor, mount it, and open it — which is what `editorMounted` does in the grid. */
 async function open(over: Partial<EditorContext<Row>> = {}): Promise<Harness> {
@@ -58,6 +58,9 @@ async function open(over: Partial<EditorContext<Row>> = {}): Promise<Harness> {
         value: "open",
         row: { status: "open" },
         column: { key: "status", options: ["open", "pending", "closed"] } as any,
+        rowIndex: 0,
+        colIndex: 0,
+        rowKey: "1",
         openedBy: "key",
         setValue,
         commit,
@@ -67,7 +70,7 @@ async function open(over: Partial<EditorContext<Row>> = {}): Promise<Harness> {
     };
 
     const restore = installLayout();
-    let editor: CellEditor;
+    let editor: MountedCellEditor;
     try {
         editor = createCellSelect(ctx);
         document.body.appendChild(editor.element);

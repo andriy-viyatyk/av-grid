@@ -632,6 +632,8 @@ describe("getState", () => {
                 isStatusColumn: undefined,
                 hasRender: false,
                 hasOptions: false,
+                hasEditor: false,
+                filterType: "options",
             },
             {
                 key: "active",
@@ -647,6 +649,8 @@ describe("getState", () => {
                 isStatusColumn: undefined,
                 hasRender: false,
                 hasOptions: true,
+                hasEditor: false,
+                filterType: "options",
             },
         ]);
     });

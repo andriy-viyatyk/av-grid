@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createCellInput } from "./CellInput";
-import type { CellEditor, EditorContext } from "../model/EditingModel";
+import type { EditorContext, MountedCellEditor } from "../types";
 
 /**
  * Where the caret starts, which is the whole of what `EditOrigin` decides.
@@ -18,13 +18,16 @@ interface Row {
     name: string;
 }
 
-const editors: CellEditor[] = [];
+const editors: MountedCellEditor[] = [];
 
 function build(over: Partial<EditorContext<Row>> = {}): HTMLInputElement {
     const ctx: EditorContext<Row> = {
         value: "Lovelace",
         row: { name: "Lovelace" },
         column: { key: "name" } as any,
+        rowIndex: 0,
+        colIndex: 0,
+        rowKey: "1",
         openedBy: "key",
         setValue: vi.fn(),
         commit: vi.fn(),
