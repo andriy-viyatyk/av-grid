@@ -10,6 +10,10 @@ Thumbs.db
 # Scratch space - notes and working files that are not part of the project
 temp/
 
+# Demo site, assembled by .github/workflows/pages.yml - never checked in, so the
+# published demo can only ever be built from source
+site/
+
 # Board build artifacts - regenerate with: npm run build:board
 test-boards/*/lib/
 test-boards/*/ui.log

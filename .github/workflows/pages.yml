@@ -1,0 +1,104 @@
+# Deploy the live examples to GitHub Pages.
+#
+#     https://andriy-viyatyk.github.io/av-grid/
+#
+# The site is assembled rather than checked in, so the demo is always the current code: it is
+# built from source on every push that could change it, and there is no committed copy of dist/
+# to go stale. The layout mirrors the repository —
+#
+#     site/examples/…   the example pages, verbatim
+#     site/dist/…       the real build
+#
+# — because the examples import "../dist/av-grid.js", and keeping that path true means a page
+# behaves identically served from here and opened locally. Nothing is rewritten on the way out.
+#
+# Pages must be set to build from GitHub Actions (Settings → Pages → Source: GitHub Actions),
+# not from a branch. Configured once, via the API; recorded here because the deploy step fails
+# with a 404 if it is ever switched back.
+
+name: Demo site
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "src/**"
+            - "examples/**"
+            - "scripts/**"
+            - "styles/**"
+            - "package.json"
+            - "package-lock.json"
+            - "vite.config.ts"
+            - ".github/workflows/pages.yml"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+# One deploy at a time. A queued run is superseded by a newer one rather than racing it.
+concurrency:
+    group: pages
+    cancel-in-progress: true
+
+jobs:
+    build:
+        name: Build the site
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: actions/setup-node@v5
+              with:
+                  node-version: 22
+
+            - run: npm ci
+            - run: npm run build
+
+            - name: Assemble
+              run: |
+                  mkdir -p site/examples site/dist
+                  cp -r examples/. site/examples/
+                  cp -r dist/. site/dist/
+
+                  # The board example vendors the library into its own lib/ rather than loading a
+                  # CDN, because a Persephone board's CSP forbids remote scripts. That folder is a
+                  # build artifact and is gitignored, so it has to be filled in here or the page
+                  # 404s on ./lib/av-grid.js.
+                  mkdir -p site/examples/persephone-board/lib
+                  cp dist/av-grid.js dist/av-grid.css site/examples/persephone-board/lib/
+
+                  # The root is a redirect rather than a copy of the index, so there is exactly one
+                  # examples index and its relative links stay correct.
+                  cat > site/index.html <<'HTML'
+                  <!doctype html>
+                  <meta charset="utf-8">
+                  <title>av-grid — live examples</title>
+                  <meta http-equiv="refresh" content="0; url=examples/">
+                  <link rel="canonical" href="examples/">
+                  <p>Redirecting to <a href="examples/">the examples</a>.</p>
+                  HTML
+
+                  # Pages serves what is here; anything missing is a 404 nobody sees until a
+                  # visitor clicks it. Fail the build instead.
+                  for f in site/index.html site/examples/index.html site/dist/av-grid.js \
+                           site/dist/av-grid.css site/examples/persephone-board/lib/av-grid.js; do
+                      test -s "$f" || { echo "::error::missing or empty: $f"; exit 1; }
+                  done
+                  echo "assembled $(find site -type f | wc -l) files"
+
+            - uses: actions/upload-pages-artifact@v3
+              with:
+                  path: site
+
+    deploy:
+        name: Deploy
+        needs: build
+        runs-on: ubuntu-latest
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        steps:
+            - id: deployment
+              uses: actions/deploy-pages@v4

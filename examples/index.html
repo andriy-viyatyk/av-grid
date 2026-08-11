@@ -23,7 +23,7 @@
     <p class="sub">Each file is standalone, has no build step of its own, and is small enough to
     read whole and copy in full.</p>
 
-    <div class="note">
+    <div class="note" id="local-note">
         <strong>Two things first.</strong> Run <code>npm run build</code> once — the examples load
         <code>../dist/av-grid.js</code>, which is a build artifact and is not checked in. And open
         them <em>through a server</em>, not off the filesystem: browsers block ES module imports
@@ -32,6 +32,24 @@
         <code>npx serve .</code> &nbsp;or&nbsp; <code>python -m http.server</code>, then open
         <code>examples/</code>.
     </div>
+
+    <div class="note" id="live-note" hidden>
+        <strong>This is the live demo</strong>, built from
+        <a href="https://github.com/andriy-viyatyk/av-grid">the repository</a> on every push —
+        so it is running the current code. Every page below is a single standalone file with no
+        build step of its own; use <em>View Source</em> and copy it whole.
+    </div>
+
+    <script>
+        // The setup note is instructions for someone who checked the repo out. On the deployed
+        // demo it is not just noise but wrong — it is already built and already served. Keyed on
+        // the Pages host rather than on "not file://", so serving locally still shows the setup
+        // note whatever port or loopback address it is on.
+        if (location.hostname.endsWith("github.io")) {
+            document.getElementById("local-note").hidden = true;
+            document.getElementById("live-note").hidden = false;
+        }
+    </script>
 
     <ol>
         <li>
@@ -87,13 +105,21 @@
             rendered column, and a priority <code>sortValue</code>.</p>
         </li>
         <li>
-            <a href="persephone-board/README.md">Persephone board</a>
+            <a href="persephone-board/index.html">Persephone board</a>
+            <span style="font-weight: 400; color: #666">·
+            <a href="https://github.com/andriy-viyatyk/av-grid/blob/main/examples/persephone-board/README.md"
+               style="font-weight: 400">README</a></span>
             <p class="d">The grid on a board, themed entirely by the <code>--p-*</code> contract —
             with no theming code at all. Read the README: a board has to be scaffolded with
             <code>create_board</code> to be trusted.</p>
         </li>
     </ol>
 
-    <p class="sub">The full API reference is in <a href="../docs/api.md">docs/api.md</a>.</p>
+    <!--
+        Absolute, not ../docs/api.md: markdown renders on GitHub and downloads as plain text on
+        Pages, so a relative link works locally and disappoints everyone who clicks it live.
+    -->
+    <p class="sub">The full API reference is
+    <a href="https://github.com/andriy-viyatyk/av-grid/blob/main/docs/api.md">docs/api.md</a>.</p>
 </body>
 </html>

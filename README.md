@@ -4,6 +4,10 @@ A virtualized data grid that renders straight to the DOM. **No runtime dependenc
 framework.** Built for **100,000+ rows** with no lag while scrolling, selecting a range, or
 editing.
 
+**[▶ Live demo](https://andriy-viyatyk.github.io/av-grid/)** — eleven examples in the browser,
+including a [100,000-row benchmark](https://andriy-viyatyk.github.io/av-grid/examples/09-benchmark.html)
+you can run yourself.
+
 ```js
 import { AVGrid } from "av-grid";
 
@@ -142,22 +146,23 @@ it overrides.
 
 ## Examples
 
-Eleven standalone files, one topic each, every one meant to be copied whole. Open
-[`examples/index.html`](examples/index.html), or go straight to one:
+Eleven standalone files, one topic each, every one meant to be copied whole. The names below open
+the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of each is one file in
+[`examples/`](examples/), with no build step of its own.
 
-| | |
-|---|---|
-| [01-minimal](examples/01-minimal.html) | the smallest thing that works |
-| [02-columns](examples/02-columns.html) | widths, types, alignment, inference |
-| [03-cell-rendering](examples/03-cell-rendering.html) | `render`, `formatValue`, class hooks |
-| [04-sorting-filtering](examples/04-sorting-filtering.html) | sorting, search, filters, the filter bar |
-| [05-selection-keyboard](examples/05-selection-keyboard.html) | focus, ranges, row selection, the keyboard map |
-| [06-editing](examples/06-editing.html) | `editable`, validation, dropdowns |
-| [07-clipboard](examples/07-clipboard.html) | copy, cut, paste, Copy as… |
-| [08-theming](examples/08-theming.html) | the CSS custom-property contract |
-| [09-benchmark](examples/09-benchmark.html) | the 100k harness — run it yourself |
-| [10-customization](examples/10-customization.html) | all seven hooks in one file |
-| [persephone-board](examples/persephone-board/) | the grid inside a Persephone board |
+| | | |
+|---|---|---|
+| [01-minimal](https://andriy-viyatyk.github.io/av-grid/examples/01-minimal.html) | the smallest thing that works | [source](examples/01-minimal.html) |
+| [02-columns](https://andriy-viyatyk.github.io/av-grid/examples/02-columns.html) | widths, types, alignment, inference | [source](examples/02-columns.html) |
+| [03-cell-rendering](https://andriy-viyatyk.github.io/av-grid/examples/03-cell-rendering.html) | `render`, `formatValue`, class hooks | [source](examples/03-cell-rendering.html) |
+| [04-sorting-filtering](https://andriy-viyatyk.github.io/av-grid/examples/04-sorting-filtering.html) | sorting, search, filters, the filter bar | [source](examples/04-sorting-filtering.html) |
+| [05-selection-keyboard](https://andriy-viyatyk.github.io/av-grid/examples/05-selection-keyboard.html) | focus, ranges, row selection, the keyboard map | [source](examples/05-selection-keyboard.html) |
+| [06-editing](https://andriy-viyatyk.github.io/av-grid/examples/06-editing.html) | `editable`, validation, dropdowns | [source](examples/06-editing.html) |
+| [07-clipboard](https://andriy-viyatyk.github.io/av-grid/examples/07-clipboard.html) | copy, cut, paste, Copy as… | [source](examples/07-clipboard.html) |
+| [08-theming](https://andriy-viyatyk.github.io/av-grid/examples/08-theming.html) | the CSS custom-property contract | [source](examples/08-theming.html) |
+| [09-benchmark](https://andriy-viyatyk.github.io/av-grid/examples/09-benchmark.html) | the 100k harness — run it yourself | [source](examples/09-benchmark.html) |
+| [10-customization](https://andriy-viyatyk.github.io/av-grid/examples/10-customization.html) | all seven hooks in one file | [source](examples/10-customization.html) |
+| [persephone-board](https://andriy-viyatyk.github.io/av-grid/examples/persephone-board/) | the grid inside a Persephone board | [source](examples/persephone-board/) |
 
 ## Documentation
 
