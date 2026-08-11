@@ -105,12 +105,38 @@ export class RowsModel<R> {
         const rowCompare = this.model.data.rowCompare;
         if (!rowCompare) return rows;
 
-        const sorted = [...rows];
-        sorted.sort(rowCompare);
+        const sortValue = this.model.data.sortValue;
+        let sorted: R[];
+        if (sortValue) {
+            sorted = this.sortByValue(rows, sortValue, rowCompare);
+        } else {
+            sorted = [...rows];
+            sorted.sort(rowCompare);
+        }
         // Sorting then reversing, rather than negating the comparator, is the reference's
         // choice and is kept: it makes a descending sort stable in the same way an ascending
         // one is, only mirrored.
         return direction === "desc" ? sorted.reverse() : sorted;
+    };
+
+    /**
+     * Decorate, sort, undecorate — the classic transform, and the reason `Column.sortValue`
+     * exists as well as `rowCompare`.
+     *
+     * `Array.sort` calls its comparator O(n log n) times, so a projection read *inside* one runs
+     * about 1.7 million times on 100,000 rows. Read into a parallel array first and it runs n
+     * times, and the comparisons that follow are over plain values. The cost is one wrapper object
+     * per row, which is why this is not how an ordinary sort works: it is a trade that only pays
+     * when the projection is host code.
+     */
+    private sortByValue = (
+        rows: readonly R[],
+        sortValue: (row: R) => any,
+        rowCompare: (left: any, right: any) => number,
+    ): R[] => {
+        const decorated = rows.map((row) => ({ row, value: sortValue(row) }));
+        decorated.sort((a, b) => rowCompare(a.value, b.value));
+        return decorated.map((d) => d.row);
     };
 
     private onDataChange = (e: AVGridDataChangeEvent): void => {

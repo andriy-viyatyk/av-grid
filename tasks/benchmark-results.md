@@ -925,6 +925,34 @@ The behavioural half, in the browser rather than in happy-dom: a real `Clipboard
 tab-separated, and `copyAsJson` writes `"rating": 1` as a **number** — the hook's return value is
 not stringified on the way out.
 
+## Task 26 — `sortValue` — 2026-08-11
+
+`Column.sortValue` is the second hook this phase that puts host code in a loop over every row, and
+the first where the *number of calls* is the design question rather than the cost of each one.
+`Array.sort` calls its comparator O(n log n) times, so a projection written inside a `rowCompare`
+runs that many times; `sortValue` is read once per row into a parallel array, which is sorted and
+unwrapped. `window.avg.measureSortValue(pairs)` runs both forms of the same order, alternating
+within pairs with the order flipped every iteration, and counts the calls rather than trusting the
+arithmetic.
+
+**On 100,000 rows, with both forms asserted to produce the same order** (`sameOrder: true`):
+
+| The projection | `sortValue` | inside `rowCompare` | ratio | calls per sort |
+|---|---|---|---|---|
+| `RANK[row.status]` — a table lookup | **10.3 ms** | 10.8 ms | 0.95× | 100,000 vs **1,209,558** |
+| Two `toLowerCase()` and a concat, `localeCompare` | **17.5 ms** | 46.9 ms | **0.37×** | 100,000 vs **1,325,678** |
+
+**Twelve times fewer calls buys 5% on a table lookup and 2.7× on a projection that does work.** That
+is the honest shape of it, and the cheap row is the interesting one: the decoration allocates a
+wrapper object per row and walks the array twice more, which eats almost all of the saving when the
+projection is a single property read. It never loses, and the more the projection does the more it
+wins — which is the right way round, because a projection worth extracting is one that does
+something. An earlier run of the same lookup case read 9.3 ms against 10.6 ms (0.88×); treat that row
+as a wash rather than a number.
+
+Not the paint path: a sort marks the header row for its indicator and repaints the viewport once,
+which is what it did before. No gate re-run.
+
 ## History
 
 | Date | Task | First paint | Flat ratio | Scroll fps (top / bottom) | Allocations | Note |
@@ -950,5 +978,6 @@ not stringified on the way out.
 | 2026-08-11 | polish | 8.8 ms | 0.86× | 60.0 / 60.0 | 0 | Row hover follows the pointer during a drag and during a wheel scroll. Hover moved from `mousemove` to `pointermove`, because `preventDefault()` on `pointerdown` suppresses the compat mouse events — and a stationary pointer now re-resolves after the paint on `scroll`. The gate is unchanged (drag **2 cells a move** at both ends, full repaint **0 mutations**, select-all **0 mutations**) because `onScrolled` returns immediately with no pointer over the grid, which is every programmatic scroll. A real wheel scroll under the pointer costs **0.291 ms a paint against 0.120 ms**; hover moving on its own is **0 mutations, 0.045 ms**. |
 | 2026-08-11 | 21 | 9.2 ms | 0.96× | 60.0 / 60.0 | 0 | The four class hooks — `Column.cellClass`, `Column.headerClass`, `onCellClass`, `rowClass` — all live on the board's 100k grid. Full repaint 0.200 ms and **0 DOM mutations**; the hooks themselves add **+0.012–0.015 ms (1.24×–1.32×)** to a full repaint of every visible cell, measured as 40 alternating pairs run twice with the pair order reversed, because measured in blocks the comparison came back backwards. A class **disappears** when its hook stops asking for it: 70/10/130/1 marked cells → 0/0/0/0 with the hooks removed, and back again. |
 | 2026-08-11 | 22 | 11.8 ms | 0.95× | 60.0 / 60.0 | 0 | Custom cell editors. A host's editor at rows 100 and 99,000: **1 cell marked on open, 0 mutations on a full repaint, same element back**. Found and fixed a pre-existing leak — a long scroll *evicts* the editing cell rather than repainting it, so the edit stayed open around a detached element. |
+| 2026-08-11 | 26 | — | — | — | — | `sortValue`. Not the render path. A projection read **once per row (100,000 calls) against 1.2 million inside a comparator**: 10.3 ms vs 10.8 ms for a table lookup — a wash, the wrapper allocation eats the saving — and **17.5 ms vs 46.9 ms (0.37×)** for a projection that does real work. Both forms asserted to produce the same order. |
 | 2026-08-11 | 24 | — | — | — | — | `copyValue`. Not the render path, so no gate re-run. Copying 1,000 cells of a glyph-rendered column costs **0.20 ms with the hook against 1.24 ms without it (0.16×)** — the fallback reduces `render`'s markup through a scratch element per cell. `copyAsJson` keeps the returned number a number. |
 | 2026-08-11 | 23 | 6.9 ms | 0.78× | 60.0 / 60.0 | 0 | Custom filter types. A filter change on 100,000 rows: **1 repaint, 0 DOM mutations**; opening a host's filter body marks **1 cell** and mutates **0**. The host `match` costs **1.7 ms against the built-in test's 2.1 ms (0.78×)** — cheaper, because the built-in path resolves `formatValue` and `optionMatches` per row and a definition's `match` does not. The same filter re-parsing its bounds per row costs **90 ms, 56×** as much, which is the number the docs' warning now quotes. |

@@ -59,6 +59,7 @@ await window.avg.measureFilterBar(count)  // the task-17 check: chip cost, and w
 await window.avg.measureCellSelect(count, options) // the task-17a gate: 10,000 options behind one cell
 await window.avg.measureContextMenu()     // right-click over 100k rows: 0 dirty, 0 mutations
 await window.avg.measureTeardown(100)     // the task-18 gate: 100 create/destroy cycles, leak check
+await window.avg.measureSortValue(6)      // the task-26 check: a projection against the same comparator
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`
@@ -167,6 +168,12 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   with a `formatValue` returning a token found nowhere else (`Grace~Thompson` matches 12,500
   rows with it and 0 without) — and note the board's eight first names and eight last names
   pair up into only eight combinations, so `Grace~Hopper` is not one of them.
+- **A custom sort** — the `Status` column carries `sortValue: (row) => STATUS_RANK[row.status]`, so
+  clicking its header sorts by priority (`open` first) rather than alphabetically (`archived` first),
+  which is what makes it obvious at a glance whether the hook ran. `measureSortValue(pairs)` runs two
+  projections — a table lookup and one that lowercases and concatenates — each as a `sortValue` and as
+  the equivalent `rowCompare`, asserts `sameOrder`, and counts the calls: **100,000 against ~1.2
+  million**. Read both ratios together; the cheap projection is a wash and the costly one is 0.37×.
 - **`copyValue`** — the `Rating` column renders five glyphs (`★★★☆☆`) and copies the number behind
   them. It is the case the hook exists for: without it the column copies its stars, which sum and
   sort as nothing. `measureCopyValue(n)` reports both forms of the same cell side by side and times

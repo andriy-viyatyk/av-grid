@@ -34,6 +34,7 @@ export class AVGridData<R> {
     private _columns: Column<R>[];
     private _lastIsStatusIndex = -1;
     private _rowCompare: RowCompare<R> | undefined;
+    private _sortValue: ((row: R) => any) | undefined;
     private _allSelected = false;
     private _hovered = { row: -1, col: -1 };
     private _editTime = 0;
@@ -98,6 +99,23 @@ export class AVGridData<R> {
     set rowCompare(value: RowCompare<R> | undefined) {
         if (this._rowCompare === value) return;
         this._rowCompare = value;
+        this._changeEvent.rowCompare = true;
+    }
+
+    /**
+     * The projection the sorted column supplies, when it has a `sortValue` rather than a
+     * `rowCompare`. It shares `rowCompare`'s change flag deliberately: the two are one fact —
+     * *how the rows are ordered* — and everything that reacts to one has to react to the other.
+     * Without that, moving the sort between two columns that both have a `sortValue` would leave
+     * `rowCompare` at the same memorized identity and report no change at all.
+     */
+    get sortValue(): ((row: R) => any) | undefined {
+        return this._sortValue;
+    }
+
+    set sortValue(value: ((row: R) => any) | undefined) {
+        if (this._sortValue === value) return;
+        this._sortValue = value;
         this._changeEvent.rowCompare = true;
     }
 

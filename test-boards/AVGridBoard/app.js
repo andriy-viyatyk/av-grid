@@ -33,6 +33,13 @@ const LAST = ["Lovelace", "Turing", "Hopper", "Dijkstra", "Liskov", "Knuth", "Th
 const TEAMS = ["platform", "infra", "data", "growth", "research"];
 const STATUS = ["open", "closed", "pending", "archived", "draft"];
 
+/**
+ * Task 26. A priority order the values do not have on their own — alphabetically `archived` comes
+ * first and `open` fourth, which is the wrong answer to "sort by status" in every board that has
+ * one. The `Status` column carries this as its `sortValue`.
+ */
+const STATUS_RANK = { open: 0, pending: 1, draft: 2, closed: 3, archived: 4 };
+
 /** Objects, not arrays — this board exercises the path a host actually writes. */
 function buildRows(count) {
     const startedAt = performance.now();
@@ -173,6 +180,9 @@ function columns() {
             // `options` gives the cell a dropdown editor — and this column also has a custom
             // `render`, so it proves the display renderer and the editor coexist.
             options: STATUS,
+            // Task 26. Sorted by priority rather than alphabetically, in one line and with no
+            // comparator: whatever this returns is compared the way the grid compares numbers.
+            sortValue: (row) => STATUS_RANK[row.status] ?? 9,
             // An element renderer, to prove both return shapes work.
             render: (c) => {
                 const span = document.createElement("span");
@@ -1884,6 +1894,133 @@ async function measureTeardown(cycles = 100, rowCount = 2000) {
     };
 }
 
+/**
+ * Task 26. `sortValue` against the same order written as a `rowCompare`.
+ *
+ * The `Status` column sorts by `STATUS_RANK` rather than alphabetically, which is the ask this hook
+ * came from. The comparison is the point: both forms produce the *same* order, so what is left is
+ * how many times the host's projection runs — n for `sortValue`, O(n log n) inside a comparator.
+ * `calls` counts it rather than trusting the arithmetic.
+ *
+ * Alternating pairs with the order flipped every iteration, as everything on this board is now
+ * measured; and `document.hidden` must be false or every number here is 8× too large.
+ */
+async function measureSortValue(pairs = 6) {
+    const cases = {
+        // A table lookup — the shape the docs' snippet uses, and about as cheap as a projection
+        // gets, so this is the case where the transform's own allocation is most visible.
+        rank: {
+            columnKey: "status",
+            project: (row) => STATUS_RANK[row.status] ?? 9,
+            compare: (a, b) =>
+                (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9),
+        },
+        // A projection that actually does work: two lowercase conversions and a concat, compared
+        // with `localeCompare`. The comparator form runs all of it twice per comparison.
+        text: {
+            columnKey: "full",
+            project: (row) =>
+                `${row.lastName}`.toLowerCase() + "|" + `${row.firstName}`.toLowerCase(),
+            compare: (a, b) =>
+                (`${a.lastName}`.toLowerCase() + "|" + `${a.firstName}`.toLowerCase())
+                    .localeCompare(
+                        `${b.lastName}`.toLowerCase() + "|" + `${b.firstName}`.toLowerCase(),
+                    ),
+        },
+    };
+
+    const results = {};
+
+    for (const [name, spec] of Object.entries(cases)) {
+        let projectionCalls = 0;
+        let comparatorCalls = 0;
+
+        const withSortValue = columns().map((c) =>
+            String(c.key) === spec.columnKey
+                ? {
+                      ...c,
+                      sortValue: (row) => {
+                          projectionCalls += 1;
+                          return spec.project(row);
+                      },
+                  }
+                : c,
+        );
+        const withRowCompare = columns().map((c) =>
+            String(c.key) === spec.columnKey
+                ? {
+                      ...c,
+                      rowCompare: (a, b) => {
+                          comparatorCalls += 2;
+                          return spec.compare(a, b);
+                      },
+                  }
+                : c,
+        );
+
+        // The columns are swapped with the sort *off*, so only the sort itself is timed.
+        const timeSort = async (list) => {
+            grid.setSort(undefined);
+            grid.setOptions({ columns: list });
+            await settle(2);
+            const startedAt = performance.now();
+            grid.setSort({ key: spec.columnKey, direction: "asc" });
+            const ms = performance.now() - startedAt;
+            await settle(2);
+            return ms;
+        };
+
+        let projected = 0;
+        let compared = 0;
+        let projectedOrder;
+        let comparedOrder;
+        for (let i = 0; i < pairs; i++) {
+            // The order inside the pair flips every iteration, so neither form is always second.
+            if (i % 2 === 0) {
+                projected += await timeSort(withSortValue);
+                projectedOrder = firstKeys(spec.columnKey);
+                compared += await timeSort(withRowCompare);
+                comparedOrder = firstKeys(spec.columnKey);
+            } else {
+                compared += await timeSort(withRowCompare);
+                comparedOrder = firstKeys(spec.columnKey);
+                projected += await timeSort(withSortValue);
+                projectedOrder = firstKeys(spec.columnKey);
+            }
+        }
+
+        results[name] = {
+            sortValueMs: Number((projected / pairs).toFixed(2)),
+            rowCompareMs: Number((compared / pairs).toFixed(2)),
+            ratio: Number((projected / compared).toFixed(2)),
+            // Per sort, so the two are comparable: n against O(n log n).
+            callsPerSort: {
+                sortValue: Math.round(projectionCalls / pairs),
+                rowCompare: Math.round(comparatorCalls / pairs),
+            },
+            // The two forms must agree, or this is a comparison between two different sorts.
+            sameOrder: projectedOrder === comparedOrder,
+            firstThree: projectedOrder,
+        };
+    }
+
+    grid.setSort(undefined);
+    grid.setOptions({ columns: columns() });
+    await settle(2);
+
+    return { rows: grid.getVisibleRows().length, hidden: document.hidden, ...results };
+}
+
+/** The first three displayed values of one column, as a string, for an order comparison. */
+function firstKeys(columnKey) {
+    const column = grid.model.data.columns.find((c) => String(c.key) === columnKey);
+    return grid
+        .getVisibleRows()
+        .slice(0, 3)
+        .map((r) => (column?.formatValue ? column.formatValue(column, r) : r[columnKey]))
+        .join(" · ");
+}
+
 async function measureSort() {
     await settle();
     const startedAt = performance.now();
@@ -2265,6 +2402,7 @@ window.avg = {
     measureContextMenu,
     measureTeardown,
     measureSort,
+    measureSortValue,
     scrollTo,
     settle,
     get grid() {

@@ -123,6 +123,112 @@ describe("AVGridModel", () => {
             ]);
         });
 
+        describe("sortValue", () => {
+            const RANK: Record<string, number> = { high: 0, normal: 1, low: 2 };
+            const priorities = [
+                { id: 1, name: "low", score: 1 },
+                { id: 2, name: "high", score: 2 },
+                { id: 3, name: "normal", score: 3 },
+            ];
+
+            /** `name` sorts by rank, `score` by the negated score — two projected columns. */
+            const projected = (extra: Record<string, any> = {}) =>
+                makeModel({
+                    rows: priorities,
+                    columns: [
+                        { key: "name", sortValue: (r: any) => RANK[r.name], ...extra },
+                        { key: "score", sortValue: (r: any) => -r.score },
+                    ],
+                }).model;
+
+            it("sorts by the projection, ascending and reversed", () => {
+                const m = projected();
+                m.setSort({ key: "name", direction: "asc" });
+                expect(m.data.rows.map((r) => r.name)).toEqual([
+                    "high",
+                    "normal",
+                    "low",
+                ]);
+
+                m.setSort({ key: "name", direction: "desc" });
+                expect(m.data.rows.map((r) => r.name)).toEqual([
+                    "low",
+                    "normal",
+                    "high",
+                ]);
+            });
+
+            it("re-sorts when the sort moves between two projected columns", () => {
+                // The identity trap: both columns resolve to the same memorized *value*
+                // comparator, so the only thing that moved is the projection.
+                const m = projected();
+                m.setSort({ key: "name", direction: "asc" });
+                m.setSort({ key: "score", direction: "asc" });
+                expect(m.data.rows.map((r) => r.score)).toEqual([3, 2, 1]);
+            });
+
+            it("puts rows with no sort value at the ascending end", () => {
+                const m = makeModel({
+                    rows: [
+                        { id: 1, name: "b", score: 1 },
+                        { id: 2, name: "?", score: 2 },
+                        { id: 3, name: "a", score: 3 },
+                    ],
+                    columns: [
+                        {
+                            key: "name",
+                            sortValue: (r: any) =>
+                                r.name === "?" ? undefined : r.name,
+                        },
+                        { key: "score" },
+                    ],
+                }).model;
+                m.setSort({ key: "name", direction: "asc" });
+                expect(m.data.rows.map((r) => r.name)).toEqual(["?", "a", "b"]);
+            });
+
+            it("lets rowCompare win where both are set", () => {
+                const m = projected({
+                    // The reverse of the ranking, so the winner is unambiguous.
+                    rowCompare: (a: any, b: any) => RANK[b.name] - RANK[a.name],
+                });
+                m.setSort({ key: "name", direction: "asc" });
+                expect(m.data.rows.map((r) => r.name)).toEqual([
+                    "low",
+                    "normal",
+                    "high",
+                ]);
+            });
+
+            it("reads the projection once per row, not once per comparison", () => {
+                const many = Array.from({ length: 1000 }, (_, i) => ({
+                    id: i,
+                    name: `n${i}`,
+                    score: (i * 7919) % 1000,
+                }));
+                let calls = 0;
+                const m = makeModel({
+                    rows: many,
+                    columns: [
+                        { key: "name" },
+                        {
+                            key: "score",
+                            sortValue: (r: any) => {
+                                calls += 1;
+                                return r.score;
+                            },
+                        },
+                    ],
+                }).model;
+
+                m.setSort({ key: "score", direction: "asc" });
+                // A comparator would have been called ~9,000 times for 1,000 rows.
+                expect(calls).toBe(1000);
+                expect(m.data.rows[0].score).toBe(0);
+                expect(m.data.rows[999].score).toBe(999);
+            });
+        });
+
         it("ignores formatValue when sorting, which is what rowCompare is for", () => {
             const { model: m } = makeModel({
                 columns: [

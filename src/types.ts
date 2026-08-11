@@ -207,13 +207,29 @@ export interface Column<R = any> {
     isStatusColumn?: boolean;
 
     /**
-     * This column's sort order, in place of comparing `row[key]` by its runtime type. The hook
-     * for an order the value does not have on its own — a status priority, a natural sort:
+     * The value this column sorts by, in place of `row[key]`. The short form of a custom sort,
+     * and the one to reach for first — an order the value does not have on its own:
      *
      * ```js
      * const RANK = { critical: 0, high: 1, normal: 2, low: 3 };
-     * { key: "priority", rowCompare: (a, b) => RANK[a.priority] - RANK[b.priority] }
+     * { key: "priority", sortValue: (row) => RANK[row.priority] }
      * ```
+     *
+     * Whatever it returns is compared the way the grid compares anything: numbers numerically,
+     * strings by `localeCompare`, `Date`s by instant, booleans false-first, and nullish values at
+     * the ascending end. **Read once per row**, not once per comparison — the rows are decorated
+     * with their sort values, sorted, and undecorated, so a 100,000-row sort calls this 100,000
+     * times rather than the ~1.7 million a comparator is called.
+     *
+     * `rowCompare` wins where both are set.
+     */
+    sortValue?: (row: R) => any;
+
+    /**
+     * This column's sort order as a comparator, for an order that is genuinely pairwise: a
+     * natural sort, a locale with collation options, a tie-break across two properties. Prefer
+     * `sortValue` when the order is a projection — it is shorter *and* called n times instead of
+     * n log n.
      *
      * Ascending only: a descending header click reverses the sorted array, so a comparator never
      * sees the direction.

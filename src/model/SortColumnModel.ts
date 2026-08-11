@@ -62,6 +62,7 @@ export class SortColumnModel<R> {
 
     private sortChanged = (): void => {
         const before = this.model.data.rowCompare;
+        const beforeSortValue = this.model.data.sortValue;
         this.updateRowCompare();
 
         // `defaultCompare` is memorized by key, so flipping asc → desc resolves to the *same*
@@ -69,7 +70,14 @@ export class SortColumnModel<R> {
         // The reference did not have this hole: its `useEffect` watched the sort object, not
         // the comparator, so any change to either re-ran the pipeline. Re-run it here for the
         // direction-only case, and leave the key-change case to the data event.
-        if (this.model.data.rowCompare === before) {
+        //
+        // The projection has to be in the comparison for the same reason: two columns with a
+        // `sortValue` both resolve to the *value* comparator, so the identity that moved is the
+        // projection's, not the comparator's.
+        if (
+            this.model.data.rowCompare === before &&
+            this.model.data.sortValue === beforeSortValue
+        ) {
             this.model.models.rows.updateRows();
         }
 
@@ -91,15 +99,27 @@ export class SortColumnModel<R> {
      */
     private updateRowCompare = (): void => {
         let rowCompare: RowCompare<R> | undefined;
+        let sortValue: ((row: R) => any) | undefined;
         const sort = this.model.state.get().sort;
 
         if (sort) {
             const col = this.model.data.columns.find(
                 (c) => String(c.key) === sort.key,
             );
-            rowCompare = col?.rowCompare ?? defaultCompare(sort.key);
+            if (col?.rowCompare) {
+                rowCompare = col.rowCompare;
+            } else if (col?.sortValue) {
+                // `defaultCompare()` with no key compares the values handed to it, which is what
+                // the projected sort values are. Memorized like the keyed form, so this identity
+                // is stable across re-resolutions.
+                sortValue = col.sortValue;
+                rowCompare = defaultCompare();
+            } else {
+                rowCompare = defaultCompare(sort.key);
+            }
         }
 
+        this.model.data.sortValue = sortValue;
         this.model.data.rowCompare = rowCompare;
         this.model.data.change();
     };

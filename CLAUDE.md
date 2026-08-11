@@ -29,8 +29,8 @@ then restarts at the current phase, carrying forward the standing rules and a po
 ## 📊 Current state
 
 **Phase 6 — customization — is under way.** Tasks 21–26 in [`plan.md`](tasks/plan.md); **tasks 21,
-22, 23 and 24 are done**. Left: **26** (`sortValue`, added to the plan after a question task 24
-raised) and then **25**, the customization docs, example and board, which demonstrates all of them.
+22, 23, 24 and 26 are done**. Left: **25**, the customization docs, example and board, which
+demonstrates all of them.
 
 **One table now says which hook feeds what**, in [`docs/api.md`](docs/api.md#which-hook-feeds-what):
 screen, sort, search, a filter's row test, a filter's option list, copy and paste, each with the
@@ -46,12 +46,20 @@ against 1.24 ms for 1,000 cells), because reducing `render`'s markup to text cos
 write and a `textContent` read per cell. There is no `pasteValue`: `validate` already coerces an
 incoming value on typing, pasting and range-delete alike.
 
-**Sorting by something other than the value is `Column.rowCompare`, and it has been there all
-along** — the docs just never said so beyond one line in a type block, which is how the question got
-asked. A status priority is `rowCompare: (a, b) => RANK[a.status] - RANK[b.status]`, ascending only,
-because a descending header click reverses the sorted array. Task 26 adds the shorter form,
-`sortValue: (row) => RANK[row.status]`, and reads it **once per row** rather than inside a comparator
-that runs O(n log n) times.
+**A column sorts by whatever a host says, in one line.** `Column.sortValue: (row) => any` is the
+projection — `sortValue: (row) => RANK[row.status]` is a status priority, and whatever it returns is
+compared the way the grid compares anything — and `Column.rowCompare`, which has been there since the
+port and was documented by one line in a type block, stays for an order that is genuinely pairwise: a
+collator, a natural sort, a tie-break across two properties. It wins where both are set. Both sort
+ascending, because a descending header click reverses the sorted array.
+
+**`sortValue` is read once per row, not once per comparison, and that is measured rather than
+assumed.** `Array.sort` calls its comparator O(n log n) times — **1,209,558 times for 100,000 rows**,
+counted on the board — so a projection written inside a `rowCompare` runs that often too; decorating
+the rows with their sort values and sorting *those* is 100,000 calls. Twelve times fewer calls buys
+**5%** on a table lookup (10.3 ms against 10.8 ms — the wrapper object per row eats the rest) and
+**2.7×** on a projection that lowercases and concatenates (17.5 ms against 46.9 ms). It never loses,
+and it wins in proportion to what the projection does, which is the right way round.
 
 **A column can bring its own filter type, and the grid still draws everything around it.**
 `Column.filter` takes a definition — `{ name, create, label, match }`, plus `serialize` /
