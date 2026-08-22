@@ -1,6 +1,6 @@
 {
     "name": "av-grid",
-    "version": "2.2.3",
+    "version": "2.2.4",
     "description": "Framework-agnostic virtualized data grid for the DOM. No dependencies. Built for 100k+ rows.",
     "license": "MIT",
     "author": "Andriy Viyatyk (https://github.com/andriy-viyatyk)",
