@@ -55,8 +55,23 @@ const BOX_ON_HOVERED = `<span class="avg-bool-box avg-checked" data-type="bool-t
 const BOX_OFF_HOVERED = `<span class="avg-bool-box" data-type="bool-toggle">${uncheckedIcon}</span>`;
 
 const mode = new WeakMap<HTMLElement, ContentMode>();
-/** The highlighted markup last written to an element, so the paint can skip an unchanged one. */
-const marked = new WeakMap<HTMLElement, string>();
+/**
+ * The markup last written to an element, so a paint can skip an element whose markup did not
+ * change. Used by both markup modes: the search-highlight path and a column's `render` string.
+ *
+ * A map rather than reading `innerHTML` back, because the getter *serializes* the subtree — so the
+ * comparison would be against a re-serialization rather than against what was assigned, and it
+ * would only hold for markup written exactly the way the serializer emits it. A `render` hook that
+ * self-closes a tag (`<path … />`, which the serializer writes as `></path>`) or lowercases an
+ * SVG attribute (`viewbox`, which the parser adjusts to `viewBox`) would then re-parse its cell on
+ * every repaint that touched it, for nothing — invisible, and impossible for the hook's author to
+ * discover. What was last assigned is known; ask that instead.
+ *
+ * The trade-off, which is the same one this map already made for highlighting: a host that mutates
+ * the DOM *inside* a cell behind the grid's back will find the mutation preserved rather than
+ * overwritten. Cell content belongs to the renderer; `refresh()` re-runs it.
+ */
+const written = new WeakMap<HTMLElement, string>();
 
 /** Reset an element's children when the content shape changes under it. */
 function setMode(el: HTMLElement, next: ContentMode): boolean {
@@ -197,8 +212,13 @@ export function renderDataCell<R>(
             setMode(el, "text");
             setText(el, "");
         } else if (typeof rendered === "string") {
-            setMode(el, "html");
-            if (el.innerHTML !== rendered) el.innerHTML = rendered;
+            // `setMode` returning true means it cleared the element, so the record of what was
+            // written no longer describes it.
+            if (setMode(el, "html")) written.delete(el);
+            if (written.get(el) !== rendered) {
+                el.innerHTML = rendered;
+                written.set(el, rendered);
+            }
         } else {
             setMode(el, "node");
             el.textContent = "";
@@ -237,13 +257,12 @@ export function renderDataCell<R>(
             setMode(el, "text");
             setText(el, text);
         } else {
-            // `marked` rather than reading `innerHTML` back: the getter serialises the subtree,
-            // and it would re-escape what we wrote, so the comparison would have to survive a
-            // round trip it is not worth designing for. What we last assigned is known.
-            if (setMode(el, "match")) marked.delete(el);
-            if (marked.get(el) !== markup) {
+            // See `written` for why this compares against the last assignment rather than
+            // against `innerHTML`.
+            if (setMode(el, "match")) written.delete(el);
+            if (written.get(el) !== markup) {
                 el.innerHTML = markup;
-                marked.set(el, markup);
+                written.set(el, markup);
             }
         }
     }
