@@ -335,4 +335,63 @@ describe("renderDataCell — the text wrapper", () => {
         expect(cellAt(grid, 0, "tag").querySelector(".avg-cell-text")).toBeNull();
         expect(cellAt(grid, 0, "tag").firstElementChild?.tagName).toBe("I");
     });
+
+    it("takes an SVG element from a render hook, in the SVG namespace", () => {
+        // The element arm is `Element`: an `<svg>` from `createElementNS` is an `SVGElement`, a
+        // sibling of `HTMLElement`, and an icon column is the reason the arm exists. The cell holds
+        // that very node — asserting the namespace too, because the same tag name parsed out of a
+        // *string* would land in the HTML namespace and look identical to `tagName`.
+        const icons = new Map<number, SVGSVGElement>();
+        const grid = create({
+            rows: [
+                { id: 1, tag: "a" },
+                { id: 2, tag: "b" },
+            ],
+            columns: [
+                { key: "tag" },
+                {
+                    key: "icon",
+                    formatValue: () => "",
+                    render: (c) => {
+                        const existing = icons.get(c.row.id);
+                        if (existing) return existing;
+                        const svg = document.createElementNS(
+                            "http://www.w3.org/2000/svg",
+                            "svg",
+                        );
+                        svg.setAttribute("viewBox", "0 0 16 16");
+                        icons.set(c.row.id, svg);
+                        return svg;
+                    },
+                },
+            ],
+        });
+
+        const child = cellAt(grid, 0, "icon").firstElementChild;
+        expect(child).toBe(icons.get(1));
+        expect(child?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    });
+
+    it("re-appends a stable render element on repaint rather than dropping it", async () => {
+        // The element branch has no `written` guard — it clears the cell and appends on every
+        // paint. A renderer handing back the *same* node therefore keeps it, which is what makes
+        // an icon column that caches per row correct. Pinned because a future `written`-style
+        // optimisation must not start skipping a node whose identity did not change.
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        const grid = create({
+            rows: [{ id: 1, tag: "a" }],
+            columns: [
+                { key: "tag" },
+                { key: "icon", formatValue: () => "", render: () => svg },
+            ],
+        });
+
+        expect(cellAt(grid, 0, "icon").firstElementChild).toBe(svg);
+
+        grid.refresh();
+        await settle();
+
+        expect(cellAt(grid, 0, "icon").firstElementChild).toBe(svg);
+        expect(cellAt(grid, 0, "icon").childElementCount).toBe(1);
+    });
 });

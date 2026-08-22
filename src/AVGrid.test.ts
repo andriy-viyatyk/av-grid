@@ -489,6 +489,23 @@ describe("headers", () => {
             grid.element.querySelector(".avg-header-title")?.innerHTML,
         ).toBe("<i>Name</i>");
     });
+
+    it("accepts an SVG element as a custom header", () => {
+        // `HeaderRenderer`'s element arm is `Element`, not `HTMLElement`: an icon built with
+        // `createElementNS` is an `SVGElement`, and a header icon is the whole reason the arm
+        // exists. The header holds that node itself, not a re-parse of its markup.
+        const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        icon.setAttribute("viewBox", "0 0 16 16");
+
+        const grid = create({
+            rows: people,
+            columns: [{ key: "name", headerRender: () => icon }],
+        });
+
+        const title = grid.element.querySelector(".avg-header-title");
+        expect(title?.firstElementChild).toBe(icon);
+        expect(title?.firstElementChild?.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    });
 });
 
 describe("updates", () => {

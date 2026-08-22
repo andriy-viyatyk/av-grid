@@ -90,10 +90,16 @@ export interface CellContext<R = any> {
  *
  * The string form inserts markup as-is. Boards are sandboxed, but the caller still owns
  * escaping untrusted values.
+ *
+ * The element arm is `Element`, not `HTMLElement`, and that distinction is load-bearing: an
+ * `<svg>` built through `createElementNS` is an `SVGElement`, a *sibling* of `HTMLElement` rather
+ * than a subtype — and an icon is the most common reason to return an element at all. The cell
+ * only appends what it is handed, so any `Element` is safe. `Column.editor` stays narrower on
+ * purpose: an editor is focused and read for its value.
  */
 export type CellRenderer<R = any> = (
     cell: CellContext<R>,
-) => string | HTMLElement | null | undefined;
+) => string | Element | null | undefined;
 
 /**
  * What a row-level hook receives — `CellContext` minus the column, because a row has no one
@@ -130,9 +136,15 @@ export type ClassValue =
 /** A class hook: a constant string, or a function of what is being painted. */
 export type ClassHook<C> = string | ((context: C) => ClassValue);
 
+/**
+ * Produces a header's label. Same three arms as `CellRenderer`, and the element arm is `Element`
+ * for the same reason — a header icon is an `SVGElement`. Returning `null` or `undefined` falls
+ * back to `column.name`, which is also what keeps the native `title` tooltip: a custom label owns
+ * its own hover text.
+ */
 export type HeaderRenderer<R = any> = (
     header: HeaderContext<R>,
-) => string | HTMLElement | null | undefined;
+) => string | Element | null | undefined;
 
 /**
  * Low-level renderer used by the engine itself, which addresses cells by grid coordinates

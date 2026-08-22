@@ -485,8 +485,20 @@ runnable file.
 ```
 
 Return an **HTML string** (the common case), a **DOM element** (when you need to attach a
-listener), or `null` / `undefined` for an empty cell. The string form inserts markup as-is —
-boards are sandboxed, but the caller still owns escaping untrusted values.
+listener, or when you already hold the node), or `null` / `undefined` for an empty cell. The string
+form inserts markup as-is — boards are sandboxed, but the caller still owns escaping untrusted
+values.
+
+The element arm is typed **`Element`**, not `HTMLElement`, so an `<svg>` built with
+`document.createElementNS` is a legal return — an icon column is the most common reason to return an
+element at all, and in TypeScript's DOM types `SVGElement` is a *sibling* of `HTMLElement`, not a
+subtype. `Column.headerRender` takes the same three arms, for the same reason. `Column.editor` is
+deliberately narrower (`HTMLElement | CellEditor`): the grid focuses an editor and reads its value.
+
+Handing back the **same node** across paints is supported and is how an icon column should work: the
+element branch clears the cell and appends what it is given on every paint, so a renderer that
+caches per row keeps one node alive instead of rebuilding it. (The string branch skips an unchanged
+write; the element branch cannot, because it never sees the previous return value.)
 
 `CellContext` is small and flat on purpose:
 
