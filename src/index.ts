@@ -165,4 +165,4 @@ export * from "./render/types";
 export * from "./types";
 
 /** Bumped on release; `AVGrid.version` and the docs both quote it. */
-export const version = "2.2.2";
+export const version = "2.2.3";
