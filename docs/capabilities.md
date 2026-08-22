@@ -162,6 +162,16 @@ same words the rest of the grid is marking:
 { key: "full", render: (c) => c.highlight(`${c.row.firstName} ${c.row.lastName}`) }
 ```
 
+**Words from somewhere else.** `highlightString` is a second source of words to mark that filters
+*nothing* — for a term that came from outside this grid: a search-results panel that navigated the
+user here, a URL fragment, a filter applied upstream. There the rows are already the right rows, so
+narrowing them would be a bug. The rule is `searchString` when the user is searching *this* grid and
+`highlightString` when the words came from elsewhere; set both and the marked set is their union.
+`highlightSearch` governs both, `false` silences both, and `c.highlight()` marks both, so a custom
+`render` column does not go unmarked beside a plain one. It costs nothing when unused: with neither
+option set the word list is still the *shared* empty array, which is what keeps the per-cell paint
+path allocation-free.
+
 Marked output is wrapped in one inline box, which is not decoration: a data cell is `inline-flex` and
 flex discards the whitespace *between* items, so a mark that split the text rendered
 "Alan Dijkstra" as "AlanDijkstra". Measured against the same row unmarked, width and
@@ -182,6 +192,17 @@ gets, because Cut/Paste and spelling are things only the platform can offer.
 
 The menu itself is a primitive, `Menu`, on `Popover`: submenus on hover or click, arrow keys, and a
 search box past twenty items.
+
+**Every built-in item carries a stable `id`**, prefixed `avg-` — `avg-copy`, `avg-paste`,
+`avg-insert-rows`, and eleven more, [tabulated in `api.md`](api.md#the-built-in-item-ids) as public
+contract. That is what a host drawing its own menu matches on: the labels are counted, pluralised
+and translatable, so re-iconing by label was guesswork. The prefix matters twice — host items share
+the array and `id` drives the menu's keyboard navigation, so a collision is a real bug, and
+`item.id?.startsWith("avg-")` tells a host which items are the library's.
+
+**A grid can say what it holds.** `rowNoun` renames the row in the three row items and on the
+add-row button — `Insert 3 links`, `+ add link` — pluralised by the grid from the singular noun.
+There is no `columnNoun`; nothing has asked to rename those.
 
 ---
 
@@ -286,6 +307,32 @@ wants its rendered text copied says so with `copyValue`.
 
 ---
 
+## Host chrome after the last row
+
+**`extraElement`** puts one host element into the scrolling content below the last row — a "Load
+more" footer, an empty-state line, a total. The grid parents it and touches nothing else: never
+inspected, cleared, restyled beyond adding `avg-extra`, or destroyed, and `destroy()` hands it back
+intact and remountable. It goes in as an *overlay*, which is what makes that promise keepable —
+`syncRegion` only removes elements it appended itself, so the element is invisible to reconciliation
+and a listener bound to it survives both a repaint and a scroll long enough to evict every cell
+around it.
+
+Unlike an element a cell renderer returns, **the library positions this one** — a full-width band at
+the bottom of the content. There the engine writes `top` and `left` and the host adds `position`;
+here nothing writes anything, so an unpositioned element would lay out in flow among absolutely
+positioned cells and land at the top-left behind them, invisible and still hoverable. One class
+overrides the default, and no colour, size or padding is set, because only the host knows what the
+grid's background is.
+
+**`whiteSpaceY`** exposes the trailing slack below the last row — 20 px by default, `0` to take it
+away, or as tall as a footer needs. The engine has always taken it and it was simply never exposed;
+splitting it out from `extraElement` is deliberate, because an element that silently changed the
+grid's geometry would be a footgun. `whiteSpaceX` is *not* exposed: the horizontal slack interacts
+with `fitToWidth` and percentage widths through the column-fitting arithmetic, which has already
+produced one spurious horizontal scrollbar, and nothing is asking for it.
+
+---
+
 ## Theming
 
 **⚠ `--avg-*` on an ancestor does nothing.** The grid root, `.avg-popover`, `.avg-list` and
@@ -354,10 +401,10 @@ commits to the class names and `data-*` attributes as public while explicitly le
 was read out of the source rather than recalled; two of them (`filterRows`, `rowsToCsvText`) were
 not what the obvious guess would have been.
 
-**[`examples/`](../examples/) holds eleven runnable files**, one topic each, every one standalone
+**[`examples/`](../examples/) holds twelve runnable files**, one topic each, every one standalone
 and meant to be copied whole: minimal · columns · cell rendering · sorting and filtering ·
-selection and keyboard · editing · clipboard · theming · the 100k benchmark · customization · a
-Persephone board. Each was opened in a real browser and driven, which is how three of them ended up
+selection and keyboard · editing · clipboard · theming · the 100k benchmark · customization ·
+host integration · a Persephone board. Each was opened in a real browser and driven, which is how three of them ended up
 different from how they were written. The benchmark reports **12.1 cells touched per paint at the
 top against 12.0 at row 99,000** — the exact number — next to the timing ratio, which swings
 0.8×–1.2× because a paint costs 0.1 ms. The board example was scaffolded, vendored and opened: it

@@ -171,8 +171,26 @@ export interface AVGridOptions<R = any> {
     /** What a blank column looks like. The default is `{ key: "column<n>", name: "Column <n>" }`. */
     newColumn?: (index: number) => Column<R>;
 
-    /** Text on the add-row button. Default `"add row"`. */
+    /** Text on the add-row button. Default `` `add ${rowNoun}` ``, so `"add row"`. */
     addRowLabel?: string;
+
+    /**
+     * What this grid calls one of its rows. Default `"row"`.
+     *
+     * ```js
+     * AVGrid.create(el, { rows: links, rowNoun: "link", canAddRows: true, canDeleteRows: true });
+     * // the menu reads "Insert 3 links" / "Delete 1 link"; the button reads "+ add link"
+     * ```
+     *
+     * Not every grid holds "rows" — a grid of links holds links, a grid of environment
+     * variables holds variables, and on those a menu offering `Insert 3 rows` reads as though the
+     * grid does not know what it contains. Give it the **singular** noun and the grid pluralises
+     * it: the three row items in the context menu and the add-row button's text and title.
+     *
+     * `addRowLabel` still overrides the button outright. Columns are unaffected — there is no
+     * `columnNoun`, because nothing has asked to rename them.
+     */
+    rowNoun?: string;
 
     /**
      * Rows are about to be added, however that was triggered. Return `false` to cancel.
@@ -220,6 +238,25 @@ export interface AVGridOptions<R = any> {
     /** Extra rows/columns rendered outside the viewport. Defaults: 4 rows, 1 column. */
     overscanRow?: number;
     overscanColumn?: number;
+    /**
+     * Height in pixels of the slack below the last row. Default 20.
+     *
+     * ```js
+     * AVGrid.create(el, { rows, whiteSpaceY: 0 });    // no trailing slack at all
+     * AVGrid.create(el, { rows, whiteSpaceY: 24, extraElement: footer });   // room for a footer
+     * ```
+     *
+     * The grid reserves a little room past the last row so the final one can scroll clear of the
+     * bottom edge. Set it to `0` to take that away, or raise it to make room for an
+     * `extraElement` taller than the default — which is the reason it is exposed: a footer
+     * that reserved its own space would be an element silently changing the grid's geometry.
+     *
+     * **There is deliberately no `whiteSpaceX`.** The horizontal slack interacts with
+     * `fitToWidth` and percentage column widths through the column-fitting arithmetic, which has
+     * already produced one spurious horizontal scrollbar; a second control over it with nothing
+     * asking for it is how that comes back. Ask if you need one.
+     */
+    whiteSpaceY?: number;
 
     // -----------------------------------------------------------------------
     // Presentation
@@ -237,6 +274,36 @@ export interface AVGridOptions<R = any> {
      * of equal specificity wins.
      */
     injectStyles?: boolean;
+    /**
+     * One host element placed after the last row, inside the scrolling content.
+     *
+     * ```js
+     * const footer = document.createElement("div");
+     * footer.textContent = "Load more";
+     * const grid = AVGrid.create(el, { rows, extraElement: footer, whiteSpaceY: 24 });
+     * grid.setOptions({ extraElement: null });   // and it goes away
+     * ```
+     *
+     * For the one thing a grid needs after its rows that is not a row: a "Load more" footer, an
+     * empty-state line, a total. It scrolls with the content, and the grid **parents it and
+     * nothing else** — it is never inspected, cleared, restyled beyond the `avg-extra`
+     * class, or destroyed. `destroy()` takes it out of the DOM and leaves it intact and
+     * reusable, because the host made it.
+     *
+     * The stylesheet positions it as a full-width band at the bottom of the content. Override
+     * with one more class — `.avg-grid .avg-extra.my-chip { left: 4px; right: auto; }`
+     * — and set its own colour, padding and height: only the host knows what the grid's
+     * background is.
+     *
+     * Two things worth knowing rather than working around:
+     *
+     * - It lives in the trailing slack, which is 20 px. **Taller than that overlaps the last
+     *   row** — pair it with `whiteSpaceY` to reserve the room, or give it an opaque
+     *   background.
+     * - **It shares that strip with the add-row button** (`canAddRows`), which sits at the
+     *   bottom left. A grid that wants both positions its own element clear of it.
+     */
+    extraElement?: HTMLElement | null;
 
     // -----------------------------------------------------------------------
     // Sorting and filtering
@@ -274,6 +341,25 @@ export interface AVGridOptions<R = any> {
      * means something, a status or a rating, it marks without overriding it.
      */
     highlightSearch?: boolean | "text" | "background" | "both";
+    /**
+     * Extra words to mark in the cells, **without filtering any row out**.
+     *
+     * ```js
+     * AVGrid.create(el, { rows, highlightString: "connection refused" });
+     * grid.setOptions({ highlightString: term });
+     * ```
+     *
+     * `searchString` does two things — it narrows the rows *and* marks the words that kept
+     * them. That is right for a search box the user is typing into. It is wrong when the words
+     * came from somewhere this grid is not: a search-results panel that navigated the user
+     * here, a URL fragment, a filter applied upstream. There the rows are already the right
+     * rows, and hiding the ones that happen not to contain the term is a bug.
+     *
+     * So: **`searchString` when the user is searching *this* grid, `highlightString` when the
+     * words came from outside it.** Both may be set at once, and the marked set is the union of
+     * the two. `highlightSearch: false` silences both; `highlightSearch`'s shapes apply to both.
+     */
+    highlightString?: string;
     /**
      * Applied column filters. The filter UI arrives in task 16; these already filter rows.
      *

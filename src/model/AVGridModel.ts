@@ -217,14 +217,23 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
      * Recompute the words cells highlight, from the two options that decide them.
      *
      * Called from `RowsModel.updateRows` — every path that changes the search string runs it —
-     * and from `setOptions` when `highlightSearch` is toggled on its own, which changes what is
-     * painted without changing which rows survive.
+     * and from `setOptions` when `highlightSearch` or `highlightString` is set on its own, which
+     * changes what is painted without changing which rows survive.
+     *
+     * Two sources, and the marked set is their union: `searchString`, which also filtered the
+     * rows, and `highlightString`, which only marks. The `extra.length ?` branch is what keeps
+     * the common case allocation-free — `searchWords` returns the *same* empty array for every
+     * empty input, and `data.searchWords` is read on the per-cell paint path, so with no
+     * `highlightString` the result must stay `search` by identity rather than a fresh copy.
      */
     syncSearchWords = (): void => {
-        this.data.searchWords =
-            this.options.highlightSearch === false
-                ? EMPTY_WORDS
-                : searchWords(this.options.searchString);
+        if (this.options.highlightSearch === false) {
+            this.data.searchWords = EMPTY_WORDS;
+            return;
+        }
+        const search = searchWords(this.options.searchString);
+        const extra = searchWords(this.options.highlightString);
+        this.data.searchWords = extra.length ? [...search, ...extra] : search;
     };
 
     override dispose(): void {

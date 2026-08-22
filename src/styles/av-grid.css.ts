@@ -495,6 +495,19 @@ export const css = `
     color: var(--p-text-strong, var(--avg-text));
 }
 
+/* extraElement — one host element after the last row, in the trailing slack.
+   Positioned here, unlike an element a cell renderer returns: there the engine writes top and
+   left and the host only has to add position, but nothing writes anything for this one, so a
+   bare host element would lay out in flow among absolutely positioned cells and land at the
+   top-left behind them — invisible and still hoverable. No colour, size or padding: only the
+   host knows what the grid background is. One more class overrides it. */
+.avg-grid .avg-extra {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
 .avg-grid .avg-add-column {
     position: absolute;
     top: 0;

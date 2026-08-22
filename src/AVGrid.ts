@@ -207,6 +207,14 @@ export class AVGrid<R = any> {
     /** The two add affordances, present only while the matching option is on. */
     private addRowButton?: HTMLButtonElement;
     private addColumnButton?: HTMLButtonElement;
+    /**
+     * The host element currently parented by `extraElement`.
+     *
+     * Held by identity rather than re-read from the options, because that identity is the only
+     * thing that says whether the parenting has to change: the same element passed again must
+     * not be detached and re-appended, and a *different* one must replace it.
+     */
+    private extraElement?: HTMLElement;
 
     /** The flex column holding the bar and the grid — present only with `filterBar`. */
     private readonly wrapper?: HTMLDivElement;
@@ -302,6 +310,7 @@ export class AVGrid<R = any> {
             overscanRow: resolved.overscanRow ?? DEFAULT_OVERSCAN_ROW,
             overscanColumn: resolved.overscanColumn ?? DEFAULT_OVERSCAN_COLUMN,
             fitToWidth: resolved.fitToWidth,
+            whiteSpaceY: resolved.whiteSpaceY,
             height: resolved.growToHeight
                 ? undefined
                 : this.wrapper
@@ -857,7 +866,9 @@ export class AVGrid<R = any> {
         // Turning highlighting on or off changes what is painted without changing which rows
         // survive, so it is the one thing here that the row pipeline would not have picked up.
         // Switching between the *shapes* needs neither — the attribute alone does it.
-        if ("highlightSearch" in options) {
+        // `highlightString` is the same case: it adds words to mark and filters nothing, so the
+        // row pipeline never runs. `syncSearchHighlight` is a no-op for it, and harmless.
+        if ("highlightSearch" in options || "highlightString" in options) {
             this.syncSearchHighlight();
             this.model.syncSearchWords();
             this.model.requestRepaint();
@@ -890,6 +901,9 @@ export class AVGrid<R = any> {
         }
         if (rest.overscanColumn !== undefined) {
             this.render.setOptions({ overscanColumn: rest.overscanColumn });
+        }
+        if (rest.whiteSpaceY !== undefined) {
+            this.render.setOptions({ whiteSpaceY: rest.whiteSpaceY });
         }
 
         this.syncAffordances();
@@ -1061,6 +1075,9 @@ export class AVGrid<R = any> {
         this.addRowButton = undefined;
         this.addColumnButton?.remove();
         this.addColumnButton = undefined;
+        // Detached, not disposed: the host made it and may well mount it somewhere else.
+        this.extraElement?.remove();
+        this.extraElement = undefined;
         this.model.dispose();
     }
 
@@ -1146,9 +1163,36 @@ export class AVGrid<R = any> {
         this.wrapper.insertBefore(this.filterBar.element, this.render.root);
     }
 
+    /**
+     * Parent the host's `extraElement`, or take the previous one back out.
+     *
+     * `addOverlay` rather than an insertion of our own: it is the existing hook for an element
+     * that is not a cell, and `syncRegion` only ever removes elements it appended itself, so an
+     * overlay is invisible to the reconciliation and never recycled out from under its
+     * listeners. That is what makes a host's click handler survive both a repaint and a scroll
+     * long enough to evict every cell around it.
+     *
+     * Nothing about the element is touched except the class and the slot attribute — the
+     * host made it, and a grid that cleared its children or rewrote its class would be a grid
+     * you could not hand a live component to.
+     */
+    private syncExtraElement(): void {
+        const next = this.model.options.extraElement ?? undefined;
+        if (next === this.extraElement) return;
+
+        this.extraElement?.remove();
+        this.extraElement = next;
+        if (next) {
+            next.classList.add("avg-extra");
+            next.setAttribute("data-avg-slot", "content-end");
+            this.render.addOverlay(next, "content");
+        }
+    }
+
     private syncAffordances(): void {
         const doc = this.render.root.ownerDocument;
-        const { canAddRows, canAddColumns, addRowLabel } = this.model.options;
+        const { canAddRows, canAddColumns, addRowLabel, rowNoun } =
+            this.model.options;
 
         if (canAddRows) {
             if (!this.addRowButton) {
@@ -1161,13 +1205,17 @@ export class AVGrid<R = any> {
                 this.addRowButton.setAttribute("data-avg-action", "add-row");
                 this.render.addOverlay(this.addRowButton, "content");
             }
-            const label = addRowLabel ?? "add row";
+            // `addRowLabel` wins outright; `rowNoun` only supplies the default's noun, so a
+            // grid of links reads "+ add link" without the host writing the label twice.
+            const label = addRowLabel ?? `add ${rowNoun ?? "row"}`;
             this.addRowButton.textContent = `+ ${label}`;
             this.addRowButton.title = `${label} (Ctrl+Insert)`;
         } else {
             this.addRowButton?.remove();
             this.addRowButton = undefined;
         }
+
+        this.syncExtraElement();
 
         if (canAddColumns) {
             if (!this.addColumnButton) {

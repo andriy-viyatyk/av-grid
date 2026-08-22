@@ -232,6 +232,177 @@ describe("what the items do", () => {
     });
 });
 
+/**
+ * The ids are public contract from the release that ships them: a host drawing its own menu
+ * re-icons the items by identity, because the labels are counted, pluralised and localisable.
+ * Asserted by identity here for exactly that reason.
+ */
+describe("built-in item ids", () => {
+    /** Every id in the menu, submenu children included, in the order they are offered. */
+    function ids(items: MenuItem[]): (string | undefined)[] {
+        return items.flatMap((i) => [i.id, ...(i.items ? ids(i.items) : [])]);
+    }
+
+    function captureItems(options: Partial<AVGridOptions<any>> = {}) {
+        let captured: MenuItem[] = [];
+        const grid = create({
+            rows,
+            canAddColumns: true,
+            canDeleteColumns: true,
+            onGridContextMenu: (_e, items) => (captured = items),
+            ...options,
+        });
+        return { grid, items: () => captured };
+    }
+
+    it("names every item a cell right-click offers", () => {
+        const { grid, items } = captureItems();
+        rightClick(cell(grid, 0, 0));
+
+        expect(ids(items())).toEqual([
+            "avg-copy",
+            "avg-copy-as",
+            "avg-copy-as-headers",
+            "avg-copy-as-json",
+            "avg-copy-as-html",
+            "avg-paste",
+            "avg-insert-rows",
+            "avg-add-rows",
+            "avg-delete-rows",
+            "avg-insert-columns",
+            "avg-add-columns",
+            "avg-delete-columns",
+        ]);
+    });
+
+    it("names the two a header right-click offers", () => {
+        const { grid, items } = captureItems();
+        rightClick(header(grid, "name"));
+
+        expect(ids(items())).toEqual(["avg-insert-column", "avg-delete-column"]);
+    });
+
+    it("keeps the id stable while the label counts the selection", () => {
+        const { grid, items } = captureItems();
+        grid.selectRange(0, 0, 2, 0);
+        rightClick(cell(grid, 0, 0));
+
+        const del = items().find((i) => i.id === "avg-delete-rows");
+        expect(del?.label).toBe("Delete 3 rows");
+    });
+
+    it("has no duplicate id, host items included", () => {
+        // What the prefix exists to prevent: `id` drives the menu's keyboard navigation, so two
+        // items sharing one is a real bug rather than a cosmetic one.
+        const { grid, items } = captureItems({
+            getContextMenuItems: () => [
+                { id: "open", label: "Open" },
+                { id: "reveal", label: "Reveal" },
+            ],
+        });
+        rightClick(cell(grid, 0, 0));
+
+        const all = ids(items()).filter((id): id is string => id !== undefined);
+        expect(all).toHaveLength(new Set(all).size);
+        expect(all.filter((id) => id.startsWith("avg-"))).toHaveLength(12);
+    });
+
+    it("is what a host matches on to re-icon the items", () => {
+        // The motivating case: a menu whose `icon` is a component, not this library's SVG
+        // source, has to replace every icon and only the id is a stable handle.
+        const { grid, items } = captureItems();
+        rightClick(cell(grid, 0, 0));
+
+        for (const item of items()) {
+            if (item.id === "avg-copy") item.icon = "<svg id='mine'/>";
+        }
+        expect(items().find((i) => i.id === "avg-copy")?.icon).toBe("<svg id='mine'/>");
+    });
+});
+
+/**
+ * `rowNoun` is what this grid calls one of its rows, and it reaches exactly two places: the three
+ * row items here, and the add-row button. The column items keep saying "column".
+ */
+describe("rowNoun", () => {
+    const labelById = (items: MenuItem[], id: string): string | undefined =>
+        items.find((i) => i.id === id)?.label;
+
+    function captureItems(options: Partial<AVGridOptions<any>> = {}) {
+        let captured: MenuItem[] = [];
+        const grid = create({
+            rows,
+            canAddColumns: true,
+            canDeleteColumns: true,
+            onGridContextMenu: (_e, items) => (captured = items),
+            ...options,
+        });
+        return { grid, items: () => captured };
+    }
+
+    it("names the row items and leaves the column ones alone", () => {
+        const { grid, items } = captureItems({ rowNoun: "link" });
+        grid.selectRange(0, 0, 2, 0);
+        rightClick(cell(grid, 0, 0));
+
+        expect(labelById(items(), "avg-insert-rows")).toBe("Insert 3 links");
+        expect(labelById(items(), "avg-add-rows")).toBe("Add 3 links");
+        expect(labelById(items(), "avg-delete-rows")).toBe("Delete 3 links");
+        expect(labelById(items(), "avg-insert-columns")).toBe("Insert 1 column");
+        expect(labelById(items(), "avg-delete-columns")).toBe("Delete 1 column");
+    });
+
+    it("pluralises through the same plural() as before", () => {
+        const { grid, items } = captureItems({ rowNoun: "link" });
+        grid.selectRange(1, 0, 1, 0);
+        rightClick(cell(grid, 1, 0));
+
+        expect(labelById(items(), "avg-delete-rows")).toBe("Delete 1 link");
+    });
+
+    it("is byte-identical to today's labels when it is not set", () => {
+        // The additive-only rule: these labels are the easiest thing in this phase to change by
+        // accident, so the default is pinned rather than assumed.
+        const { grid, items } = captureItems();
+        grid.selectRange(0, 0, 1, 0);
+        rightClick(cell(grid, 0, 0));
+
+        expect(labelById(items(), "avg-insert-rows")).toBe("Insert 2 rows");
+        expect(labelById(items(), "avg-add-rows")).toBe("Add 2 rows");
+        expect(labelById(items(), "avg-delete-rows")).toBe("Delete 2 rows");
+    });
+
+    it("names the add-row button, and addRowLabel still wins", () => {
+        const grid = create({ rows, canAddRows: true, rowNoun: "link" });
+        const button = (): HTMLElement =>
+            grid.element.querySelector(".avg-add-row") as HTMLElement;
+        expect(button().textContent).toBe("+ add link");
+        expect(button().title).toBe("add link (Ctrl+Insert)");
+
+        grid.setOptions({ addRowLabel: "new entry" });
+        expect(button().textContent).toBe("+ new entry");
+    });
+
+    it("updates the button through setOptions, without a re-create", () => {
+        const grid = create({ rows, canAddRows: true });
+        const button = (): HTMLElement =>
+            grid.element.querySelector(".avg-add-row") as HTMLElement;
+        expect(button().textContent).toBe("+ add row");
+
+        grid.setOptions({ rowNoun: "variable" });
+        expect(button().textContent).toBe("+ add variable");
+        expect(button().title).toBe("add variable (Ctrl+Insert)");
+    });
+
+    it("reaches the menu through setOptions too", () => {
+        const { grid, items } = captureItems();
+        grid.setOptions({ rowNoun: "link" });
+        rightClick(cell(grid, 0, 0));
+
+        expect(labelById(items(), "avg-delete-rows")).toBe("Delete 1 link");
+    });
+});
+
 describe("host hooks", () => {
     it("puts getContextMenuItems above the built-in ones", () => {
         const getContextMenuItems = vi.fn(

@@ -39,7 +39,13 @@ import type { GridContextMenuEvent, MenuItem } from "../types";
 import { copyIcon, deleteIcon, pasteIcon, plusIcon } from "./icons";
 import { Menu } from "./Menu";
 
-/** `1 row` / `3 rows` — the labels count what the action will actually touch. */
+/**
+ * `1 row` / `3 rows` — the labels count what the action will actually touch.
+ *
+ * The noun is `options.rowNoun` for the row items, so a grid of links offers `Insert 3 links`.
+ * The column items keep saying "column": nothing has asked to rename those, and one option that
+ * renamed both would be one option meaning two things.
+ */
 function plural(count: number, noun: string): string {
     return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
@@ -49,6 +55,15 @@ function plural(count: number, noun: string): string {
  *
  * Exported because `onGridContextMenu` receives them and a host may want to filter or reorder
  * them, and because it is the honest way to test what the menu offers without opening one.
+ *
+ * **Every built-in item carries a stable `id`, prefixed `avg-`** — `avg-copy`, `avg-paste`,
+ * `avg-insert-rows`, and the rest; the full table is in `docs/api.md` and it is public contract,
+ * so renaming one is a breaking change. A host drawing its own menu matches on the id rather
+ * than the label, because the labels are counted and pluralised (`Insert 3 rows`) and a host
+ * that re-icons the items has nothing else to match on. The prefix is load-bearing twice over:
+ * host items from `getContextMenuItems` share this array and `id` is what the menu uses for
+ * keyboard navigation, so a collision is a real bug — and `item.id?.startsWith("avg-")` is a
+ * usable test for "this is the library's own item".
  */
 export function gridContextMenuItems<R>(
     model: AVGridModel<R>,
@@ -57,6 +72,7 @@ export function gridContextMenuItems<R>(
     const options = model.options;
     const { copyPaste, structure } = model.models;
     const { rows, columns } = e.selectedCount;
+    const rowNoun = options.rowNoun ?? "row";
 
     const items: MenuItem[] = [];
 
@@ -69,6 +85,7 @@ export function gridContextMenuItems<R>(
         const columnKey = String(e.column.key);
         items.push(
             {
+                id: "avg-insert-column",
                 label: "Insert column",
                 icon: plusIcon,
                 startGroup: custom.length > 0,
@@ -83,6 +100,7 @@ export function gridContextMenuItems<R>(
                 },
             },
             {
+                id: "avg-delete-column",
                 label: "Delete column",
                 icon: deleteIcon,
                 invisible: !structure.canDeleteColumns || e.column.isStatusColumn,
@@ -98,6 +116,7 @@ export function gridContextMenuItems<R>(
 
     items.push(
         {
+            id: "avg-copy",
             label: "Copy",
             icon: copyIcon,
             hotKey: "(Ctrl+C)",
@@ -106,23 +125,31 @@ export function gridContextMenuItems<R>(
             onClick: () => void copyPaste.copySelection(),
         },
         {
+            id: "avg-copy-as",
             label: "Copy as...",
             icon: copyIcon,
             invisible: !copyPaste.enabled,
             items: [
                 {
+                    id: "avg-copy-as-headers",
                     label: "With Headers",
                     hotKey: "(Ctrl+Shift+C)",
                     onClick: () => void copyPaste.copySelection("copyWithHeaders"),
                 },
-                { label: "JSON", onClick: () => void copyPaste.copySelection("copyAsJson") },
                 {
+                    id: "avg-copy-as-json",
+                    label: "JSON",
+                    onClick: () => void copyPaste.copySelection("copyAsJson"),
+                },
+                {
+                    id: "avg-copy-as-html",
                     label: "Formatted (HTML Table)",
                     onClick: () => void copyPaste.copySelection("copyAsHtmlTable"),
                 },
             ],
         },
         {
+            id: "avg-paste",
             label: "Paste",
             icon: pasteIcon,
             hotKey: "(Ctrl+V)",
@@ -132,7 +159,8 @@ export function gridContextMenuItems<R>(
             onClick: () => void copyPaste.paste(),
         },
         {
-            label: `Insert ${plural(rows, "row")}`,
+            id: "avg-insert-rows",
+            label: `Insert ${plural(rows, rowNoun)}`,
             icon: plusIcon,
             hotKey: "(Ctrl+Insert)",
             startGroup: true,
@@ -140,14 +168,16 @@ export function gridContextMenuItems<R>(
             onClick: () => structure.insertRowsAtSelection(),
         },
         {
-            label: `Add ${plural(rows, "row")}`,
+            id: "avg-add-rows",
+            label: `Add ${plural(rows, rowNoun)}`,
             icon: plusIcon,
             hotKey: rows === 1 ? "(Last Row ↓)" : undefined,
             invisible: !structure.canAddRows,
             onClick: () => structure.addBlankRows(rows),
         },
         {
-            label: `Delete ${plural(rows, "row")}`,
+            id: "avg-delete-rows",
+            label: `Delete ${plural(rows, rowNoun)}`,
             icon: deleteIcon,
             hotKey: "(Ctrl+Delete)",
             invisible: !structure.canDeleteRows,
@@ -156,6 +186,7 @@ export function gridContextMenuItems<R>(
         // Columns are `minor`: a grid whose columns are the host's schema gets these too, and
         // dimming them keeps a right-click on a cell reading as being about rows.
         {
+            id: "avg-insert-columns",
             label: `Insert ${plural(columns, "column")}`,
             icon: plusIcon,
             hotKey: "(Ctrl+Shift+Insert)",
@@ -165,6 +196,7 @@ export function gridContextMenuItems<R>(
             onClick: () => structure.insertColumnsAtSelection(),
         },
         {
+            id: "avg-add-columns",
             label: `Add ${plural(columns, "column")}`,
             icon: plusIcon,
             minor: true,
@@ -172,6 +204,7 @@ export function gridContextMenuItems<R>(
             onClick: () => structure.addBlankColumns(columns),
         },
         {
+            id: "avg-delete-columns",
             label: `Delete ${plural(columns, "column")}`,
             icon: deleteIcon,
             hotKey: "(Ctrl+Shift+Delete)",

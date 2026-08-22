@@ -319,6 +319,67 @@ describe("AVGridModel", () => {
     });
 
     /**
+     * `highlightString` is a second source of words to mark, and nothing else: the rows are
+     * whatever the filters and the search left, untouched by it.
+     */
+    describe("highlightString", () => {
+        it("marks its words without filtering any row out", () => {
+            const { model: m } = makeModel({ highlightString: "ad" });
+            expect(m.data.rows).toHaveLength(3);
+            expect(m.data.searchWords).toEqual(["ad"]);
+        });
+
+        it("marks the union of both sources", () => {
+            const { model: m } = makeModel({
+                searchString: "a",
+                highlightString: "bo cha",
+            });
+            // Filtered by the search alone — "Bob" survives on the "a" in nothing, so it does
+            // not, which is the point: only `searchString` narrows.
+            expect(m.data.rows.map((r) => r.name)).toEqual(["Charlie", "Ada"]);
+            expect(m.data.searchWords).toEqual(["a", "bo", "cha"]);
+        });
+
+        it("is silenced by highlightSearch: false, along with the search", () => {
+            const { model: m } = makeModel({
+                searchString: "a",
+                highlightString: "bo",
+                highlightSearch: false,
+            });
+            expect(m.data.searchWords).toHaveLength(0);
+        });
+
+        it("still marks through highlightText, which is what a render column reads", () => {
+            const { model: m } = makeModel({ highlightString: "bo" });
+            expect(m.highlightText("Bob")).toContain("avg-search-match");
+            expect(m.highlightText("Ada")).toBe("Ada");
+        });
+
+        /**
+         * The property that keeps the per-cell paint path allocation-free: with neither option
+         * set the words are the *shared* empty array, not a fresh one. Asserted by identity,
+         * because a length check passes either way.
+         */
+        it("leaves the shared empty array in place when neither option is set", () => {
+            const { model: a } = makeModel();
+            const { model: b } = makeModel();
+            expect(a.data.searchWords).toBe(b.data.searchWords);
+            expect(a.data.searchWords).toHaveLength(0);
+        });
+
+        it("keeps that identity when only searchString is set", () => {
+            const { model: a } = makeModel({ searchString: "ad" });
+            const { model: b } = makeModel({ searchString: "ad" });
+            // Same words, and neither copied the array to hold them.
+            expect(a.data.searchWords).toEqual(["ad"]);
+            expect(a.data.searchWords).not.toBe(b.data.searchWords);
+            const { model: c } = makeModel({ highlightString: "" });
+            const { model: d } = makeModel();
+            expect(c.data.searchWords).toBe(d.data.searchWords);
+        });
+    });
+
+    /**
      * An edit freezes the row order so the row being typed into cannot jump away. The freeze has
      * to end when the thing it was protecting changes — otherwise a filter cleared while a cell
      * is open leaves the filtered-out rows on screen, which is what driving the customization

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<!--
+    av-grid — host integration: the four things a host supplies around the rows.
+
+    rowNoun · highlightString · extraElement · whiteSpaceY · the built-in menu ids
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — host integration</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        button, input { font: inherit; }
+        #host { flex: 1 1 auto; min-height: 0; }
+        footer { padding: 8px 16px; border-top: 1px solid #ddd; color: #666;
+                 font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; }
+
+        /*
+            The footer `extraElement`. The library positions it — full width, at the bottom of the
+            scrolling content — so all this adds is what only the host can know: the background it
+            has to be opaque against, and the height it wants reserved.
+
+            That height is passed as `whiteSpaceY` below — plus the add-row button's own strip.
+            Leave them out of step and the footer covers the last row at full scroll.
+        */
+        .avg-grid .avg-extra.load-more {
+            display: flex; align-items: center; justify-content: center; gap: 12px;
+            height: 28px; background: #fafafa; border-top: 1px solid #e3e3e3;
+            font-size: 12px; color: #555;
+
+            /*
+                And the override, because this grid also has `canAddRows`. The library's default
+                is `bottom: 0`, which is exactly where the "+ add link" button lives — a
+                full-width band there hides it. Lifting the footer by the button's own 24px and
+                reserving 28 + 24 through `whiteSpaceY` gives each a strip of its own.
+
+                Note the selector: the library's rule is `.avg-grid .avg-extra`, and its
+                stylesheet is injected during create(), so it lands *after* this block. A bare
+                `.load-more` ties on specificity and loses on order.
+            */
+            bottom: 24px;
+        }
+        .load-more button {
+            font-size: 12px; border: 1px solid #ccc; border-radius: 4px;
+            background: #fff; padding: 1px 8px; cursor: pointer;
+        }
+
+        /* A host menu, to show what the built-in item ids are for. */
+        .my-menu {
+            position: fixed; z-index: 10; min-width: 200px; padding: 4px;
+            background: #fff; border: 1px solid #ccc; border-radius: 6px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+        }
+        .my-menu div {
+            display: flex; gap: 8px; align-items: center;
+            padding: 4px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap;
+        }
+        .my-menu div:hover { background: #eef3fa; }
+        .my-menu .icon { width: 16px; text-align: center; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Host integration</h1>
+        <p>This grid holds <strong>links</strong>, not rows — so <code>rowNoun: "link"</code> makes
+        the button read <em>+ add link</em> and the right-click menu <em>Delete 1 link</em>. The
+        <strong>Highlight</strong> box marks words without filtering anything
+        (<code>highlightString</code>); the <strong>Search</strong> box beside it does both, as
+        usual. The footer under the last row is the host's own element
+        (<code>extraElement</code>), lifted clear of the <em>+ add link</em> button by one CSS
+        rule, with room for both reserved by <code>whiteSpaceY: 52</code>. Right-click a cell for
+        a host-drawn menu whose icons are matched by <code>item.id</code>.</p>
+        <div class="row">
+            <label>Search <input id="search" size="14" placeholder="filters and marks" /></label>
+            <label>Highlight <input id="highlight" size="14" placeholder="marks only" value="docs" /></label>
+            <button id="toggle-footer">remove the footer</button>
+        </div>
+    </header>
+
+    <div id="host"></div>
+
+    <footer id="log">output appears here…</footer>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const log = document.getElementById("log");
+        const say = (line) =>
+            (log.textContent = line + "\n" + log.textContent.split("\n").slice(0, 8).join("\n"));
+
+        const links = [
+            { id: 1, title: "API reference", url: "https://example.com/docs/api", tag: "docs" },
+            { id: 2, title: "Architecture notes", url: "https://example.com/docs/architecture", tag: "docs" },
+            { id: 3, title: "Release checklist", url: "https://example.com/ops/release", tag: "ops" },
+            { id: 4, title: "Status dashboard", url: "https://status.example.com", tag: "ops" },
+            { id: 5, title: "Design tokens", url: "https://example.com/design/tokens", tag: "design" },
+            { id: 6, title: "Icon set", url: "https://example.com/design/icons", tag: "design" },
+            { id: 7, title: "Support inbox", url: "https://example.com/support", tag: "ops" },
+            { id: 8, title: "Docs style guide", url: "https://example.com/docs/style", tag: "docs" },
+        ];
+
+        // -------------------------------------------------------------------
+        // extraElement — one host element after the last row.
+        //
+        // The grid parents it and nothing else: it is never inspected, cleared or destroyed, and
+        // this click listener keeps firing through every repaint and every scroll. `destroy()`
+        // hands the element back intact, which is why it is fine to build it once out here.
+        // -------------------------------------------------------------------
+        const footer = document.createElement("div");
+        footer.className = "load-more";
+        footer.innerHTML =
+            `<span>8 of 214 links</span>` +
+            `<button data-act="more">Load more</button>` +
+            `<button data-act="all">Load all</button>`;
+        footer.addEventListener("click", (e) => {
+            const act = e.target.closest("button")?.dataset.act;
+            if (act) say(`footer: ${act} — the grid never sees this click`);
+        });
+
+        const grid = AVGrid.create("#host", {
+            rows: links,
+            columns: [
+                { key: "id", name: "#", width: 44, align: "right" },
+                { key: "title", name: "Title", width: 220 },
+                { key: "url", name: "URL", width: 320 },
+                { key: "tag", name: "Tag", width: 100 },
+            ],
+            editable: true,
+            canAddRows: true,
+            canDeleteRows: true,
+
+            // What this grid calls one of its rows. Singular — the grid pluralises it.
+            rowNoun: "link",
+
+            // Words that came from somewhere this grid is not. Marks, filters nothing.
+            highlightString: "docs",
+
+            // The footer, and the room it needs: its own 28px plus the 24 the add-row button
+            // underneath it wants. The default slack is 20, which a 28px band would spill out
+            // of onto the last row.
+            extraElement: footer,
+            whiteSpaceY: 52,
+
+            onGridContextMenu: showHostMenu,
+        });
+
+        // -------------------------------------------------------------------
+        // The built-in menu ids.
+        //
+        // A host menu that draws its icons its own way cannot use `item.icon`, which is markup or
+        // a node here. The labels are no help either — they count and pluralise the selection
+        // ("Delete 3 links") and are the part a host may want to translate. So every item the grid
+        // builds carries a stable id, prefixed `avg-`, and that is what to match on.
+        // -------------------------------------------------------------------
+        const myIcons = {
+            "avg-copy": "📋",
+            "avg-copy-as": "📄",
+            "avg-paste": "📥",
+            "avg-insert-rows": "➕",
+            "avg-add-rows": "➕",
+            "avg-delete-rows": "🗑",
+            "avg-insert-columns": "⬅",
+            "avg-add-columns": "➡",
+            "avg-delete-columns": "✖",
+        };
+
+        let hostMenu;
+        function showHostMenu(e, items) {
+            hostMenu?.remove();
+            hostMenu = document.createElement("div");
+            hostMenu.className = "my-menu";
+            hostMenu.style.left = `${e.x}px`;
+            hostMenu.style.top = `${e.y}px`;
+
+            for (const item of items) {
+                // `avg-` says it is the library's own item; anything else is a host item, which
+                // is the collision the prefix exists to make visible.
+                const icon = myIcons[item.id] ?? "•";
+                const row = document.createElement("div");
+                row.innerHTML = `<span class="icon">${icon}</span><span></span>`;
+                row.lastElementChild.textContent = item.label;
+                row.addEventListener("click", () => {
+                    hostMenu.remove();
+                    say(`${item.id} — "${item.label}"`);
+                    item.onClick?.();
+                });
+                hostMenu.append(row);
+            }
+            document.body.append(hostMenu);
+        }
+        addEventListener("pointerdown", (e) => {
+            if (hostMenu && !hostMenu.contains(e.target)) hostMenu.remove();
+        }, true);
+
+        // -------------------------------------------------------------------
+        // Both word sources, live. Every new option is settable after create().
+        // -------------------------------------------------------------------
+        document.getElementById("search").addEventListener("input", (e) => {
+            grid.setSearchString(e.target.value);
+            say(`searchString "${e.target.value}" — ${grid.getState().rowCount} of ${links.length} links`);
+        });
+
+        document.getElementById("highlight").addEventListener("input", (e) => {
+            grid.setOptions({ highlightString: e.target.value });
+            say(`highlightString "${e.target.value}" — still ${grid.getState().rowCount} links`);
+        });
+
+        const toggle = document.getElementById("toggle-footer");
+        toggle.addEventListener("click", () => {
+            const on = grid.getState().rowCount >= 0 && footer.isConnected;
+            // `null` removes it; the same element passed again puts it back untouched.
+            grid.setOptions({ extraElement: on ? null : footer, whiteSpaceY: on ? 20 : 52 });
+            toggle.textContent = on ? "put the footer back" : "remove the footer";
+            say(on ? "extraElement: null — and the slack goes back to 20" : "the same element, remounted intact");
+        });
+
+        say('rowNoun "link" · highlightString "docs" · a footer and an add button sharing the slack');
+    </script>
+</body>
+</html>

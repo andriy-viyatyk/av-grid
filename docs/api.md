@@ -245,7 +245,8 @@ type EditOrigin = "key" | "pointer" | "typing";
 | `canDeleteColumns` | `boolean` | `false` | `Ctrl+Shift+Delete`. |
 | `newRow` | `(index: number) => R` | `{}` plus a unique row-key placeholder | What a blank row contains. |
 | `newColumn` | `(index: number) => Column<R>` | `{ key: "column<n>", name: "Column <n>" }` | What a blank column looks like. |
-| `addRowLabel` | `string` | `"add row"` | Text on the add-row button. |
+| `addRowLabel` | `string` | `` `add ${rowNoun}` `` | Text on the add-row button. Overrides `rowNoun` for the button. |
+| `rowNoun` | `string` | `"row"` | What this grid calls one of its rows, **singular** — the grid pluralises it. Feeds the three row items in the context menu and the add-row button. Columns are unaffected. |
 | `onAddRows` | `(e: AddRowsEvent<R>) => void \| boolean` | — | Before the insert. Return `false` to cancel; mutate `e.rows` to fill them in. |
 | `onDeleteRows` | `(e: DeleteRowsEvent<R>) => void \| boolean` | — | Return `false` to cancel — this is where a confirm goes. |
 | `onAddColumns` | `(e: AddColumnsEvent<R>) => void \| boolean` | — | |
@@ -292,6 +293,12 @@ clears, on an `editable` grid. A paste writes through the same path as typing, s
 | `growToWidth` | `string` | — | The same, horizontally. |
 | `overscanRow` | `number` | `4` | Extra rows rendered outside the viewport. |
 | `overscanColumn` | `number` | `1` | Extra columns. |
+| `whiteSpaceY` | `number` | `20` | Height of the slack below the last row, so the final row can scroll clear of the edge. `0` removes it; raise it to make room for an `extraElement`. There is deliberately no `whiteSpaceX` — see the note below. |
+
+**No `whiteSpaceX`.** The horizontal slack interacts with `fitToWidth` and percentage column widths
+through the column-fitting arithmetic, which has already produced one spurious horizontal
+scrollbar; a second control over it, with nothing asking for one, is how that comes back. Ask if
+you need it.
 
 ### Presentation
 
@@ -300,6 +307,7 @@ clears, on an `editable` grid. A paste writes through the same path as typing, s
 | `className` | `string` | — | Extra class on the root, for host styling. |
 | `name` | `string` | — | Debug label, emitted as `data-name` on the root and reported by `getState().name`. Never used for styling. |
 | `injectStyles` | `boolean` | `true` | Inject the stylesheet on first use. `false` if you link `av-grid.css` yourself. |
+| `extraElement` | `HTMLElement \| null` | — | One host element placed after the last row, scrolling with the content. See [An element after the last row](#an-element-after-the-last-row). |
 | `onCellClass` | `(cell: CellContext<R>) => ClassValue` | — | Extra class names for a cell, on top of the built-in state classes. The grid-wide arm of `Column.cellClass`. |
 | `rowClass` | `(row: RowContext<R>) => ClassValue` | — | Extra class names for every cell of a row — how a whole row is highlighted. |
 
@@ -359,6 +367,7 @@ once per row, so keep it a property read rather than a search.
 | `sort` | `SortColumn \| null` | `null` | Initial sort. Clicking a header cycles ascending → descending → none. A column sorts by `row[key]` unless it has a `sortValue` or a `rowCompare` — see [Sorting by something other than the value](#sorting-by-something-other-than-the-value). |
 | `searchString` | `string` | — | Free-text filter. Every whitespace-separated word must appear in some column's *displayed* value — so a computed column with `formatValue` is searchable too. |
 | `highlightSearch` | `boolean \| "text" \| "background" \| "both"` | `true` | Mark the matched words inside the cells. See [Search highlighting](#search-highlighting). |
+| `highlightString` | `string` | — | Extra words to mark, **filtering nothing**. For words that came from outside this grid. See [Search highlighting](#search-highlighting). |
 | `filters` | `Filter[]` | `[]` | Applied column filters. See [Filtering](#filtering). |
 | `persistFilters` | `PersistFiltersOptions` | — | Remember the filters across reloads. Passing this **is** the consent to write. |
 | `onGetOptions` | `GetFilterOptions<R>` | — | Supply the options a filter popover offers, instead of the column's distinct values. May return a promise. |
@@ -904,6 +913,27 @@ What is and is not marked:
 
 Overlapping words merge into one run rather than nesting: searching `"an ana"` against
 `"banana"` marks `anan` once.
+
+#### Two sources of words: `searchString` and `highlightString`
+
+`searchString` does two things — it narrows the rows *and* marks the words that kept them. That is
+right for a box the user is typing into, and wrong when the words came from somewhere this grid is
+not: a search-results panel that navigated the user here, a URL fragment, a filter applied
+upstream. There the rows are already the right rows, and hiding the ones that happen not to contain
+the term is a bug. `highlightString` marks and filters nothing.
+
+```js
+AVGrid.create(el, { rows, highlightString: "connection refused" });
+grid.setOptions({ highlightString: term });   // works here too
+```
+
+**The rule: `searchString` when the user is searching *this* grid, `highlightString` when the words
+came from outside it.**
+
+Both may be set at once and the marked set is their **union** — a live search box over a grid
+arrived at from a search result marks both terms. `highlightSearch` governs both: its shapes apply
+to either source, and `false` silences both. `c.highlight()` marks both too, so a `render` column
+does not go unmarked beside a plain one.
 
 Cost, on the 100k-row board with a search active: **60 fps scrolling and a full repaint of every
 visible cell in 0.1 ms with 0 DOM mutations** — the same numbers as with no search. A cell with
@@ -1463,13 +1493,54 @@ interface MenuItem {
     hotKey?: string;           // right-aligned hint, e.g. "(Ctrl+C)". Binds nothing.
     selected?: boolean;        // checked, and highlighted when the menu opens
     minor?: boolean;           // dimmed
-    id?: string;
+    id?: string;               // stable identity; the built-in items all carry one
     items?: MenuItem[];        // submenu
 }
 ```
 
 `MenuItem` is Persephone's own shape, so a host that already builds these can hand the same array
 to either menu.
+
+### The built-in item ids
+
+Every item the grid builds carries a stable `id`. Match on it rather than on the label: the labels
+count and pluralise what the selection covers (`Insert 3 rows`), and they are the part a host may
+want to translate.
+
+| Item | `id` |
+|---|---|
+| Insert column *(header right-click)* | `avg-insert-column` |
+| Delete column *(header right-click)* | `avg-delete-column` |
+| Copy | `avg-copy` |
+| Copy as… | `avg-copy-as` |
+| ↳ With Headers | `avg-copy-as-headers` |
+| ↳ JSON | `avg-copy-as-json` |
+| ↳ Formatted (HTML Table) | `avg-copy-as-html` |
+| Paste | `avg-paste` |
+| Insert *n* rows | `avg-insert-rows` |
+| Add *n* rows | `avg-add-rows` |
+| Delete *n* rows | `avg-delete-rows` |
+| Insert *n* columns | `avg-insert-columns` |
+| Add *n* columns | `avg-add-columns` |
+| Delete *n* columns | `avg-delete-columns` |
+
+**These are a stable contract** — they will not be renamed without a major version. The motivating
+case is a host menu that draws icons its own way, since `icon` here is markup or a node and a menu
+taking icon *components* cannot use either:
+
+```js
+onGridContextMenu: (e, items) => {
+    for (const item of items) {
+        if (item.id === "avg-copy") item.icon = myIcons.copy;
+    }
+    myMenu.show(e.x, e.y, items);
+}
+```
+
+The `avg-` prefix is deliberate. Host items from `getContextMenuItems` are prepended into the same
+array and `id` is what the menu uses for keyboard navigation, so a collision between a host id and
+a built-in one would be a real bug — and `item.id?.startsWith("avg-")` is how you tell the
+library's own items from yours.
 
 ---
 
@@ -1631,6 +1702,7 @@ positioned, and their nesting can change.
 | `data-type="filter-button"` | The funnel inside a header cell |
 | `data-type="cell-editor"` | The open editor |
 | `data-avg-action="add-row" \| "add-column"` | The two `+` buttons |
+| `data-avg-slot="content-end"` | The host's `extraElement`, which also carries `avg-extra` |
 | `data-cell-borders="off"` | The root, with `cellBorders: false` |
 | `data-search-highlight="background" \| "both"` | The root. Absent for the default, colour-only shape |
 
@@ -1654,6 +1726,48 @@ Root-level classes worth knowing: `avg-grid` (the root), `avg-grid-wrap` (the fl
 **If you write your own cell renderer returning an element, the stylesheet must position it
 absolutely.** The engine writes `top` and `left`; nothing writes `position`. A cell that lays out
 in flow looks correct at the top of a list and shows an empty band everywhere below.
+
+### An element after the last row
+
+`extraElement` puts one host element into the scrolling content, after the last row: a "Load more"
+footer, an empty-state line, a total.
+
+```js
+const footer = document.createElement("div");
+footer.textContent = "Load more";
+const grid = AVGrid.create(el, { rows, extraElement: footer, whiteSpaceY: 24 });
+grid.setOptions({ extraElement: null });   // and it goes away
+```
+
+The grid **parents it and nothing else** — never inspected, cleared, restyled beyond adding
+`avg-extra`, or destroyed. Listeners you bind to it survive a repaint and a scroll long enough to
+evict every cell around it, because it is an overlay rather than a pooled cell. `destroy()` takes
+it out of the DOM and leaves it intact, so it can be mounted somewhere else.
+
+**Unlike a cell renderer, this one the library positions** — a full-width band at the bottom of the
+content:
+
+```css
+.avg-grid .avg-extra { position: absolute; left: 0; right: 0; bottom: 0; }
+```
+
+There the engine writes `top` and `left` and the host only has to add `position`; here nothing
+writes anything, so an unpositioned element would lay out in flow among absolutely positioned cells
+and land at the top-left *behind* them — invisible and still hoverable. One more class overrides
+it, and no colour, size or padding is set, because only the host knows what the grid's background
+is:
+
+```css
+.avg-grid .avg-extra.my-chip { left: 4px; right: auto; }
+```
+
+Two things to know rather than work around:
+
+- **It lives in the trailing slack, which is 20 px.** Taller than that and it overlaps the last
+  row at full scroll. Raise [`whiteSpaceY`](#layout) to its height to reserve the room, or give it
+  an opaque background.
+- **It shares that strip with the add-row button**, which sits at `bottom: 1px; left: 4px`. A
+  full-width default band will sit over it; a grid that wants both positions its own element clear.
 
 ---
 

@@ -990,6 +990,71 @@ describe("search highlighting", () => {
         expect(marks(grid, "id")).toEqual(["Order"]);
     });
 
+    it("marks highlightString's words without filtering a row out", async () => {
+        // The whole point of the option: the rows are already the right rows.
+        const grid = create({ rows: people, highlightString: "ala" });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+        expect(marks(grid, "name")).toEqual(["", "Ala", ""]);
+    });
+
+    it("marks the union of searchString and highlightString", async () => {
+        const grid = create({
+            rows: people,
+            searchString: "a",
+            highlightString: "race",
+        });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+        // "Grace" holds both words and they overlap; the longer match wins the shared "a",
+        // which is `markSearchWords`' existing rule and not something this option changes.
+        expect(marks(grid, "name")).toEqual(["A|a", "A|a", "race"]);
+    });
+
+    it("repaints when highlightString is set on its own", async () => {
+        // No row moves, so the pipeline never runs — `setOptions` has to resync and repaint.
+        const grid = create({ rows: people });
+        await settle();
+        grid.setOptions({ highlightString: "ala" });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "Ala", ""]);
+
+        grid.setOptions({ highlightString: undefined });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+    });
+
+    it("silences highlightString too when highlightSearch is false", async () => {
+        const grid = create({
+            rows: people,
+            highlightString: "ala",
+            highlightSearch: false,
+        });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "", ""]);
+        expect(columnText(grid, "name")).toEqual(["Ada", "Alan", "Grace"]);
+    });
+
+    it("marks highlightString through c.highlight as well", async () => {
+        // A custom render column going unmarked beside a plain one is the exact failure
+        // `c.highlight` exists for, so it has to read both sources.
+        const grid = create({
+            rows: people,
+            columns: [
+                { key: "name", name: "Name" },
+                {
+                    key: "full",
+                    name: "Full",
+                    render: (c) => c.highlight(`${c.row.name} <${c.row.id}>`),
+                },
+            ],
+            highlightString: "ala",
+        });
+        await settle();
+        expect(marks(grid, "name")).toEqual(["", "Ala", ""]);
+        expect(marks(grid, "full")).toEqual(["", "Ala", ""]);
+    });
+
     it("escapes a value that looks like markup", async () => {
         const grid = create({
             rows: [{ name: "<b>ada</b>" }],
@@ -1001,6 +1066,144 @@ describe("search highlighting", () => {
         expect(
             grid.element.querySelector('[data-column-key="name"] b'),
         ).toBeNull();
+    });
+});
+
+/**
+ * The trailing slack below the last row. A pass-through to the engine option that has always
+ * existed and was never exposed — whether it *looks* right at full scroll is a browser
+ * question, and the board answers it; what a test can pin is that it reaches the engine from
+ * both paths and that its absence changes nothing.
+ */
+describe("whiteSpaceY", () => {
+    const engineWhiteSpaceY = (grid: AVGrid<any>): number | undefined =>
+        grid.render.model.getOptions().whiteSpaceY;
+
+    it("reaches the engine from create()", () => {
+        expect(engineWhiteSpaceY(create({ rows: people, whiteSpaceY: 24 }))).toBe(24);
+    });
+
+    it("reaches the engine from setOptions()", () => {
+        const grid = create({ rows: people });
+        grid.setOptions({ whiteSpaceY: 40 });
+        expect(engineWhiteSpaceY(grid)).toBe(40);
+    });
+
+    it("forwards a zero rather than treating it as unset", () => {
+        // `whiteSpaceY: 0` is the "no slack at all" case, and the engine reads it with `??`,
+        // so a truthiness check anywhere on the way would silently mean "default".
+        const grid = create({ rows: people });
+        grid.setOptions({ whiteSpaceY: 0 });
+        expect(engineWhiteSpaceY(grid)).toBe(0);
+    });
+
+    it("leaves the engine on its own default when the option is absent", () => {
+        expect(engineWhiteSpaceY(create({ rows: people }))).toBeUndefined();
+    });
+});
+
+/**
+ * One host element after the last row. What a test can pin is the parenting, the swap, the
+ * teardown and the promise that the grid touches nothing else; where it lands on screen is a
+ * browser question, and the board answers it.
+ */
+describe("extraElement", () => {
+    function footer(text = "Load more"): HTMLElement {
+        const el = document.createElement("div");
+        el.className = "my-footer";
+        el.textContent = text;
+        el.append(document.createElement("button"));
+        return el;
+    }
+
+    it("parents the element inside the scrolling content, marked as such", () => {
+        const el = footer();
+        const grid = create({ rows: people, extraElement: el });
+
+        expect(grid.element.contains(el)).toBe(true);
+        expect(el.classList.contains("avg-extra")).toBe(true);
+        expect(el.getAttribute("data-avg-slot")).toBe("content-end");
+    });
+
+    it("swaps one element for another through setOptions", () => {
+        const first = footer("first");
+        const second = footer("second");
+        const grid = create({ rows: people, extraElement: first });
+
+        grid.setOptions({ extraElement: second });
+        expect(grid.element.contains(first)).toBe(false);
+        expect(grid.element.contains(second)).toBe(true);
+    });
+
+    it("removes it for null and for undefined", () => {
+        const el = footer();
+        const grid = create({ rows: people, extraElement: el });
+
+        grid.setOptions({ extraElement: null });
+        expect(grid.element.contains(el)).toBe(false);
+
+        grid.setOptions({ extraElement: el });
+        expect(grid.element.contains(el)).toBe(true);
+        grid.setOptions({ extraElement: undefined });
+        expect(grid.element.contains(el)).toBe(false);
+    });
+
+    it("leaves the same element alone when it is passed again", () => {
+        // Identity is what decides whether the parenting changes, so re-passing the same
+        // element must not detach and re-append it — a React shim pushes every option on
+        // every update, and a footer that was removed and re-added each time would flicker and
+        // lose focus.
+        const el = footer();
+        const grid = create({ rows: people, extraElement: el });
+        const parent = el.parentElement;
+
+        grid.setOptions({ extraElement: el, rowHeight: 26 });
+        expect(el.parentElement).toBe(parent);
+    });
+
+    it("never mutates the host's element beyond the class and the slot", () => {
+        const el = footer();
+        const clicks: number[] = [];
+        el.addEventListener("click", () => clicks.push(1));
+        const grid = create({ rows: people, extraElement: el });
+
+        grid.setRows([...people, { id: 4, name: "Edsger", active: false }]);
+        grid.setSort({ key: "name", direction: "desc" });
+        grid.refresh();
+
+        expect(el.textContent).toBe("Load more");
+        expect(el.querySelector("button")).not.toBeNull();
+        expect(el.className).toBe("my-footer avg-extra");
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        expect(clicks).toHaveLength(1);
+    });
+
+    it("survives a repaint of every cell with its listener attached", async () => {
+        const el = footer();
+        let clicked = 0;
+        el.addEventListener("click", () => clicked++);
+        const grid = create({ rows: people, extraElement: el });
+        await settle();
+
+        grid.refresh();
+        await settle();
+
+        expect(grid.element.contains(el)).toBe(true);
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        expect(clicked).toBe(1);
+    });
+
+    it("destroy() detaches it and leaves it reusable", () => {
+        const el = footer();
+        const grid = create({ rows: people, extraElement: el });
+        grid.destroy();
+
+        expect(el.isConnected).toBe(false);
+        expect(el.textContent).toBe("Load more");
+        expect(el.querySelector("button")).not.toBeNull();
+        // Reusable means exactly this: mount it somewhere else and it still works.
+        document.body.append(el);
+        expect(el.isConnected).toBe(true);
     });
 });
 

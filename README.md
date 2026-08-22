@@ -4,7 +4,7 @@ A virtualized data grid that renders straight to the DOM. **No runtime dependenc
 framework.** Built for **100,000+ rows** with no lag while scrolling, selecting a range, or
 editing.
 
-**[▶ Live demo](https://andriy-viyatyk.github.io/av-grid/)** — eleven examples in the browser,
+**[▶ Live demo](https://andriy-viyatyk.github.io/av-grid/)** — twelve examples in the browser,
 including a [100,000-row benchmark](https://andriy-viyatyk.github.io/av-grid/examples/09-benchmark.html)
 you can run yourself.
 
@@ -162,6 +162,7 @@ the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of ea
 | [08-theming](https://andriy-viyatyk.github.io/av-grid/examples/08-theming.html) | the CSS custom-property contract | [source](examples/08-theming.html) |
 | [09-benchmark](https://andriy-viyatyk.github.io/av-grid/examples/09-benchmark.html) | the 100k harness — run it yourself | [source](examples/09-benchmark.html) |
 | [10-customization](https://andriy-viyatyk.github.io/av-grid/examples/10-customization.html) | all seven hooks in one file | [source](examples/10-customization.html) |
+| [11-host-integration](https://andriy-viyatyk.github.io/av-grid/examples/11-host-integration.html) | `rowNoun`, `highlightString`, `extraElement`, menu ids | [source](examples/11-host-integration.html) |
 | [persephone-board](https://andriy-viyatyk.github.io/av-grid/examples/persephone-board/) | the grid inside a Persephone board | [source](examples/persephone-board/) |
 
 ## Documentation

@@ -81,7 +81,7 @@ av-grid/
         RenderGridTest/          ← the engine alone: the 100k-row performance harness
         AVGridBoard/             ← the whole grid: rendering, interaction, theming
         CustomizationBoard/      ← the host hooks: every documented claim, checked
-    examples/                    ← eleven runnable standalone examples
+    examples/                    ← twelve runnable standalone examples
     temp/                        ← gitignored scratch space: notes, working files, nothing shipped
 ```
 

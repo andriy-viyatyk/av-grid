@@ -16,6 +16,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/goal.md`](tasks/goal.md) | **Before starting any work.** The goal, success criteria, the architecture being ported, the per-file port status, the API design principles, and **scope** |
 | [`tasks/plan-done-01.md`](tasks/plan-done-01.md) | The finished plan for the port, tasks 1–20. **Read its decision log before starting any task** — it records every deliberate divergence from the reference, several reference bugs fixed rather than carried over, and the traps that each cost a debugging session |
 | [`tasks/plan-done-02.md`](tasks/plan-done-02.md) | The finished plan for phase 6, customization, tasks 21–26. **Its decision log applies too** |
+| [`tasks/plan-done-03.md`](tasks/plan-done-03.md) | The finished plan for phase 7, the Persephone adoption gaps, tasks 27–32. **Its decision log applies too** |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
 | [`docs/capabilities.md`](docs/capabilities.md) | What the grid does today and what each subsystem measures, by subsystem |
@@ -24,7 +25,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**There is no active `plan.md`.** Both phases are archived, and phase 7 has not been opened.
+**There is no active `plan.md`.** All three phases are archived, and phase 8 has not been opened.
 A plan is archived as `plan-done-<nn>.md` once all its tasks are ✅; the next `plan.md` starts at
 the new phase, carrying forward the standing rules and a pointer back to the logs. **Every archived
 decision log still applies** — they are read before starting a task, not filed away.
@@ -43,6 +44,13 @@ the class hooks, custom cell editors, custom filter types, `copyValue`, `sortVal
 example and board that cover them. There is a working, fast grid with sorting, filtering, selection,
 keyboard navigation, editing, clipboard, a context menu, a filter bar, and full theming.
 
+**Phase 7, the Persephone adoption gaps, is done too** (tasks 27–32, shipped as **2.2.0**): the five
+additions Persephone's adoption of the library measured against its own call sites —
+`highlightString` (mark words without filtering rows), stable `avg-` **ids on every built-in
+context-menu item**, `rowNoun` (what this grid calls a row), `whiteSpaceY` (the trailing slack, now
+exposed) and `extraElement` (one host element after the last row). All five are additive: no
+existing option default, signature or CSS selector moved.
+
 **The gate holds at 100,000 rows**: first paint ~6 ms, 60 fps at the top and at row 99,000, a
 flat-cost ratio around 1.0×, and a full repaint of every visible cell doing **zero DOM mutations**.
 Per-subsystem gates and every measured number are in
@@ -53,7 +61,7 @@ Per-subsystem gates and every measured number are in
 - Whether the `--avg-*` defaults should move to `:root`, so an ancestor's `--avg-*` works. Today an
   ancestor's `--p-*` reaches everything and its `--avg-*` is shadowed — see
   [Theming](docs/capabilities.md#theming).
-- What phase 7 is. Nothing is planned past phase 6; open a new `tasks/plan.md` when there is.
+- What phase 8 is. Nothing is planned past phase 7; open a new `tasks/plan.md` when there is.
 
 ## Commands
 
