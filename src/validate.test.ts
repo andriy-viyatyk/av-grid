@@ -83,6 +83,39 @@ describe("validateColumns", () => {
         );
     });
 
+    it("accepts a key that only some rows carry", () => {
+        // Heterogeneous JSON is ordinary, and this is the shape that used to blank the grid: the
+        // check read row 0 alone, so a correct column set was rejected over valid data.
+        expect(() =>
+            validateColumns([{ key: "a" }, { key: "b" }], [{ a: 1 }, { a: 2, b: 3 }]),
+        ).not.toThrow();
+    });
+
+    it("accepts a key that first appears past the sample window", () => {
+        // The failure-path scan. The sample stops at 50 rows, so this key is unknown to it and
+        // only the full scan can tell a sparse column from a typo.
+        const rows = Array.from({ length: 300 }, (_, i) =>
+            i === 200 ? { a: i, late: "here" } : { a: i },
+        );
+        expect(() =>
+            validateColumns([{ key: "a" }, { key: "late" }], rows),
+        ).not.toThrow();
+    });
+
+    it("still rejects a key no row carries", () => {
+        const rows = Array.from({ length: 300 }, (_, i) => ({ a: i }));
+        expect(() => validateColumns([{ key: "nmae" }], rows)).toThrow(
+            /Unknown column "nmae"\. Available columns: a\./,
+        );
+    });
+
+    it("never rejects a column set it would have inferred itself", () => {
+        // The invariant the shared 50-row sample buys: `create({ rows })` and
+        // `create({ rows, columns: inferColumns(rows) })` cannot disagree.
+        const sparse = [{ a: 1 }, { b: 2 }, { c: 3 }];
+        expect(() => validateColumns(inferColumns(sparse), sparse)).not.toThrow();
+    });
+
     it("allows a key absent from the data when the column is computed", () => {
         expect(() =>
             validateColumns([{ key: "total", render: () => "x" }], people),

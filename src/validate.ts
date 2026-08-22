@@ -259,9 +259,27 @@ export function inferGetRowKey<R>(rows: readonly R[]): (row: R) => string {
 // Validation
 // ---------------------------------------------------------------------------
 
-function available(columns: readonly Column<any>[]): string {
-    if (!columns.length) return "the grid has no columns";
-    return `Available columns: ${columns.map((c) => String(c.key)).join(", ")}.`;
+function available(keys: readonly string[]): string {
+    if (!keys.length) return "the grid has no columns";
+    return `Available columns: ${keys.join(", ")}.`;
+}
+
+/**
+ * Does any row past the inference sample carry this key?
+ *
+ * The slow half of the unknown-column check, and it runs only on the branch that is about to
+ * throw. Sparse data is the reason: a key that appears for the first time at row 5,000 is a
+ * perfectly good column, and rejecting it would blank the grid over data that is merely
+ * heterogeneous. Scanning every row on the happy path to find that out would make the common
+ * case pay for the rare one, so the sample decides first and this only ever answers "wait, it
+ * is there after all" — for a typo it is one pass with no early exit, once, at `create()`.
+ */
+function anyRowHasKey(rows: readonly any[], key: string, from: number): boolean {
+    for (let i = from; i < rows.length; i++) {
+        const row = rows[i];
+        if (row && typeof row === "object" && key in row) return true;
+    }
+    return false;
 }
 
 export function validateColumns<R>(
@@ -285,7 +303,17 @@ export function validateColumns<R>(
     }
 
     const seen = new Set<string>();
-    const sample = rows.find((r) => r !== null && r !== undefined) as any;
+    // The union over the inference sample, not the keys of the first row.
+    //
+    // One row is the wrong oracle for "does this key exist in the data": heterogeneous JSON is
+    // ordinary, and `[{a:1},{a:2,b:3}]` with columns `[a, b]` is correct input that a row-0 check
+    // rejects — a blank grid over good data, which is the failure this check exists to prevent.
+    // Sampling the same 50 rows `inferColumns` samples also settles a self-contradiction: the grid
+    // used to reject a column set it would have inferred itself, so `create({ rows })` and
+    // `create({ rows, columns: inferColumns(rows) })` could disagree. They cannot now.
+    const sampledKeys = sampleKeys(rows as readonly any[]);
+    const sampled = new Set(sampledKeys);
+    const hasSample = sampledKeys.length > 0;
 
     columns.forEach((column, index) => {
         if (!column || typeof column !== "object") {
@@ -318,14 +346,12 @@ export function validateColumns<R>(
         if (
             !computed &&
             !exemptKeys?.has(key) &&
-            sample &&
-            typeof sample === "object" &&
-            !(key in sample)
+            hasSample &&
+            !sampled.has(key) &&
+            !anyRowHasKey(rows as readonly any[], key, INFERENCE_SAMPLE)
         ) {
             fail(
-                `Unknown column "${key}". ${available(
-                    Object.keys(sample).map((k) => ({ key: k })),
-                )} ` +
+                `Unknown column "${key}". ${available(sampledKeys)} ` +
                     `If the column is computed rather than read from the row, give it a \`render\` function.`,
             );
         }
@@ -445,7 +471,7 @@ export function validateSort<R>(
         fail(`\`sort.key\` must be a column key, but was ${describe(key)}.`);
     }
     if (!columns.some((c) => String(c.key) === key)) {
-        fail(`Unknown column "${key}" in \`sort\`. ${available(columns)}`);
+        fail(`Unknown column "${key}" in \`sort\`. ${available(columns.map((c) => String(c.key)))}`);
     }
     if (direction !== "asc" && direction !== "desc") {
         fail(
@@ -496,7 +522,7 @@ export function validateFilters<R>(
         const column = columns.find((c) => String(c.key) === columnKey);
         if (!column) {
             fail(
-                `Unknown column "${columnKey}" in \`filters[${index}]\`. ${available(columns)}`,
+                `Unknown column "${columnKey}" in \`filters[${index}]\`. ${available(columns.map((c) => String(c.key)))}`,
             );
         }
 
