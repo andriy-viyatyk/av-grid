@@ -191,7 +191,7 @@ export interface AVGridStateSnapshot<R = any> {
 
 export class AVGrid<R = any> {
     /** Bumped on release. Also exported from the package root. */
-    static readonly version = "2.1.0";
+    static readonly version = "2.2.0";
 
     readonly model: AVGridModel<R>;
     readonly render: RenderGrid;
