@@ -7,9 +7,10 @@ const MARK = '<span class="avg-search-match">';
 /**
  * Marked output is wrapped in one inline box. Not decoration — a data cell is `inline-flex`,
  * and flex drops the whitespace *between* items, so a mark that splits the text rendered
- * "Alan Dijkstra" as "AlanDijkstra".
+ * "Alan Dijkstra" as "AlanDijkstra". The same wrapper the plain-text shape uses, which is also
+ * what carries the ellipsis.
  */
-const wrapped = (inner: string) => `<span class="avg-search-text">${inner}</span>`;
+const wrapped = (inner: string) => `<span class="avg-cell-text">${inner}</span>`;
 
 describe("searchWords", () => {
     it("lowercases and splits on any whitespace", () => {

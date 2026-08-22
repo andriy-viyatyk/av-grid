@@ -589,3 +589,82 @@ function paint(g: AVGrid<Row>): Promise<void> {
         });
     });
 }
+
+/**
+ * `focus.isDragging` announces a drag on the press, and two presses never start one.
+ *
+ * `cell.onMouseDown` is sent as the first statement of the pointerdown handler — before the
+ * button check and before either early return — so `FocusModel` sets the flag for every primary
+ * press. Only `onSelectEnd` clears it, and it is sent from `endSelect`, which returns unless a
+ * drag was armed. So the checkbox press and the press on an open editor used to leave the flag
+ * on for the rest of the grid's life, and `updateFocus` preserved it on every later focus move.
+ *
+ * These two are the reason a host cannot use `isDragging` as a "suppress while dragging" gate
+ * unless it is honest, so they assert the flag is *false* after each press rather than asserting
+ * some visible effect.
+ */
+describe("isDragging does not latch", () => {
+    interface BoolRow {
+        id: number;
+        done: boolean;
+        name: string;
+    }
+
+    function boolGrid(): AVGrid<BoolRow> {
+        return create<BoolRow>({
+            rows: [
+                { id: 1, done: false, name: "one" },
+                { id: 2, done: true, name: "two" },
+            ],
+            columns: [
+                { key: "done", name: "Done", width: 60, dataType: "boolean" },
+                { key: "name", name: "Name", width: 120 },
+            ],
+            getRowKey: (r) => String(r.id),
+            editable: true,
+        });
+    }
+
+    it("clears after a boolean checkbox press, which never arms a drag", () => {
+        const g = boolGrid();
+        const cell = g.element.querySelector(
+            '[data-type="data-cell"][data-row="0"][data-col="0"]',
+        )!;
+        const toggle = cell.querySelector('[data-type="bool-toggle"]');
+        expect(toggle).not.toBeNull();
+
+        pointer(toggle!, "pointerdown");
+
+        // The press did its job…
+        expect(g.getRows()[0]!.done).toBe(true);
+        // …and did not leave a drag announced.
+        expect(g.getFocus()?.isDragging ?? false).toBe(false);
+    });
+
+    it("clears after a press on the cell that already holds an open editor", () => {
+        const g = boolGrid();
+        g.focusCell(0, 1);
+        g.startEdit(0, 1);
+        expect(g.isEditing()).toBe(true);
+
+        const cell = g.element.querySelector(
+            '[data-type="data-cell"][data-row="0"][data-col="1"]',
+        )!;
+        pointer(cell, "pointerdown");
+
+        expect(g.getFocus()?.isDragging ?? false).toBe(false);
+    });
+
+    it("stays true for the press that really does start a drag, until the release", () => {
+        const g = boolGrid();
+        const cell = g.element.querySelector(
+            '[data-type="data-cell"][data-row="1"][data-col="1"]',
+        )!;
+
+        pointer(cell, "pointerdown");
+        expect(g.getFocus()?.isDragging).toBe(true);
+
+        releasePointer();
+        expect(g.getFocus()?.isDragging).toBe(false);
+    });
+});

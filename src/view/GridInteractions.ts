@@ -317,13 +317,17 @@ export class GridInteractions<R> {
         );
         if (toggle && this.root.contains(toggle)) {
             this.model.models.editing.toggleBooleanCell(cell.row, cell.col);
+            this.endDragThatNeverStarted();
             return;
         }
 
         // That press opened an editor on the cell that already had focus. Arming a range drag
         // now would extend the selection under the pointer while the user is placing a caret in
         // the input that is about to appear beneath it.
-        if (this.model.models.editing.isEditingCell(cell.row, cell.col)) return;
+        if (this.model.models.editing.isEditingCell(cell.row, cell.col)) {
+            this.endDragThatNeverStarted();
+            return;
+        }
 
         this.selecting = true;
         this.lastSelectRow = cell.row;
@@ -350,6 +354,29 @@ export class GridInteractions<R> {
         this.extendSelection();
         this.updateAutoScroll();
     };
+
+    /**
+     * Clear `focus.isDragging` on a press that set it and then took an early exit.
+     *
+     * `cell.onMouseDown` is sent as the *first* thing this handler does — before the button
+     * check, before either early return — because a host's `onMouseDown` must see every press.
+     * `FocusModel` reads it and sets `isDragging` for a primary press, and only `onSelectEnd`
+     * clears it again. But two presses never reach `this.selecting = true`: the boolean-checkbox
+     * toggle and a press on the cell that already holds an open editor. Neither installs the
+     * `pointerup` listener, so `endSelect` never runs, so nothing ever clears the flag — and
+     * `updateFocus` deliberately *preserves* it across later focus moves, because a `drag` update
+     * must not clear a drag that is still in progress. The flag therefore latched on for the rest
+     * of the grid's life: tick one checkbox, and `getFocus().isDragging` reads true forever.
+     *
+     * Sending the end event on those two paths is the fix rather than making the flag
+     * non-sticky, because the stickiness is correct — the bug is a drag that was announced and
+     * never finished.
+     */
+    private endDragThatNeverStarted(): void {
+        if (this.model.models.focus.isDragging) {
+            this.model.events.cell.onSelectEnd.send();
+        }
+    }
 
     private endSelect = (): void => {
         if (!this.selecting) return;

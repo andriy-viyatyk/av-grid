@@ -196,3 +196,143 @@ describe("renderDataCell — a render column's markup is written at most once pe
         expect(isMarked(cellAt(grid, 0, "name"))).toBe(true);
     });
 });
+
+/**
+ * A text cell's content lives in one `.avg-cell-text` span, and that span survives repaints.
+ *
+ * The wrapper is not cosmetic: `text-overflow` applies to block containers, and a data cell is
+ * `inline-flex`, so a bare text node in it became an anonymous flex item that inherited neither
+ * `overflow` nor `text-overflow` — the cell's own `text-overflow: ellipsis` had no effect at all,
+ * and a clipped value was cut mid-glyph. The wrapper is the box the declaration can reach.
+ *
+ * The reuse assertions are the hot-path contract. `setText` writes through the existing text node
+ * precisely so a repaint allocates nothing; wrapping the text would undo that if the span were
+ * rebuilt per paint, so these tests pin the span's identity across a `refresh()` and check it is
+ * rebuilt only when the content shape actually changed under a pooled element.
+ */
+describe("renderDataCell — the text wrapper", () => {
+    const rows = [
+        { id: 1, name: "Ada", score: 10, when: new Date(Date.UTC(2020, 0, 2)) },
+        { id: 2, name: "Alan", score: 20, when: new Date(Date.UTC(2021, 5, 6)) },
+    ];
+
+    it("wraps a plain text cell's content and puts the text inside", () => {
+        const grid = create({ rows, columns: [{ key: "name" }, { key: "score" }] });
+
+        const cell = cellAt(grid, 0, "name");
+        const inner = cell.firstElementChild as HTMLElement;
+        expect(inner?.className).toBe("avg-cell-text");
+        expect(cell.children.length).toBe(1);
+        expect(inner.textContent).toBe("Ada");
+        // The text is still the text: a selection, a copy and `textContent` all read the row.
+        expect(cell.textContent).toBe("Ada");
+    });
+
+    it("keeps the same wrapper element across a repaint", async () => {
+        const grid = create({ rows, columns: [{ key: "name" }, { key: "score" }] });
+
+        const inner = cellAt(grid, 0, "name").firstElementChild!;
+        inner.setAttribute("data-test-marked", "yes");
+
+        grid.refresh();
+        await settle();
+
+        expect(cellAt(grid, 0, "name").firstElementChild).toBe(inner);
+    });
+
+    it("keeps the wrapper when only the text changes", async () => {
+        const grid = create({
+            rows: rows.map((r) => ({ ...r })),
+            columns: [{ key: "name" }, { key: "score" }],
+        });
+
+        const inner = cellAt(grid, 0, "name").firstElementChild!;
+        grid.setRows([{ ...rows[0]!, name: "Grace" }, rows[1]!]);
+        await settle();
+
+        const next = cellAt(grid, 0, "name");
+        expect(next.firstElementChild).toBe(inner);
+        expect(next.textContent).toBe("Grace");
+    });
+
+    it("rebuilds the wrapper after the content shape changed under the element", async () => {
+        // text → markup → text. `setMode` clears the element in between, so the wrapper is gone
+        // and the cell must not be told its text is already there.
+        let withMarkup = false;
+        const grid = create({
+            rows,
+            columns: [
+                { key: "name" },
+                {
+                    key: "score",
+                    render: (c) => (withMarkup ? `<b>${c.value}</b>` : String(c.value)),
+                },
+            ],
+        });
+
+        withMarkup = true;
+        grid.refresh();
+        await settle();
+        expect(cellAt(grid, 0, "score").innerHTML).toBe("<b>10</b>");
+
+        withMarkup = false;
+        grid.refresh();
+        await settle();
+        expect(cellAt(grid, 0, "score").innerHTML).toBe("10");
+    });
+
+    it("uses the same wrapper class for a matched cell as for an unmatched one", async () => {
+        // A search keeps the *row*, usually on the strength of one column — so the kept row has a
+        // marked cell and an unmarked one side by side, which is exactly the comparison that
+        // matters: they must be the same kind of box or a highlight would shift the text.
+        const grid = create({
+            rows,
+            columns: [{ key: "name" }, { key: "score" }],
+            searchString: "Ad",
+        });
+        await settle();
+
+        const matched = cellAt(grid, 0, "name").firstElementChild as HTMLElement;
+        expect(matched.className).toBe("avg-cell-text");
+        expect(matched.querySelector(".avg-search-match")).not.toBeNull();
+
+        const unmatched = cellAt(grid, 0, "score").firstElementChild as HTMLElement;
+        expect(unmatched.className).toBe("avg-cell-text");
+        expect(unmatched.querySelector(".avg-search-match")).toBeNull();
+    });
+
+    it("gives a render hook that returns nothing an empty wrapper, not a bare cell", () => {
+        const grid = create({
+            rows,
+            columns: [{ key: "name" }, { key: "score", render: () => null }],
+        });
+
+        const cell = cellAt(grid, 0, "score");
+        expect(cell.firstElementChild?.className).toBe("avg-cell-text");
+        expect(cell.textContent).toBe("");
+    });
+
+    it("leaves a boolean cell and an element-returning render hook unwrapped", () => {
+        const grid = create({
+            rows: [
+                { id: 1, flag: true, tag: "a" },
+                { id: 2, flag: false, tag: "b" },
+            ],
+            columns: [
+                { key: "flag", dataType: "boolean" },
+                {
+                    key: "tag",
+                    render: () => {
+                        const el = document.createElement("i");
+                        el.textContent = "x";
+                        return el;
+                    },
+                },
+            ],
+        });
+
+        expect(cellAt(grid, 0, "flag").querySelector(".avg-cell-text")).toBeNull();
+        expect(cellAt(grid, 0, "tag").querySelector(".avg-cell-text")).toBeNull();
+        expect(cellAt(grid, 0, "tag").firstElementChild?.tagName).toBe("I");
+    });
+});

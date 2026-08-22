@@ -190,12 +190,34 @@ export const css = `
     border-left: solid 1px var(--avg-grid-line);
 }
 
-/* .avg-search-text — the wrapper around a marked cell's whole text — deliberately has no rule
-   here. It exists for layout, not appearance: a data cell is inline-flex, and flex discards the
-   whitespace *between* items, so a mark that splits the text rendered "Alan Dijkstra" as
-   "AlanDijkstra"; inside one inline box the space survives. Giving it overflow or a colour would
-   make a marked cell lay out differently from the unmarked cell beside it, which is the one thing
-   a highlight must not do. */
+/*
+ * .avg-cell-text — the wrapper around a text cell's content, plain and matched alike.
+ *
+ * It carries the truncation the cell above cannot. text-overflow applies to block containers, and
+ * a data cell is inline-flex: a bare text node in it becomes an *anonymous flex item*, a generated
+ * block box that inherits neither overflow nor text-overflow, while the overflow: hidden doing the
+ * clipping is one level up on the flex container, which has no line box of its own to truncate. So
+ * the text-overflow: ellipsis above did nothing for years — text was clipped mid-glyph, and in a
+ * right-aligned column the overflow of a nowrap flex line moves to the *start* side, so a long
+ * number silently lost its leading digits. The anonymous item is not reachable from CSS; only a
+ * real element is. This is the same shape .avg-header-title and .avg-cell-select-value already use.
+ *
+ * min-width: 0 is the load-bearing declaration — a flex item will not shrink below its content
+ * width without it, and then there is nothing to ellipsize.
+ *
+ * The wrapper is applied to *both* text shapes, and that is what preserves the older contract it
+ * replaces: it was originally introduced for the matched shape only, for layout rather than
+ * appearance, because flex discards the whitespace *between* items and a mark that split the text
+ * rendered "Alan Dijkstra" as "AlanDijkstra". A marked cell must still lay out exactly like the
+ * unmarked cell beside it — which it does, because now they have the same box. Anything given to
+ * this rule must stay layout-neutral for the same reason: no colour, no padding, no font.
+ */
+.avg-grid .avg-data-cell > .avg-cell-text {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
 
 /*
  * A word of the active search, inside a cell's text.

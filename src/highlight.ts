@@ -20,7 +20,7 @@
 import { searchWords } from "./gridUtils";
 
 const OPEN = '<span class="avg-search-match">';
-const OPEN_TEXT = '<span class="avg-search-text">';
+const OPEN_TEXT = '<span class="avg-cell-text">';
 const CLOSE = "</span>";
 
 /**
@@ -146,5 +146,10 @@ export function highlightMarkup(
     // survives. The reference solves this by promoting such spaces to U+00A0; a wrapper is
     // better, because it leaves the text exactly the text — `textContent`, a selection and a
     // copy all read what the row actually holds.
+    //
+    // It is `avg-cell-text` — the same class the plain-text shape now uses — rather than a
+    // search-specific name, because the wrapper also carries the cell's ellipsis and both shapes
+    // need it. One class means one rule, and it is what makes a marked cell lay out identically
+    // to the unmarked cell beside it: same element, same box.
     return OPEN_TEXT + out + CLOSE;
 }

@@ -1695,7 +1695,7 @@ positioned, and their nesting can change.
 | `data-type="header-cell"` | A header cell |
 | `data-type="data-cell"` | A data cell |
 | `data-row` | Row index. A header cell carries `0`; a data cell carries its **data** row index, so data row 0 also reads `0` — `data-type` is what tells them apart. |
-| `data-col` | Column index |
+| `data-col` | Column index — into the **visible** columns, i.e. `columns` with `hidden` ones dropped. `getColumns()` returns the full array, so the two disagree the moment a column is hidden: map a cell back to its column by `data-column-key`, not by indexing `getColumns()` with this. |
 | `data-column-key` | The column's `key` |
 | `data-sort="asc" \| "desc"` | The sorted header cell |
 | `data-resizable` | A header cell |
@@ -1708,11 +1708,17 @@ positioned, and their nesting can change.
 
 Cell state classes, which the four class hooks add to rather than replace: `avg-focused`,
 `avg-editing`, `avg-in-selection` (plus `-top` / `-right` / `-bottom` / `-left` for the edges),
-`avg-row-hovered`, `avg-row-selected`, `avg-align-center`, `avg-align-right`. Inside a cell's
-text, `avg-search-match` wraps each matched search word, inside one `avg-search-text` box
-around the whole run — the wrapper is what keeps the spaces either side of a mark, since a data
-cell is `inline-flex` and flex discards whitespace *between* items. A cell with no match has
-neither, and stays a bare text node. On a header cell's
+`avg-row-hovered`, `avg-row-selected`, `avg-align-center`, `avg-align-right`.
+
+A text cell's content lives in one `avg-cell-text` span — **both** the plain and the matched
+shape, so the two lay out identically. It carries the cell's truncation: `text-overflow` needs a
+block container and the cell itself is `inline-flex`, where a bare text node becomes an anonymous
+flex item that cannot be styled, so the ellipsis lives on this wrapper. It is also what keeps the
+spaces either side of a mark, since flex discards whitespace *between* items. A boolean cell and a
+cell filled by a column's `render` hook have **no** wrapper — so **a `render` column that returns
+text can emit `<span class="avg-cell-text">…</span>` itself to get the same ellipsis**, and one
+that draws a graphic simply does not. Inside the wrapper, `avg-search-match` wraps each matched
+search word; a cell with no match has no mark and holds a bare text node. On a header cell's
 funnel: `avg-column-filtered` when that column is filtered, `avg-filter-open` while its popover
 is up.
 

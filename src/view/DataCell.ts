@@ -73,6 +73,46 @@ const mode = new WeakMap<HTMLElement, ContentMode>();
  */
 const written = new WeakMap<HTMLElement, string>();
 
+/**
+ * The class on the span that holds a text cell's content.
+ *
+ * A cell cannot ellipsize its own text. `.avg-data-cell` is `inline-flex`, so a bare text node
+ * inside it becomes an *anonymous flex item* — a generated block box that inherits neither
+ * `overflow` nor `text-overflow`, both being non-inherited — while the `overflow: hidden` that
+ * does the clipping sits one level up on the flex container, which has no line box of its own to
+ * truncate. So `text-overflow: ellipsis` on the cell never had any effect: text was clipped
+ * mid-glyph with no ellipsis, and no rule a host could write would have reached the box that
+ * needed the declaration. Worse in a right-aligned column, where the overflow of a `nowrap` flex
+ * line moves to the *start* side — a long number lost its leading digits and still read as a
+ * valid number.
+ *
+ * A real element is the only fix, and this stylesheet already used the exact shape twice:
+ * `.avg-header-title` and `.avg-cell-select-value`. Both text shapes get it, plain and matched
+ * alike, which is also what keeps a marked cell laying out identically to the unmarked cell
+ * beside it.
+ */
+const TEXT_CLASS = "avg-cell-text";
+
+/**
+ * Write a text cell's content through its wrapper, creating the wrapper only when it is missing.
+ *
+ * `cleared` is what `setMode` returned: `true` means it just emptied the element, so the wrapper
+ * is gone. Otherwise the element is still in text mode and the wrapper — and the text node inside
+ * it — are the ones from last time, so this stays the single `nodeValue` compare-and-write it has
+ * always been, one level deeper. A pooled element pays one `createElement` per *content-shape
+ * change*, not per repaint.
+ */
+function setCellText(el: HTMLElement, text: string, cleared: boolean): void {
+    let inner = cleared ? null : (el.firstElementChild as HTMLElement | null);
+    if (!inner || inner.className !== TEXT_CLASS) {
+        el.textContent = "";
+        inner = document.createElement("span");
+        inner.className = TEXT_CLASS;
+        el.appendChild(inner);
+    }
+    setText(inner, text);
+}
+
 /** Reset an element's children when the content shape changes under it. */
 function setMode(el: HTMLElement, next: ContentMode): boolean {
     const current = mode.get(el);
@@ -209,8 +249,10 @@ export function renderDataCell<R>(
     if (column.render && context) {
         const rendered = column.render(context);
         if (rendered === null || rendered === undefined) {
-            setMode(el, "text");
-            setText(el, "");
+            // Through the wrapper like every other text write, so that "the element is in `text`
+            // mode" always means "the element holds a wrapper" — one fewer state for the next
+            // reader, and for the branch below, to have to know about.
+            setCellText(el, "", setMode(el, "text"));
         } else if (typeof rendered === "string") {
             // `setMode` returning true means it cleared the element, so the record of what was
             // written no longer describes it.
@@ -254,8 +296,7 @@ export function renderDataCell<R>(
         const words = model.data.searchWords;
         const markup = words.length ? highlightMarkup(text, words) : null;
         if (markup === null) {
-            setMode(el, "text");
-            setText(el, text);
+            setCellText(el, text, setMode(el, "text"));
         } else {
             // See `written` for why this compares against the last assignment rather than
             // against `innerHTML`.
