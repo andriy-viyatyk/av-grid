@@ -1012,6 +1012,21 @@ export class AVGrid<R = any> {
         this.model.update({ all: true });
     }
 
+    /**
+     * Re-check the scroll position after moving the grid in the DOM, and repair it if the
+     * browser discarded it.
+     *
+     * Detaching a subtree resets every scroller inside it, and re-attaching does not bring the
+     * position back — nor is a scroll event fired, so nothing notices and the grid sits blank
+     * at an offset it no longer has. The grid watches for this by itself; this is the manual
+     * form, for a host that turned that off or that moves the grid in a way no observer can
+     * attribute to it. Safe to call at any time, including mid-scroll.
+     */
+    revalidate(): void {
+        if (!this.alive("grid.revalidate()")) return;
+        this.render.revalidate();
+    }
+
     scrollToRow(row: number, align: RowAlign = "nearest"): Promise<void> {
         if (!this.alive("grid.scrollToRow()")) return Promise.resolve();
         // Callers count data rows; the engine counts grid rows, where 0 is the header.
@@ -1019,6 +1034,30 @@ export class AVGrid<R = any> {
             this.model.dataRowToGridRow(row),
             align,
         );
+    }
+
+    /**
+     * Scroll a row into view **after the next paint** — the entry point to use when the row set
+     * has just changed.
+     *
+     * `scrollTop` is clamped to the scrollable extent, and the extent is written by the paint,
+     * so scrolling in the same turn as a filter, a sort or a data replacement clamps against
+     * the *old* content height and quietly lands somewhere else. Neither `setTimeout(0)` nor a
+     * single `requestAnimationFrame` avoids it; both run before the frame that applies the new
+     * geometry.
+     *
+     * ```js
+     * grid.data.setRows(filtered);
+     * grid.scrollToRowAfterPaint(matchIndex, "center");
+     * ```
+     *
+     * One request is held at a time and the newest replaces it, so calling this repeatedly
+     * while rows churn scrolls once, to the row asked for last.
+     */
+    scrollToRowAfterPaint(row: number, align: RowAlign = "nearest"): void {
+        if (!this.alive("grid.scrollToRowAfterPaint()")) return;
+        // Callers count data rows; the engine counts grid rows, where 0 is the header.
+        this.render.model.scrollToRowAfterPaint(this.model.dataRowToGridRow(row), align);
     }
 
     scrollToCell(row: number, col: number): Promise<void> {

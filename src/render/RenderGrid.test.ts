@@ -436,3 +436,440 @@ describe("destroy", () => {
         expect(cellsIn(b.grid.area).length).toBe(11 * 6);
     });
 });
+
+// ---------------------------------------------------------------------------
+
+describe("keyed pooling", () => {
+    /**
+     * A list whose rows are not all alike — the case a data grid never hits and a log view or
+     * a notebook hits on every frame. `kind` is the consumer's own notion of "same shape"; the
+     * engine only carries it.
+     */
+    function createHeterogeneousGrid() {
+        const kinds = ["text", "table", "image"];
+        const kindOf = new WeakMap<HTMLElement, string>();
+        const builds: string[] = [];
+        /** Every time a pooled element was reused for a kind it was not built for. */
+        const wrongKind: string[] = [];
+
+        const renderCell = (p: RenderCellParams): RenderedCell => {
+            const kind = kinds[p.row % kinds.length];
+
+            // `previous` stays the preferred path — but only when it is the right shape.
+            const previous =
+                p.previous && kindOf.get(p.previous) === kind ? p.previous : undefined;
+            const cell = previous ?? p.recycle?.(kind) ?? document.createElement("div");
+            p.setReuseKey?.(cell, kind);
+
+            // The renderer rebuilds the inner structure only when the element it got is not
+            // already the right shape. That is the whole point of the key: a correctly keyed
+            // recycle skips this.
+            const was = kindOf.get(cell);
+            if (was !== kind) {
+                if (was !== undefined) wrongKind.push(`${was}->${kind}`);
+                builds.push(kind);
+                cell.replaceChildren(document.createTextNode(kind));
+                kindOf.set(cell, kind);
+            }
+
+            cell.setAttribute("data-type", "cell");
+            cell.setAttribute("data-row", String(p.row));
+            cell.setAttribute("data-col", String(p.col));
+            cell.setAttribute("data-kind", kind);
+            cell.style.setProperty("position", "absolute");
+            cell.style.setProperty("left", `${p.style.left}px`);
+            cell.style.setProperty("top", `${p.style.top}px`);
+            return cell;
+        };
+
+        return { ...createGrid({ renderCell }), builds, wrongKind, kindOf };
+    }
+
+    it("passes setReuseKey to every renderCell call", () => {
+        const seen: Array<boolean> = [];
+        track(
+            createGrid({
+                renderCell: (p: RenderCellParams): RenderedCell => {
+                    seen.push(typeof p.setReuseKey === "function");
+                    const el = p.previous ?? p.recycle?.() ?? document.createElement("div");
+                    el.setAttribute("data-type", "cell");
+                    el.style.setProperty("position", "absolute");
+                    return el;
+                },
+            }),
+        );
+
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen.every(Boolean)).toBe(true);
+    });
+
+    it("never recycles a cell of one kind into a row of another", async () => {
+        const h = track(createHeterogeneousGrid()) as ReturnType<
+            typeof createHeterogeneousGrid
+        >;
+
+        for (let i = 1; i <= 40; i++) {
+            h.grid.container.scrollTop = i * 40;
+            h.grid.container.dispatchEvent(new Event("scroll"));
+            await nextFrame();
+        }
+
+        expect(h.wrongKind).toEqual([]);
+        expect(h.grid.stats.pool.hits).toBeGreaterThan(0);
+
+        // Every painted cell shows the content its row asked for.
+        for (const el of cellsIn(h.grid.area) as HTMLElement[]) {
+            expect(el.textContent).toBe(el.getAttribute("data-kind"));
+        }
+    });
+
+    it("still reuses across frames — a keyed pool is not a disabled pool", async () => {
+        const h = track(createHeterogeneousGrid()) as ReturnType<
+            typeof createHeterogeneousGrid
+        >;
+        const warm = h.builds.length;
+        const warmMisses = h.grid.stats.pool.misses;
+
+        for (let i = 1; i <= 30; i++) {
+            h.grid.container.scrollTop = i * 20;
+            h.grid.container.dispatchEvent(new Event("scroll"));
+            await nextFrame();
+        }
+
+        // Every element the pool hands back is already the right shape, so the only rebuilds
+        // left are the ones the pool could not serve at all. Builds after warm-up equal
+        // misses after warm-up, exactly: not one reuse cost a rebuild.
+        expect(h.grid.stats.pool.hits).toBeGreaterThan(100);
+        expect(h.builds.length - warm).toBe(h.grid.stats.pool.misses - warmMisses);
+        expect(h.wrongKind).toEqual([]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Task 35 — the two faces of scroll loss
+// ---------------------------------------------------------------------------
+
+describe("keepCellsAttached", () => {
+    it("hides evicted cells instead of detaching them, and restores them on admission", async () => {
+        const { grid } = track(createGrid({ keepCellsAttached: true }));
+        const first = grid.area.querySelector('[data-row="0"]') as HTMLElement;
+        expect(first).toBeTruthy();
+
+        grid.container.scrollTop = 2000;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // Still in the document — that is the whole point. A detached cell loses its iframe's
+        // document and every nested scroll position inside it.
+        expect(first.isConnected).toBe(true);
+        expect(first.parentElement).toBe(grid.area);
+        expect(first.style.display).toBe("none");
+
+        grid.container.scrollTop = 0;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // Whatever was re-admitted is visible again: nothing may come back still hidden. The
+        // cells still parked in the area are the pooled ones, which are meant to stay hidden
+        // and are marked as such — and, crucially, no longer answer to a coordinate.
+        const live = grid.area.querySelectorAll(
+            ':scope > [data-type="cell"]:not([data-avg-pooled])',
+        );
+        expect(live.length).toBeGreaterThan(0);
+        for (const el of live) {
+            expect((el as HTMLElement).style.display).not.toBe("none");
+        }
+        for (const el of grid.area.querySelectorAll(":scope > [data-avg-pooled]")) {
+            expect(el.hasAttribute("data-row")).toBe(false);
+        }
+        // Exactly one element claims the cell at 0,0 — a hidden cell must not shadow it.
+        expect(
+            grid.area.querySelectorAll('[data-row="0"][data-col="0"]').length,
+        ).toBe(1);
+    });
+
+    it("detaches on pool overflow — the one eviction path that still removes a cell", async () => {
+        const { grid } = track(createGrid({ keepCellsAttached: true }));
+        // A pool that will not take anything forces every eviction down the overflow path.
+        (grid.pool as unknown as { maxSize: number }).maxSize = 0;
+
+        const first = grid.area.querySelector('[data-row="0"]') as HTMLElement;
+        grid.container.scrollTop = 2000;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // Bounded means bounded: a cell the pool refuses has nothing left to preserve it for,
+        // and leaving it hidden in the document forever is the leak the bound exists to stop.
+        expect(first.isConnected).toBe(false);
+        expect(grid.stats.pool.discarded).toBeGreaterThan(0);
+    });
+
+    it("does not re-append a cell that is already in its region", async () => {
+        const { grid } = track(createGrid({ keepCellsAttached: true }));
+        grid.container.scrollTop = 200;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        const readmitted = grid.area.querySelector("[data-row]") as HTMLElement;
+        const spy = vi.spyOn(grid.area, "append");
+        grid.container.scrollTop = 220;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // `append` on an existing child is a *move* — remove plus insert — and a move resets
+        // every scroller nested in the subtree. Anything already in place must be left alone.
+        for (const call of spy.mock.calls) {
+            for (const node of call) expect(node).not.toBe(readmitted);
+        }
+        spy.mockRestore();
+    });
+
+    it("leaves the default path detaching, exactly as before", async () => {
+        const { grid } = track(createGrid());
+        const first = grid.area.querySelector('[data-row="0"]') as HTMLElement;
+
+        grid.container.scrollTop = 2000;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        expect(first.isConnected).toBe(false);
+        expect(first.style.display).toBe("");
+    });
+});
+
+describe("scroll recovery", () => {
+    it("exposes revalidate(), and it is safe after destroy", () => {
+        const { grid } = track(createGrid());
+        expect(() => grid.revalidate()).not.toThrow();
+        grid.destroy();
+        expect(() => grid.revalidate()).not.toThrow();
+    });
+
+    it("watches the host by default and stops watching on destroy", () => {
+        const { grid } = track(createGrid());
+        const observer = (grid as unknown as { hostObserver?: MutationObserver }).hostObserver;
+        expect(observer).toBeDefined();
+        const spy = vi.spyOn(observer as MutationObserver, "disconnect");
+        grid.destroy();
+        expect(spy).toHaveBeenCalled();
+    });
+
+    it("does not watch the host when asked not to", () => {
+        const { grid } = track(createGrid({ watchHost: false }));
+        expect(
+            (grid as unknown as { hostObserver?: MutationObserver }).hostObserver,
+        ).toBeUndefined();
+    });
+});
+
+describe("setOptions applies shell layout", () => {
+    it("reapplies height and growToHeight, which were read once and never again", () => {
+        const { grid } = track(createGrid({ height: "100%" }));
+
+        expect(grid.root.style.height).toBe("100%");
+        expect(grid.root.style.maxHeight).toBe("unset");
+
+        grid.setOptions({ height: undefined, growToHeight: "150px" });
+
+        // Before this, all three stayed exactly as constructed: measured in the browser, a
+        // grid asked to cap itself at 150px sat at its original 400.
+        expect(grid.root.style.height).toBe("unset");
+        expect(grid.root.style.maxHeight).toBe("150px");
+        expect(grid.container.style.maxHeight).toBe("150px");
+
+        grid.setOptions({ growToHeight: "260px" });
+        expect(grid.root.style.maxHeight).toBe("260px");
+        expect(grid.container.style.maxHeight).toBe("260px");
+    });
+
+    it("reapplies growToWidth and the overflow that follows fitToWidth", () => {
+        const { grid } = track(createGrid());
+
+        expect(grid.container.style.maxWidth).toBe("unset");
+        expect(grid.container.style.overflowX).toBe("auto");
+
+        grid.setOptions({ growToWidth: "320px", fitToWidth: true });
+
+        expect(grid.container.style.maxWidth).toBe("320px");
+        expect(grid.container.style.overflowX).toBe("hidden");
+    });
+
+    it("goes back to filling when the layout fields are cleared", () => {
+        const { grid } = track(
+            createGrid({ height: undefined, growToHeight: "150px", growToWidth: "320px" }),
+        );
+        expect(grid.root.style.maxHeight).toBe("150px");
+
+        grid.setOptions({ height: "100%", growToHeight: undefined, growToWidth: undefined });
+
+        expect(grid.root.style.height).toBe("100%");
+        expect(grid.root.style.maxHeight).toBe("unset");
+        expect(grid.container.style.maxHeight).toBe("unset");
+        expect(grid.container.style.maxWidth).toBe("unset");
+    });
+
+    it("repaints so the geometry follows the new box, not just the styles", async () => {
+        const { grid } = track(createGrid({ height: "100%" }));
+        await nextFrame();
+        const before = grid.stats.paints;
+
+        grid.setOptions({ growToHeight: "260px" });
+        await nextFrame();
+
+        // `applyLayout` reads growTo* for the container's own sizing and only runs on a paint
+        // whose geometry changed, so the change has to force one.
+        expect(grid.stats.paints).toBeGreaterThan(before);
+        expect(grid.container.style.height).toBe("unset");
+    });
+
+    it("moves no cells when only the layout changed", async () => {
+        const { grid } = track(createGrid({ height: "100%" }));
+        await nextFrame();
+        grid.resetStats();
+
+        grid.setOptions({ growToHeight: "260px" });
+        await nextFrame();
+
+        // The forced paint is a layout pass, not a repaint: the region sync is set arithmetic
+        // over the same elements, so it appends nothing and removes nothing.
+        expect(grid.stats.cellsAppended).toBe(0);
+        expect(grid.stats.cellsRemoved).toBe(0);
+    });
+
+    it("a setOptions that touches no layout field leaves the shell alone", async () => {
+        const { grid } = track(createGrid({ height: "100%" }));
+        await nextFrame();
+        const before = grid.stats.paints;
+
+        grid.setOptions({ className: "custom" });
+        await nextFrame();
+
+        expect(grid.root.className).toBe("custom");
+        expect(grid.root.style.height).toBe("100%");
+        expect(grid.stats.paints).toBe(before);
+    });
+});
+
+describe("after-paint scrolling reaches the shell", () => {
+    it("a queued scroll is drained by the paint", async () => {
+        const { grid } = track(createGrid({ height: "100%" }));
+        await nextFrame();
+
+        grid.model.scrollToRowAfterPaint(50, "top");
+        expect(grid.container.scrollTop).toBe(0);
+
+        await nextFrame();
+        await nextFrame();
+
+        expect(grid.container.scrollTop).toBe(1000);
+    });
+
+    it("a queued scroll is drained even by a paint with nothing to draw", async () => {
+        const { grid } = track(createGrid({ height: "100%" }));
+        await nextFrame();
+        await nextFrame();
+        const settled = grid.stats.paints;
+
+        // Nothing about the geometry changes, so the model hands back the identical render
+        // info and the paint takes its early return — the branch a late-laid-out grid reaches.
+        grid.model.scrollToRowAfterPaint(30, "top");
+        await nextFrame();
+        await nextFrame();
+
+        expect(grid.stats.paints).toBe(settled);
+        expect(grid.container.scrollTop).toBe(600);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Task 34 — the cell lifecycle seam
+// ---------------------------------------------------------------------------
+
+describe("onCellAttached / onCellReleased", () => {
+    it("reports every admission and every eviction, and attaches before releasing nothing", async () => {
+        const attached: HTMLElement[] = [];
+        const released: HTMLElement[] = [];
+        const { grid } = track(
+            createGrid({
+                onCellAttached: (el) => attached.push(el),
+                onCellReleased: (el) => released.push(el),
+            }),
+        );
+
+        // The constructor paints synchronously, so the first window is already reported.
+        expect(attached.length).toBe(cellsIn(grid.area).length);
+        expect(released.length).toBe(0);
+        for (const el of attached) expect(el.isConnected).toBe(true);
+
+        grid.container.scrollTop = 2000;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        expect(released.length).toBeGreaterThan(0);
+        expect(attached.length).toBeGreaterThan(cellsIn(grid.area).length);
+    });
+
+    it("fires attach again when a retained hidden cell is re-admitted", async () => {
+        const attached: HTMLElement[] = [];
+        const released: HTMLElement[] = [];
+        const { grid } = track(
+            createGrid({
+                keepCellsAttached: true,
+                onCellAttached: (el) => attached.push(el),
+                onCellReleased: (el) => released.push(el),
+            }),
+        );
+
+        const first = grid.area.querySelector('[data-row="0"]') as HTMLElement;
+        grid.container.scrollTop = 2000;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // Released while staying in the document: "left the active set", not "detached".
+        expect(released).toContain(first);
+        expect(first.isConnected).toBe(true);
+        expect(first.style.display).toBe("none");
+
+        attached.length = 0;
+        grid.container.scrollTop = 0;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // The whole reason the callback is not tied to `parentElement`: this element never
+        // left the DOM, measured zero the whole time it was hidden, and must be looked at again.
+        const back = grid.area.querySelector(
+            '[data-row="0"][data-col="0"]',
+        ) as HTMLElement;
+        expect(attached).toContain(back);
+        for (const el of attached) expect(el.style.display).not.toBe("none");
+    });
+
+    it("releases a cell the pool then refuses, before it is detached", async () => {
+        const releasedWhileConnected: boolean[] = [];
+        const { grid } = track(
+            createGrid({
+                keepCellsAttached: true,
+                onCellReleased: (el) => releasedWhileConnected.push(el.isConnected),
+            }),
+        );
+        (grid.pool as unknown as { maxSize: number }).maxSize = 0;
+
+        grid.container.scrollTop = 2000;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // The contract must not depend on the pool's overflow limit: every release is reported
+        // while the element is still where it was.
+        expect(releasedWhileConnected.length).toBeGreaterThan(0);
+        expect(releasedWhileConnected.every(Boolean)).toBe(true);
+    });
+
+    it("costs nothing when neither callback is given", async () => {
+        const { grid, calls } = track(createGrid());
+        const before = calls.length;
+        grid.container.scrollTop = 100;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+        expect(calls.length).toBeGreaterThan(before);
+    });
+});

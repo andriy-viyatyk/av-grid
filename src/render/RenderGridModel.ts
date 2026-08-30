@@ -40,6 +40,7 @@ import type {
     RenderPoint,
     RenderSizeOptional,
     RecycleFunc,
+    SetReuseKeyFunc,
     RerenderInfo,
     RowAlign,
 } from "./types";
@@ -79,6 +80,12 @@ export interface RenderGridOptions {
     renderCell: RenderCellFunc;
     /** Supplied by the DOM shell so `renderCell` can reuse a scrolled-out element. */
     recycle?: RecycleFunc;
+    /**
+     * Supplied by the DOM shell alongside `recycle`, for a `renderCell` whose rows differ in
+     * structure. Like `recycle`, it is forwarded verbatim and deliberately absent from
+     * `inputChanged()`: the shell binds it once, so its identity never moves.
+     */
+    setReuseKey?: SetReuseKeyFunc;
     stickyTop?: number;
     stickyLeft?: number;
     stickyRight?: number;
@@ -121,8 +128,36 @@ export class RenderGridModel extends Model<RenderGridState> {
     private updateScheduled = false;
     private resizeObserver?: ResizeObserver;
     private _disposed = false;
-    /** The container was hidden, so its scroll position is gone and ours is the real one. */
+    /**
+     * The container's scroll position is gone and ours is the real one.
+     *
+     * Armed when the grid stops being rendered — which in practice means its subtree was
+     * **detached**. See `onFrameResize` for why that, and not `display: none`, is the case
+     * this exists for, and `restoreScroll` for why it has to survive until a container that
+     * can actually accept the write turns up.
+     */
     private scrollLost = false;
+
+    /**
+     * How many scroll events the container has delivered.
+     *
+     * Not a statistic. It is the one thing that separates a position the browser *moved* from
+     * one it silently *discarded*: every scroll, user or programmatic, is followed by an
+     * event, and a detachment reset is followed by none. `revalidateScroll` reads it as a
+     * veto — see there.
+     */
+    private scrollEventCount = 0;
+
+    /**
+     * The one scroll request waiting for a paint. See `scrollToRowAfterPaint`.
+     *
+     * **One slot, last-wins.** It is overwritten rather than appended to, so a burst of
+     * requests issued while the extent is unknown collapses to the newest and a stale row is
+     * discarded by construction — which is what a caller means: the last row it asked for is
+     * the one it wants to see. `scrollToRow`'s unmeasured fallback shares this slot rather
+     * than keeping a second one, so the two can never disagree about which row is wanted.
+     */
+    private pendingScrollRow?: { row: number; align: RowAlign };
 
     constructor(options: RenderGridOptions) {
         super({ ...defaultRenderGridState });
@@ -189,6 +224,20 @@ export class RenderGridModel extends Model<RenderGridState> {
         return c ? c.offsetHeight - c.clientHeight : 0;
     }
 
+    /**
+     * Does the grid have a real layout box yet — i.e. is a `scrollTop` write meaningful?
+     *
+     * Both halves matter. A root with no measured size means the geometry was computed from a
+     * zero viewport, so `calcScrollOffsetY` has nothing to align against; a container with no
+     * layout box has no scroll box either, so a write to it is clamped to zero and discarded.
+     * A grid built inside a popover that lays out later is both, for its first few frames.
+     */
+    get measured(): boolean {
+        if (!this.size.width || !this.size.height) return false;
+        const container = this.containerRef.current;
+        return !!container && !!(container.offsetHeight || container.offsetWidth);
+    }
+
     get visibleRowCount(): number {
         const visible = this.renderInfo.current.visible;
         return visible ? visible.bottom - visible.top + 1 : 0;
@@ -222,6 +271,9 @@ export class RenderGridModel extends Model<RenderGridState> {
         this._disposed = true;
         this.resizeObserver?.disconnect();
         this.resizeObserver = undefined;
+        // A grid that is never measured and then disposed never runs its queued scroll. That
+        // is correct; the slot is cleared so a retained model reference cannot resurrect it.
+        this.pendingScrollRow = undefined;
         super.dispose();
     }
 
@@ -244,10 +296,24 @@ export class RenderGridModel extends Model<RenderGridState> {
             height: grid != null ? grid.offsetHeight : undefined,
         };
 
-        // A grid measuring nothing has been hidden — `display: none` zeroes the container's
-        // scrollTop while the model keeps the real offset, so the position has to be put back
-        // when it reappears. This flag is the *only* thing that licenses that write: see
-        // `restoreScroll`.
+        // A grid measuring nothing is not being rendered: it was hidden, or — the case that
+        // matters — its subtree was detached.
+        //
+        // The comment that used to be here said `display: none` zeroes the container's
+        // scrollTop. **That was measured false**, twice: a hidden element merely *reports* 0
+        // because it has no scroll box, and Chromium hands the real value straight back on
+        // show. Verified here across a synchronous hide and a 900 ms one — 20000 before,
+        // 20000 immediately after, no frame needed. So hiding never needed this flag.
+        //
+        // **Detachment does.** Chromium resets every scroller inside a removed subtree, keeps
+        // it reset when the subtree is put back, and fires **no scroll event** either way — so
+        // nothing downstream can notice, and the grid paints rows at an offset the container
+        // no longer has until the user scrolls. Measured: 20000 → 0, no event, the whole
+        // viewport unpainted.
+        //
+        // Both look identical from here — 0x0 with a non-zero offset — so both arm the flag,
+        // and the hide case simply rewrites the value the browser already restored. This flag
+        // is the *only* thing that licenses that write: see `restoreScroll`.
         if (!newSize.width && !newSize.height && (this.offset.x || this.offset.y)) {
             this.scrollLost = true;
         }
@@ -348,12 +414,13 @@ export class RenderGridModel extends Model<RenderGridState> {
             return undefined;
         }
 
-        const { all = false, cells = [], rows = [], columns = [] } = one || {};
+        const { all = false, cells = [], rows = [], columns = [], fromRow } = one || {};
         const {
             all: oldAll = false,
             cells: oldCells = [],
             rows: oldRows = [],
             columns: oldColumns = [],
+            fromRow: oldFromRow,
         } = two || {};
 
         return {
@@ -361,6 +428,15 @@ export class RenderGridModel extends Model<RenderGridState> {
             cells: [...cells, ...oldCells],
             rows: [...rows, ...oldRows],
             columns: [...columns, ...oldColumns],
+            // The *lower* of the two wins, because `fromRow` names the first row that moved:
+            // if row 40 shifted and then row 12 did, everything from 12 down is invalid. Taking
+            // the newer or the larger would leave the rows between them drawn at stale offsets.
+            fromRow:
+                fromRow === undefined
+                    ? oldFromRow
+                    : oldFromRow === undefined
+                      ? fromRow
+                      : Math.min(fromRow, oldFromRow),
         };
     };
 
@@ -432,6 +508,7 @@ export class RenderGridModel extends Model<RenderGridState> {
                 columnWidth,
                 renderCell,
                 recycle: this.options.recycle,
+                setReuseKey: this.options.setReuseKey,
                 stickyTop: stickyTop ?? 0,
                 stickyLeft: stickyLeft ?? 0,
                 stickyRight: stickyRight ?? 0,
@@ -514,8 +591,10 @@ export class RenderGridModel extends Model<RenderGridState> {
         if (!container) return;
         if (e && e.target !== container) return;
 
-        // Ignore scroll events fired while hidden — `display: none` resets scrollTop to 0,
-        // and acting on that would lose the user's position.
+        // Ignore scroll events fired while hidden — a container with no scroll box reports 0,
+        // and acting on that would lose the user's position. Counted before the bail-out all
+        // the same: `revalidateScroll` needs to know an event arrived, not what it said.
+        this.scrollEventCount++;
         if (!container.offsetHeight && !container.offsetWidth) return;
 
         const { scrollLeft: x, scrollTop: y } = container;
@@ -549,11 +628,83 @@ export class RenderGridModel extends Model<RenderGridState> {
      * shows a blank band the rest of it. `scrollLost` exists so this can tell the two apart.
      */
     restoreScroll = (): void => {
-        this.scrollLost = false;
         const container = this.containerRef.current;
-        if (container && (this.offset.x !== 0 || this.offset.y !== 0)) {
+        if (!container) return;
+
+        // **The flag is cleared only by a write that can actually land**, and that is the whole
+        // repair. Before this guard the sequence went: the host detaches the subtree → the
+        // ResizeObserver reports 0x0 → the flag arms → the size change forces a recompute and
+        // a paint → the paint calls this → the offset is written to a *detached* container,
+        // where it does nothing, and the flag is cleared. By the time the subtree came back
+        // there was nothing left to say the position had been lost, so the grid painted rows
+        // at an offset the container did not have and sat blank.
+        //
+        // Measured, and worth stating because the epic guessed otherwise: the flag was never
+        // failing to arm. It armed, and was then spent one frame too early.
+        if (!container.offsetHeight && !container.offsetWidth) return;
+
+        this.scrollLost = false;
+        if (this.offset.x !== 0 || this.offset.y !== 0) {
             container.scrollLeft = this.offset.x;
             container.scrollTop = this.offset.y;
+        }
+    };
+
+    /**
+     * Ask whether the container's scroll position is still the one the model believes in, and
+     * put it back if it is not.
+     *
+     * This exists for the case the size-based detector above cannot see. A host that removes
+     * the grid's subtree and re-inserts it **within one task** — which is exactly what a
+     * framework does when it moves a node during a commit — still gets its scroller reset by
+     * Chromium, but no `ResizeObserver` ever observes a 0x0: observers sample at the end of a
+     * frame, and by then the subtree is back at full size. Measured: `scrollTop` 20000 → 0,
+     * `resizeObserverSaw0x0: false`.
+     *
+     * **The naive form of this is wrong**, and `restoreScroll` says why: a scroll event is
+     * delivered a frame after the scroll it reports, so "the container disagrees with the
+     * model" is the normal state of affairs during a user scroll, and writing the model back
+     * there undoes the scroll — the list that scrolls half the time.
+     *
+     * What separates the two is not the disagreement, it is what follows it. A scroll the
+     * browser performed is *always* followed by a scroll event; a position the browser
+     * discarded is followed by none. So a disagreement is not acted on immediately: it is
+     * carried across two frames, and any scroll event arriving in that window vetoes it. Two
+     * rather than one because the documented lag is "a frame, sometimes after that frame's
+     * rAF callbacks".
+     */
+    revalidateScroll = (): void => {
+        if (this._disposed) return;
+        const container = this.containerRef.current;
+        if (!container) return;
+
+        if (container.scrollLeft === this.offset.x && container.scrollTop === this.offset.y) {
+            return;
+        }
+
+        const seen = this.scrollEventCount;
+        const settle = (): void => {
+            if (this._disposed) return;
+            // The user scrolled after all. Their position is the newer one; leave it alone.
+            if (this.scrollEventCount !== seen) return;
+            // **A queued scroll outranks this.** Both want to write `scrollTop`, and they mean
+            // different things: this is repairing a position the browser discarded, while the
+            // register holds a position the *host explicitly asked for* — and asked for later.
+            // Restoring first would write the stale offset, fire a scroll event of its own, and
+            // then be overwritten by the flush a frame later: a visible jump to the old place
+            // and back, and, because that event is what vetoes a reconciliation, a race with
+            // whatever runs next. So the newer request wins outright, and it repairs the same
+            // damage on its way past — `flushPendingScroll` clears `scrollLost` because a
+            // landed scroll leaves nothing to restore.
+            if (this.pendingScrollRow) return;
+            this.scrollLost = true;
+            this.restoreScroll();
+        };
+
+        if (typeof requestAnimationFrame === "function") {
+            requestAnimationFrame(() => requestAnimationFrame(settle));
+        } else {
+            settle();
         }
     };
 
@@ -568,14 +719,102 @@ export class RenderGridModel extends Model<RenderGridState> {
         }
     }
 
+    /**
+     * Scroll `row` into view, or remember the request until the grid has a usable size.
+     *
+     * Awaiting the container and the render info is not enough on its own: `renderInfo.async`
+     * resolves on the *first* computation, which for a grid built inside a popover that lays
+     * out later is the one taken with a height of 0. `calcScrollOffsetY` then works from a zero
+     * viewport, the browser clamps the result, and nothing re-issues the scroll when the
+     * `ResizeObserver` finally delivers the real size — the target row ends up pinned near the
+     * top. Measured before this guard existed: a request for row 1,500 landed at 0.
+     *
+     * So an unmeasured request goes into the same one-slot register `scrollToRowAfterPaint`
+     * uses, and is drained by the same `flushPendingScroll()`.
+     */
     async scrollToRow(row: number, rowAlign: RowAlign = "nearest"): Promise<void> {
+        if (this._disposed) return;
+
         const container = await this.containerRef.async;
         const info = await this.renderInfo.async;
+        // Both awaits can resolve after teardown; writing scrollTop on a detached container is
+        // harmless but pointless.
+        if (this._disposed) return;
+
+        // Checked *after* the awaits, not before: a caller that scrolls before `attach()` is
+        // relying on the await to hold the request until the grid exists, and that has always
+        // worked. Only a grid that is attached and still unmeasurable needs the register.
+        if (!this.measured) {
+            this.pendingScrollRow = { row, align: rowAlign };
+            // The flush happens at the end of a paint, so make sure one is coming. `update()`
+            // usually has already scheduled it; this makes the call safe on its own.
+            this.requestRepaint();
+            return;
+        }
+        this.pendingScrollRow = undefined;
 
         const newOffset = calcScrollOffsetY(row, info, this.offset, rowAlign);
         if (container) {
             container.scrollTop = newOffset.y;
         }
+    }
+
+    /**
+     * Queue a scroll for the end of the next paint.
+     *
+     * Use this — not `scrollToRow` — when the caller has just changed the row set. `scrollTop`
+     * is clamped to the scrollable extent, and the extent is the sizer's height, which the
+     * paint writes. Scrolling before that frame silently clamps to the **old** extent: the list
+     * then renders correctly and is simply scrolled to the wrong place, with nothing re-issuing
+     * the request.
+     *
+     * Measured here, on a grid grown from 20 rows to 3,000 in one turn and asked for row 2,000:
+     * the request should land at 48,000 and lands at **100**, the entire old extent. A
+     * `setTimeout(0)` does not help — it lands after the microtask that recomputes `renderInfo`
+     * but before the animation frame that applies it — and neither does a single
+     * `requestAnimationFrame`, which is registered before the paint's own frame. Both measured
+     * at 100 alongside the direct call.
+     *
+     * Shares the one-slot, last-wins register with `scrollToRow`'s unmeasured fallback, and is
+     * drained by the same `flushPendingScroll()`.
+     */
+    scrollToRowAfterPaint(row: number, rowAlign: RowAlign = "nearest"): void {
+        if (this._disposed) return;
+        this.pendingScrollRow = { row, align: rowAlign };
+        // The reference required the caller to have scheduled a paint. Requesting one here
+        // instead makes the call correct on its own, which is what an API meant to be used
+        // without reading docs has to be — and a repaint that finds nothing changed is the
+        // early-return branch of `paint()`, which flushes too.
+        this.requestRepaint();
+    }
+
+    /**
+     * Run the queued scroll, if there is one and the grid can now accept it.
+     *
+     * Called by the shell at the end of a paint, and deliberately **not** from `onFrameResize`.
+     * The resize callback knows the grid *root* has a size, which is not the same as the scroll
+     * container having a layout box: the write does stick, but the scroll event it fires is
+     * delivered while the container still measures 0x0, so `onScroll`'s hidden-guard discards
+     * it and the model's offset stays behind the DOM — a container scrolled to row 4,000 with
+     * row 0 still painted at the top. By the end of a paint the container is live (the paint has
+     * already read its scrollbar thickness), so the event lands on the normal path.
+     *
+     * Consumed exactly once: flushing on every paint would drag the user back to the queued row
+     * every time they scrolled away from it.
+     */
+    flushPendingScroll(): void {
+        if (this._disposed || !this.pendingScrollRow || !this.measured) return;
+
+        const pending = this.pendingScrollRow;
+        this.pendingScrollRow = undefined;
+
+        // A queued scroll that lands *is* a restore: it writes a fresh, deliberate offset to a
+        // container that can accept it, which is everything `restoreScroll` was going to do
+        // with a staler number. Leaving the flag armed would have the next paint overwrite this
+        // scroll with the old offset.
+        this.scrollLost = false;
+
+        void this.scrollToRow(pending.row, pending.align);
     }
 
     async scrollToCol(col: number): Promise<void> {

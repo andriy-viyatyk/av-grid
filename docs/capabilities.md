@@ -375,6 +375,206 @@ exactly when a post-mortem wants it.
 
 ---
 
+## The cell pool, and lists whose rows differ
+
+Evicted cells go to a bounded `CellPool` and come back on the next admission, which is what makes a
+scroll settle into allocating nothing: after the first frame warms it, a 100,000-row scroll creates
+**zero** elements. The pool deliberately does **not** reset what it hands back — reusing the inner
+structure is most of the saving — so a renderer overwrites everything it sets.
+
+That is right for a grid, where every cell is the same shape, and wrong for a **list whose rows are
+not**: a log of text, tables, images and errors would get a cell built for one kind handed to a row
+of another, and rebuilding it costs more than the allocation the pool avoided. So a renderer can
+stamp a cell with an opaque **reuse key** — `p.recycle?.(kind)` and `p.setReuseKey?.(cell, kind)`,
+one line each, [documented in `api.md`](api.md#reuse-keys--when-the-rows-are-not-all-alike). A keyed
+request is served only from cells released under the same key and **misses rather than returning
+something incompatible**.
+
+Keys are held one bucket per kind, so a keyed acquisition is a lookup and a `pop` — **flat in the
+size of the pool**. The obvious alternative, scanning the pool for a match, was measured and
+rejected: at a 2,000-element pool with half the requests asking for a kind the pool does not hold,
+the scan costs **2,177 ns against 24.8 ns**, and grows from there. A lookup that scales with the
+pool is the same mistake as a repaint that scales with the dataset.
+
+Measured end to end over a heterogeneous list: once warm, **every rebuild corresponds to a pool
+miss and not one reuse is of the wrong kind** — with no key, each mismatch would have been a
+rebuild. A pool that is never given a key is a single bucket and behaves exactly as it did before
+keys existed, hit and miss counts included.
+
+---
+
+## Holding on to scroll position, and to what a cell owns
+
+Two defects with one cause: something detaches a subtree, and Chromium discards the scroll state
+inside it without saying so. Both were measured before being fixed, and again after.
+
+**A host that moves the grid.** A framework re-rendering the slot the grid lives in detaches and
+re-appends its subtree. Chromium zeroes every scroller inside, keeps it zeroed on re-insertion, and
+fires **no scroll event**, so nothing downstream notices. Measured on a 100,000-row grid at
+`scrollTop: 20000`: it came back at `0` with the model still at `20000`, **the entire viewport
+unpainted**, and it stayed blank until someone scrolled.
+
+The grid now recovers by itself, through two detectors, because neither covers both cases. A detach
+that spans a frame shows up as the grid measuring nothing. A host that removes and re-inserts within
+a **single task** — what a framework does when it moves a node during a commit — resets the scroller
+just the same but produces no observable size change at all (`resizeObserverSaw0x0: false`), so the
+grid also watches its ancestors' child lists, which are nodes it never touches and which record
+nothing on a page that leaves the grid alone. `revalidate()` is the manual form. After: `20000`
+restored and **0 px unpainted** in both cases.
+
+**The discrimination is the hard part, and it is not a heuristic.** A scroll event is delivered a
+frame after the scroll it reports, so a container ahead of the model is the *normal* state during a
+user scroll — writing the model back there is the documented failure that produces a list which
+scrolls half the time. A scroll the browser performed is always followed by an event; a position it
+discarded is followed by none. So a disagreement is carried two frames and any scroll event vetoes
+it. Verified against the regression it would cause: scrolling to the top while an ancestor churns
+every frame lands at the top and stays, and 30 frames of continuous scrolling under the same churn
+land exactly where asked.
+
+**The engine doing it to its own cells.** Evicting a cell with `removeChild` destroys what the cell
+owned. Measured on a cell holding a nested scroller and an `<iframe>`, scrolled away and back: the
+scroller went `300` → **`0`** and the frame's document was **torn down and reloaded** (`load` fired
+a second time; `contentWindow` was `null` while evicted). `keepCellsAttached: true` hides evicted
+cells instead, leaving them in the document — both survive intact — and detaches only on pool
+overflow, which is what bounds the hidden nodes. On those cells it is also **2.8× cheaper**
+(0.59 ms a paint against 1.65 ms) with a quarter of the childList mutations, because the expensive
+part was rebuilding the frame.
+
+Both are additive and off the default path. `keepCellsAttached` defaults to `false`; a grid that
+does not ask for it evicts exactly as before, and the 100k gate is unmoved — a full repaint of every
+visible cell is still **0 childList mutations and 2 attribute writes per cell**, 60 fps at both ends,
+0 pool misses while scrolling.
+
+---
+
+## Scrolling to a row the geometry does not know about yet
+
+`scrollTop` is clamped to the scrollable extent, and the extent is written **inside a paint**. A
+caller that changes the row set and scrolls in the same turn is therefore scrolling against the old
+extent — the request clamps, the list then paints correctly at the wrong place, and nothing
+re-issues it. It is a silent failure: no error, no blank band, just a list at the wrong offset.
+
+Measured on a grid grown from 20 rows to 3,000 in one turn and asked for row 2,000, a request for
+`scrollTop: 48000`:
+
+| | lands at |
+|---|---|
+| `scrollToRow` | **100** — the whole of the old extent |
+| inside `setTimeout(0)` | **100** |
+| inside one `requestAnimationFrame` | **100** |
+| `scrollToRowAfterPaint` | **48000**, row 2,000 painted at the top |
+
+The two deferrals were measured rather than assumed, because the claim is the reason the second
+entry point has to exist: `setTimeout(0)` lands after the microtask that recomputes the geometry but
+before the frame that applies it, and a `requestAnimationFrame` taken out at that moment is
+registered ahead of the paint's own frame. Neither is late enough.
+
+So `RenderGridModel` holds a **one-slot, last-wins pending-scroll register**, drained by
+`flushPendingScroll()` at the end of every paint — including the paint that finds nothing to draw,
+which is exactly the one a grid laid out late produces. Overwritten rather than appended to, so a
+burst while the extent is unknown collapses to the newest request and a stale row is discarded by
+construction.
+
+`scrollToRow` shares the slot for its own unmeasured case: a list built inside a popover computes
+its first geometry at height 0, so a scroll issued then would be clamped to nothing and never
+retried. Measured, a request for row 1,500 while the host was `display: none` landed at **0**
+before and at **36000** after, once the popover opened.
+
+**Against the scroll reconciliation above, the queued scroll wins.** Both write `scrollTop`; the
+reconciliation repairs a position the browser discarded, the register holds one the host asked for,
+later. Within a paint the flush runs last; across frames the reconciliation stands down while the
+register is loaded. Restoring first would write the stale offset, fire a scroll event of its own,
+and be overwritten a frame later — a visible jump out and back, and a race with whatever ran next.
+Verified together: a host reparenting the grid in the same turn as an after-paint scroll lands on
+row 1,200 (28,800), not on the old 20,000.
+
+Off the hot path by construction: the flush tests the empty slot before it reads `measured`, which
+would force layout, so a paint with nothing queued does one boolean check. The gate is unmoved —
+flat-cost ratio **1.00–1.04×**, 60.0 / 60.0 fps, 0 pool misses, and a full repaint of every visible
+cell still **0 childList mutations / 2 attribute writes per cell / 0.2 ms**.
+
+## A shell whose layout can change
+
+`height`, `growToHeight`, `growToWidth` and `fitToWidth` are applied by `setOptions`, not only at
+construction. A host whose layout changes after the grid exists — an autocomplete popup that resizes
+as its filtered list grows, a panel the user drags — gets a shell that follows.
+
+Before, these four were read once and never again, and there was no supported way to change them: a
+host would have had to reach into the grid's own elements, which are private. Measured, a
+`setOptions({ growToHeight: "150px" })` left the root at its original 400px with `max-height: unset`
+and `overflow-x` unchanged. Now the same call caps the root at exactly 150px, then 260px, then back
+to filling its host at 400px, and `growToWidth` / `fitToWidth` reach the container's `max-width` and
+`overflow-x`.
+
+The change reaches the geometry, not only the styles: a grid capped at 100px showing 5 rows,
+re-capped to 360px, shows **16**. It reuses the constructor's own style pass rather than restating
+what the fields mean, so the two paths cannot drift, and every write skips a value that has not
+changed — a `setOptions` touching none of these four does nothing and forces no paint. The forced
+paint when they do change is a layout pass, not a repaint: the region sync is set arithmetic over
+the same elements, so **0 cells appended and 0 removed**.
+
+---
+
+## Row heights measured from the DOM
+
+`rowHeight` has always accepted a function, which covers every height that can be **computed**. It
+does not cover one that is only knowable after layout — wrapped text of unpredictable length, a
+chat bubble, a log entry with a stack trace in it. `MeasuredRowGrid` is an opt-in companion for
+that: a renderer nominates the element whose natural height *is* the row's height
+(`p.measure(body)`), and the layer keeps the geometry in step with it.
+
+It is composed **over** the engine, not built into it. `MeasuredRowGrid` owns a `RenderGrid`,
+supplies its `rowHeight` and wraps its `renderCell`; nothing in `render/` knows it exists. So a
+grid that never constructs one runs the code it ran before — the 100,000-row fixed-height gate is
+measuring the same path, and re-read after this change at **first paint 1.0–1.4 ms, flat-cost ratio
+0.95–1.22×, 60.0 / 60.0 fps and 0 pool misses**, unmoved.
+
+**What it costs, honestly.** On 5,000 rows of wrapped text of random length through a 400 px
+viewport, driven top to bottom, against the same rows and the same renderer at a fixed 48 px:
+**0.685 ms a paint against 0.119 ms, 5.8×** — both holding 60 fps. The measured run also takes 1,242
+pool misses against the fixed run's 11, because every committed height moves the geometry and the
+window it implies. That cost is paid **while heights are being discovered**, not continuously: a
+settled measured grid is completely idle (**0 paints and 0 pool activity over a second**), and a
+full repaint of every visible cell does **0 DOM insertions or removals**, exactly as the fixed path
+does.
+
+**How it behaves**, all of it measured on the board over 5,000 rows of random wrapped text:
+
+- **A hint gets the first paint close.** With `getInitialRowHeight`, the first geometry is built
+  entirely from the hints — extent **300,020 px**, matching the hint sum to the pixel — and settles
+  to the truth as rows are measured: row 1's offset **40 → 72**, measured heights spread across
+  40–104 px where the hint said 40–80.
+- **The extent is the sum of what was measured.** Every row of a 400-row list walked and measured:
+  sum of heights **26,640**, inner height and `scrollHeight` both **26,660** — the 20 px difference
+  is the documented trailing slack.
+- **Rows after a changed one land at their new offsets.** A row grown 88 → 296 px moved the seven
+  rendered rows below it by exactly 208 px each, left the row above it where it was, and
+  re-rendered none of their content. That is what `RerenderInfo.fromRow` buys, and it is why
+  `{ rows: [row] }` is not a substitute.
+- **A retained, hidden cell is remeasured when it comes back.** With `keepCellsAttached` the
+  element never leaves the document, and while hidden it measures **0** — which is ignored rather
+  than committed, so its height stays at 72. Re-admitted, *the same element*, it is measured again
+  and commits **280**, matching its laid-out height. A layer that tied its bookkeeping to
+  detachment would have left it at 72 or collapsed it to 0.
+
+Two additions to the engine make it possible, and both are additive — absent them, everything
+behaves exactly as before:
+
+- **`RerenderInfo.fromRow`** — geometry invalidation: every row from here down has moved, while
+  what each of them renders has not. Bounded by the rendered window like every other dirty-set
+  entry, so marking from row 12 of 100,000 costs a viewport.
+- **`onCellAttached` / `onCellReleased`** on `RenderGrid` — a cell lifecycle seam stated in terms
+  of the **active render set**, not the DOM. "Released" means "left the active set and entered the
+  pool"; the element may still be attached and hidden, and pool overflow detaches it *after* the
+  callback. Attach fires again on re-admission even when `parentElement` never changed.
+
+**Updating options does not repaint.** The policy is mutated rather than rebuilt, so the
+`rowHeight` and `renderCell` functions handed to `RenderGridModel` keep their identity — the model
+compares them by identity in its input gate, and replacing them would turn every option change into
+a full geometry invalidation.
+
+---
+
 ## The two primitives
 
 Neither was ported from UIKit; both were built fresh for the filter UI.

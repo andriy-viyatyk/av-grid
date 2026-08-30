@@ -151,6 +151,24 @@ export {
 } from "./render/renderInfo";
 export { prepareRerender } from "./render/rerender-check";
 
+// --- measured row heights (opt-in companion over the engine) ---------------
+
+export { MeasuredRowGrid } from "./measured/MeasuredRowGrid";
+export type {
+    MeasuredRowGridOptions,
+    MeasuredRowCellFunc,
+    MeasuredRowCellParams,
+} from "./measured/MeasuredRowGrid";
+export {
+    MeasuredRowHeights,
+    MEASURED_ROW_DEBOUNCE_MS,
+    DEFAULT_MIN_ROW_HEIGHT,
+} from "./measured/MeasuredRowHeights";
+export type {
+    MeasuredRowHeightOptions,
+    MeasuredRowGeometry,
+} from "./measured/MeasuredRowHeights";
+
 // --- primitives -----------------------------------------------------------
 
 export { Observable, Model } from "./core/observable";

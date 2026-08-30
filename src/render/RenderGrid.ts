@@ -47,6 +47,69 @@ export interface RenderGridShellOptions extends RenderGridOptions {
     /** Cap the root's height and let it grow to its content below that, instead of filling. */
     growToHeight?: string;
     growToWidth?: string;
+    /**
+     * Watch the host for structural changes that would silently reset the scroll position, and
+     * put it back. **Default `true`.**
+     *
+     * Chromium resets every scroller inside a detached subtree, keeps it reset when the subtree
+     * is re-inserted, and fires no scroll event — so a host framework that re-renders the slot
+     * the grid lives in leaves it painting rows at an offset the container no longer has, and
+     * the viewport sits blank until someone scrolls. Nothing in the grid can notice on its own.
+     *
+     * So the grid watches the child lists of its own ancestors. They are nodes it never touches
+     * itself, so in a page that never moves the grid this observes nothing and costs nothing;
+     * when one of them changes, the grid checks its scroll position and repairs it.
+     *
+     * Turn it off if the host would rather call {@link RenderGrid.revalidate} itself.
+     */
+    watchHost?: boolean;
+    /**
+     * Keep evicted cells in the document, hidden, instead of detaching them. **Default
+     * `false`.**
+     *
+     * Ordinary scrolling removes a cell from the DOM the moment it leaves the render window,
+     * and that destroys whatever the cell owned: an iframe's document is torn down and reloaded
+     * on re-admission, a nested scroller's position is gone, a playing media element stops.
+     * Measured on a cell holding both — nested `scrollLeft` 300 → 0, and the frame's `load`
+     * event firing a second time.
+     *
+     * With this on, an evicted cell is hidden and left where it is, so the element survives
+     * intact and a renderer that hands the same element back to the same row gets its state
+     * back with it — a reuse key per row is the easy way (see `setReuseKey`). Cells are still
+     * detached when the pool overflows, which bounds how many hidden elements can accumulate.
+     *
+     * Off by default because it trades DOM nodes for state: a grid whose cells own nothing
+     * gains nothing and would rather keep the document small.
+     */
+    keepCellsAttached?: boolean;
+    /**
+     * A cell has **entered the active render set** and is attached to its region.
+     *
+     * Fires for every admission, including the re-admission of a cell that
+     * {@link RenderGridShellOptions.keepCellsAttached} left in the document — a retained cell
+     * is hidden while it waits, and an element with no box measures zero, so a re-admitted cell
+     * needs a fresh look even though its `parentElement` never changed. The callback runs after
+     * the element is attached and after any hiding has been undone, so it is the first moment a
+     * measurement is meaningful.
+     *
+     * Its counterpart is `onCellReleased`. The pair is a lifecycle seam for a layer built *over*
+     * the engine — the measured-row companion is what it exists for — and neither is needed by
+     * an ordinary renderer, which hears about a cell through `renderCell`.
+     */
+    onCellAttached?: (element: HTMLElement) => void;
+    /**
+     * A cell has **left the active render set** and is about to enter the pool.
+     *
+     * "Released" means "no longer stands for a coordinate", **not** "detached from the DOM".
+     * With `keepCellsAttached` the element stays in the document, hidden, and is still released;
+     * with the pool full it is detached *after* this callback. Tying the meaning to detachment
+     * would make it depend on the pool's overflow limit and would skip retained cells entirely.
+     *
+     * Not a cleanup hook: an element is released and re-admitted constantly while scrolling, so
+     * anything torn down here is rebuilt within a frame. It is for bookkeeping a layer keeps
+     * *about* the cell — an observer registration, a row mapping.
+     */
+    onCellReleased?: (element: HTMLElement) => void;
 }
 
 const px = (n: number) => `${n}px`;
@@ -117,6 +180,19 @@ export class RenderGrid {
     private rafId?: number;
     private paintScheduled = false;
     private destroyed = false;
+
+    /** Watches the ancestors' child lists for the host moving the grid. See `watchHost`. */
+    private hostObserver?: MutationObserver;
+    /** The ancestors currently observed, so a re-bind can tell whether the chain moved. */
+    private observedAncestors: HTMLElement[] = [];
+
+    /**
+     * The inline `display` an evicted cell had before it was hidden, so admission can put back
+     * exactly what the renderer set rather than guessing at `""`. Only used when
+     * `keepCellsAttached` is on. A `WeakMap` rather than an expando so a cell the grid forgets
+     * about is collectable.
+     */
+    private readonly hiddenDisplay = new WeakMap<HTMLElement, string>();
 
     private lastInfo?: RenderInputPrepared;
     private lastScrollBarWidth = -1;
@@ -192,6 +268,7 @@ export class RenderGrid {
         this.model = new RenderGridModel({
             ...options,
             recycle: this.pool.acquire,
+            setReuseKey: this.pool.setReuseKey,
         });
 
         this.container.addEventListener("scroll", this.model.onScroll, {
@@ -206,7 +283,76 @@ export class RenderGrid {
         // Paint synchronously so the grid is on screen when the constructor returns, rather
         // than a frame later. Everything after this goes through requestAnimationFrame.
         this.paint();
+
+        if (this.options.watchHost !== false) this.watchHost();
     }
+
+    /**
+     * Re-check the scroll position against the model, and repair it if the browser discarded
+     * it.
+     *
+     * Call this after moving the grid in the DOM. Chromium resets every scroller inside a
+     * detached subtree and fires no scroll event, so a host that re-parents the grid — which is
+     * what a framework does when it re-renders the slot the grid sits in — otherwise leaves it
+     * painting rows at an offset the container no longer has, blank until someone scrolls.
+     *
+     * With the default `watchHost` the grid notices this by itself and there is nothing to
+     * call. This is here for a host that turned that off, or that moves the grid in a way no
+     * observer can attribute to it.
+     *
+     * Safe to call at any time, including during a scroll: a disagreement between container and
+     * model is only acted on if no scroll event follows it. See `revalidateScroll`.
+     */
+    revalidate(): void {
+        if (this.destroyed) return;
+        this.model.revalidateScroll();
+    }
+
+    /**
+     * Observe the child lists of the grid's own ancestors.
+     *
+     * Those are nodes the grid never touches — it mutates inside `container` and nothing above
+     * `root` — so on a page that leaves the grid where it is, this observes nothing and records
+     * nothing. When one of them does change, the grid was quite possibly moved, and that is the
+     * one event that silently discards its scroll position.
+     *
+     * `childList` without `subtree`, deliberately: `subtree` on an ancestor would deliver a
+     * record for every cell the grid appends on every scroll frame, which is the render path
+     * paying for a defect that happens once.
+     *
+     * Chosen over a `ResizeObserver` because the hardest case produces no resize at all. A host
+     * that removes and re-inserts the subtree **within one task** still gets its scroller reset,
+     * but observers sample at the end of a frame and by then the subtree is back at full size —
+     * measured, `resizeObserverSaw0x0: false`. A `MutationObserver` records mutations rather
+     * than sampling state, so it sees both halves of that round trip.
+     */
+    private watchHost(): void {
+        if (typeof MutationObserver === "undefined") return;
+
+        this.hostObserver ??= new MutationObserver(this.onHostMutated);
+        const ancestors: HTMLElement[] = [];
+        for (let el = this.root.parentElement; el; el = el.parentElement) {
+            ancestors.push(el);
+        }
+
+        const unchanged =
+            ancestors.length === this.observedAncestors.length &&
+            ancestors.every((el, i) => el === this.observedAncestors[i]);
+        if (unchanged) return;
+
+        this.hostObserver.disconnect();
+        for (const el of ancestors) {
+            this.hostObserver.observe(el, { childList: true });
+        }
+        this.observedAncestors = ancestors;
+    }
+
+    private onHostMutated = (): void => {
+        if (this.destroyed) return;
+        // The chain itself may be what moved, so re-bind before checking.
+        this.watchHost();
+        this.model.revalidateScroll();
+    };
 
     get stats(): RenderGridStats {
         return { ...this._stats, pool: this.pool.stats };
@@ -227,12 +373,50 @@ export class RenderGrid {
         this.regions[region === "header" ? "stickyTop" : "cells"].append(el);
     }
 
-    /** Replace some or all options; the model decides whether a recompute is needed. */
+    /**
+     * Replace some or all options; the model decides whether a recompute is needed.
+     *
+     * **The shell's own layout fields are live.** `height`, `growToHeight`, `growToWidth` and
+     * the overflow that follows `fitToWidth` are re-applied here through the exact call the
+     * constructor uses, so a host whose layout changes after construction — an autocomplete
+     * popup that resizes as its filtered list grows, a panel the user drags — gets a shell that
+     * follows rather than a stale one. Before this they were read once and never again:
+     * measured, a `setOptions({ growToHeight: "150px" })` left the root at its original 400px
+     * with `max-height: unset`.
+     *
+     * ```js
+     * grid.setOptions({ height: undefined, growToHeight: `${Math.min(rows * 24, 300)}px` });
+     * ```
+     *
+     * Re-applying rather than restating is the point: `applyStaticStyles` stays the one place
+     * that knows what these fields mean, so the construction path and the update path cannot
+     * drift apart. Every write goes through `setStyle`, which skips a value that has not
+     * changed, so a `setOptions` that touches no layout field costs nothing.
+     */
     setOptions(options: Partial<RenderGridShellOptions>): void {
+        const layoutChanged =
+            ("height" in options && options.height !== this.options.height) ||
+            ("growToHeight" in options &&
+                options.growToHeight !== this.options.growToHeight) ||
+            ("growToWidth" in options &&
+                options.growToWidth !== this.options.growToWidth) ||
+            ("fitToWidth" in options && options.fitToWidth !== this.options.fitToWidth);
+
         Object.assign(this.options, options);
         this.model.setOptions(options);
         if (options.className !== undefined) {
             this.root.className = options.className;
+        }
+
+        if (layoutChanged) {
+            this.applyStaticStyles();
+            // `applyLayout` reads `growTo*` too — they decide whether the container sizes itself
+            // to the measured viewport or to its content — and it only runs on a paint whose
+            // geometry changed. Dropping `lastInfo` forces the next paint through its body. It
+            // is not a repaint of the cells: the region sync is set arithmetic over the same
+            // elements, so it removes nothing and appends nothing.
+            this.lastInfo = undefined;
+            this.schedulePaint();
         }
     }
 
@@ -241,6 +425,9 @@ export class RenderGrid {
         this.destroyed = true;
 
         this.container.removeEventListener("scroll", this.model.onScroll);
+        this.hostObserver?.disconnect();
+        this.hostObserver = undefined;
+        this.observedAncestors = [];
         this.unsubscribe?.();
         this.unsubscribe = undefined;
 
@@ -296,6 +483,19 @@ export class RenderGrid {
             scrollBarWidth === this.lastScrollBarWidth &&
             scrollBarHeight === this.lastScrollBarHeight
         ) {
+            // Nothing to draw — and that is exactly the paint a re-appended subtree produces.
+            // It comes back the same size with the same geometry, so the model returns the
+            // identical render info, while the container's scroll position is the one thing
+            // that did change. Behind an unconditional `return` the restore below was
+            // unreachable in the only case that needed it. The layout is already current here
+            // (nothing moved), so the offset has somewhere real to land.
+            if (this.model.scrollNeedsRestore) {
+                this.model.restoreScroll();
+            }
+            // Nothing was drawn, but the container may have just become scrollable — and a
+            // queued scroll must not wait for a geometry change that may never come. A grid
+            // that was laid out late reaches its first usable size on exactly this paint.
+            this.model.flushPendingScroll();
             return;
         }
 
@@ -326,6 +526,14 @@ export class RenderGrid {
         if (this.model.scrollNeedsRestore) {
             this.model.restoreScroll();
         }
+
+        // Last, and after the restore deliberately. Both write `scrollTop`; a queued scroll is
+        // the newer and explicitly requested of the two, so within a paint it wins by running
+        // second, and across frames it wins by `revalidateScroll` standing down while the
+        // register is loaded. This is also the first moment the write can land correctly: the
+        // sizer's height — the scrollable extent every `scrollTop` is clamped against — was
+        // written by `applyLayout` a few lines above.
+        this.model.flushPendingScroll();
 
         this._stats.lastPaintMs = performance.now() - startedAt;
         this._stats.totalPaintMs += this._stats.lastPaintMs;
@@ -359,21 +567,90 @@ export class RenderGrid {
         }
 
         for (const el of prev) {
-            if (!next.has(el)) {
-                parent.removeChild(el);
-                this.pool.release(el);
-                this._stats.cellsRemoved++;
-            }
+            if (!next.has(el)) this.evictCell(parent, el);
         }
 
         for (const el of next) {
-            if (!prev.has(el)) {
-                parent.append(el);
-                this._stats.cellsAppended++;
-            }
+            if (!prev.has(el)) this.admitCell(parent, el);
         }
 
         this.attached[key] = next;
+    }
+
+    /**
+     * Retire a cell: detach it, or — with `keepCellsAttached` — hide it where it stands.
+     *
+     * Detaching is the cheaper default and is right for a grid, whose cells are inert. It is
+     * wrong for a cell that owns something: removing a subtree destroys an iframe's document
+     * and discards every nested scroll position inside it, and neither comes back when the
+     * element is re-admitted.
+     */
+    private evictCell(parent: HTMLElement, el: HTMLElement): void {
+        this._stats.cellsRemoved++;
+
+        // First, and before either branch: the cell has left the active set, and that is what
+        // this reports. Whether it is then hidden, detached, pooled or dropped is the engine's
+        // business and must not change what a listener is told.
+        this.options.onCellReleased?.(el);
+
+        if (!this.options.keepCellsAttached) {
+            parent.removeChild(el);
+            this.pool.release(el);
+            return;
+        }
+
+        // Hidden, not removed. A cell with no box contributes no layout and paints nothing, so
+        // this costs what a detached cell costs everywhere except the node count — and the node
+        // keeps its frames, its media and its nested scroll offsets.
+        this.hiddenDisplay.set(el, el.style.display);
+        el.style.display = "none";
+
+        // A retained cell is the one kind of cell that stays in the document while standing for
+        // no coordinate — and `data-row` / `data-col` are how everything addresses a cell here:
+        // the interaction layer by `closest()`, a host or a test by `querySelector`. Left in
+        // place they would put a second element claiming row 0 into the document. So they come
+        // off, and a stable marker goes on to say what this element now is. The renderer writes
+        // both back on re-admission, which is the only way a pooled cell ever returns.
+        el.removeAttribute("data-row");
+        el.removeAttribute("data-col");
+        el.setAttribute("data-avg-pooled", "");
+
+        // The pool is bounded, and an unbounded collection of hidden nodes is exactly what a
+        // bound is for. A cell the pool will not take has nothing left to preserve it for, so
+        // this — and only this — is the eviction path that still detaches.
+        if (!this.pool.release(el)) {
+            parent.removeChild(el);
+            this.hiddenDisplay.delete(el);
+        }
+    }
+
+    /** Admit a cell: attach it if it is not already there, and undo any hiding. */
+    private admitCell(parent: HTMLElement, el: HTMLElement): void {
+        this._stats.cellsAppended++;
+
+        // `append` on a node that is already a child is a **move** — a remove followed by an
+        // insert — and the browser treats it as one: measured, moving an element resets a
+        // scroller nested inside it from 250 to 0. With `keepCellsAttached` a re-admitted cell
+        // is usually already attached, so an unguarded `append` would undo, on every scroll,
+        // precisely the state the option exists to keep. Order carries no meaning here — cells
+        // are absolutely positioned — so there is nothing to gain by moving one either way.
+        if (el.parentElement !== parent) parent.append(el);
+
+        // Guarded on the option, not just on the lookup: with retention off nothing is ever
+        // hidden, so the map is always empty and consulting it would be a `WeakMap` read per
+        // admitted cell per frame bought for a case that cannot arise.
+        if (this.options.keepCellsAttached) {
+            const display = this.hiddenDisplay.get(el);
+            if (display !== undefined) {
+                el.style.display = display;
+                el.removeAttribute("data-avg-pooled");
+                this.hiddenDisplay.delete(el);
+            }
+        }
+
+        // Last: attached, and visible again if it had been hidden. A listener that measures the
+        // element gets a real box here and would have got a zero one anywhere earlier.
+        this.options.onCellAttached?.(el);
     }
 
     // -----------------------------------------------------------------------

@@ -76,7 +76,10 @@ av-grid/
             rerender-check.ts    ← dirty-set computation (pure, no DOM)
             RenderGridModel.ts   ← scroll, resize, dirty-set merging
             RenderGrid.ts        ← the DOM shell: nine regions + rAF paint loop
-            CellPool.ts          ← element recycling
+            CellPool.ts          ← element recycling, optionally keyed by cell kind
+        measured/                ← measured row heights: an opt-in companion over the engine
+            MeasuredRowHeights.ts ← height policy; no DOM, so it unit-tests without a browser
+            MeasuredRowGrid.ts   ← DOM observation + the RenderGrid it owns
     test-boards/                 ← Persephone boards used to run and debug the grid
         RenderGridTest/          ← the engine alone: the 100k-row performance harness
         AVGridBoard/             ← the whole grid: rendering, interaction, theming
@@ -86,8 +89,15 @@ av-grid/
 ```
 
 Tests sit next to their subject as `*.test.ts`. Everything runs in the node environment except
-`RenderGrid.test.ts` and `AVGrid.test.ts`, which need a DOM and opt into happy-dom with a per-file
-`// @vitest-environment happy-dom` docblock.
+`RenderGrid.test.ts`, `AVGrid.test.ts` and `measured/MeasuredRowGrid.test.ts`, which need a DOM and
+opt into happy-dom with a per-file `// @vitest-environment happy-dom` docblock.
+
+**`measured/` is deliberately outside `render/`.** It is composed *over* the engine rather than
+being part of it: it constructs a `RenderGrid`, supplies its `rowHeight` and wraps its
+`renderCell`, and reaches it through two public seams (`RerenderInfo.fromRow`, and the
+`onCellAttached` / `onCellReleased` shell callbacks). Nothing in `render/` imports it. That is what
+keeps a `ResizeObserver`, two `WeakMap`s and a debounce off the scroll path of every grid that does
+not ask for them — including the one the 100,000-row benchmark measures.
 
 ## Reference implementation — Persephone
 

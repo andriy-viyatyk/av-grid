@@ -271,6 +271,39 @@ export function prepareRerender(
             c >= old.input.columnCount - old.input.stickyRight;
 
         const rows = (rerender.rows || []).filter(rowInRange);
+
+        // `fromRow` is geometry, not content: a row whose height changed moves every row
+        // below it, so each of those has to be re-rendered at its new `top` even though what
+        // it draws is unchanged. Everything *above* it is untouched, which is the whole point
+        // of stating a start row rather than passing `{ all: true }`.
+        //
+        // Bounded by the rendered window on both ends, exactly like the caller-supplied lists
+        // above: marking from row 12 in a 100,000-row list must cost a viewport, not a dataset.
+        if (rerender.fromRow !== undefined) {
+            for (
+                let r = Math.max(rerender.fromRow, old.rendered.top);
+                r <= old.rendered.bottom;
+                r++
+            ) {
+                rows.push(r);
+            }
+            // The sticky bottom band is addressed from the end of the list and sits below the
+            // rendered window, so the loop above never reaches it. Its rows are positioned
+            // relative to the band, so a change *above* the band does not move them — but a
+            // change *inside* it does. At most `stickyBottom` iterations, and none at all for
+            // the measured lists this field exists for, which have no bands.
+            for (
+                let r = Math.max(
+                    rerender.fromRow,
+                    old.input.rowCount - old.input.stickyBottom,
+                );
+                r < old.input.rowCount;
+                r++
+            ) {
+                rows.push(r);
+            }
+        }
+
         const columns = (rerender.columns || []).filter(colInRange);
         const cells = (rerender.cells || []).filter(
             ({ row, col }) => rowInRange(row) && colInRange(col),

@@ -1084,11 +1084,42 @@ range selection stay flat-cost at row 99,000.
 | `isDestroyed()` | `boolean` | |
 | `getFilterBar()` | `FilterBar<R> \| undefined` | The bar `filterBar: true` created. Bars from `createFilterBar()` are the caller's. |
 | `refresh()` | `void` | Repaint every visible cell. The escape hatch for data mutated in place. |
+| `revalidate()` | `void` | Re-check the scroll position after moving the grid in the DOM, and repair it if the browser discarded it. See [Surviving a host that moves the grid](#surviving-a-host-that-moves-the-grid). |
 | `scrollToRow(row, align?)` | `Promise<void>` | `align`: `"top" \| "center" \| "bottom" \| "nearest"` (default). |
+| `scrollToRowAfterPaint(row, align?)` | `void` | **Use this one when the row set has just changed.** See below. |
 | `scrollToCell(row, col)` | `Promise<void>` | |
 | `destroy()` | `void` | Release everything. Safe to call twice. |
 
 `scrollToRow` / `scrollToCell` work before the grid has been laid out — they resolve once it has.
+
+#### Scrolling right after the rows changed
+
+`scrollTop` is clamped to the scrollable extent, and the extent is the content height, which the
+grid writes **inside its next paint**. So scrolling in the same turn as a filter, a sort or a data
+replacement scrolls against the *old* extent: the request is silently clamped, the list then paints
+correctly and is simply at the wrong place, and nothing re-issues it.
+
+```js
+grid.data.setRows(filtered);
+grid.scrollToRowAfterPaint(matchIndex, "center");   // not scrollToRow
+```
+
+Measured on a list grown from 20 rows to 3,000 in one turn and asked for row 2,000 — a request for
+`scrollTop: 48000`:
+
+| | lands at |
+|---|---|
+| `scrollToRow(2000)` | **100** — the entire old extent |
+| the same call inside `setTimeout(0)` | **100** |
+| the same call inside one `requestAnimationFrame` | **100** |
+| `scrollToRowAfterPaint(2000)` | **48000** |
+
+Neither deferral helps: `setTimeout(0)` lands after the microtask that recomputes the geometry but
+before the frame that applies it, and a `requestAnimationFrame` registered at that moment runs
+*before* the paint's own frame. Only the paint knows the extent is now real.
+
+One request is held at a time and the newest replaces it, so calling this repeatedly while rows
+churn scrolls once, to the row asked for last.
 
 #### `getState()`
 
@@ -1717,6 +1748,7 @@ positioned, and their nesting can change.
 | `data-avg-slot="content-end"` | The host's `extraElement`, which also carries `avg-extra` |
 | `data-cell-borders="off"` | The root, with `cellBorders: false` |
 | `data-search-highlight="background" \| "both"` | The root. Absent for the default, colour-only shape |
+| `data-avg-pooled` | A cell evicted while `keepCellsAttached` is on: hidden, kept in the document, and standing for no coordinate. **It has no `data-row` / `data-col`** — they are removed on eviction and written back on re-admission, so a hidden cell can never shadow the live one at the same coordinate. Only ever present with that option. |
 
 Cell state classes, which the four class hooks add to rather than replace: `avg-focused`,
 `avg-editing`, `avg-in-selection` (plus `-top` / `-right` / `-bottom` / `-left` for the edges),
@@ -2071,6 +2103,320 @@ anything living on the element survives. `p.recycle()` is an element evicted on 
 it comes back **dirty**, exactly as its last occupant left it, so overwrite every property you
 set. Dropping `previous` costs ~12× on full repaints; dropping `recycle` allocates on every scroll
 frame.
+
+### Reuse keys — when the rows are not all alike
+
+A grid's cells are interchangeable, so any pooled element will do. A **list whose rows differ in
+structure** — a log of text, tables, images and errors; a notebook of mixed cells — is the case
+that breaks: an element built for one kind handed to a row of another has to be torn down and
+rebuilt, which costs more than the allocation the pool saved.
+
+So a renderer may stamp each cell with an opaque key of its own and ask for a matching one back.
+Both calls are optional and both are one line:
+
+```js
+const kindOf = new WeakMap();          // cell element -> the kind it was built for
+
+renderCell: (p) => {
+    const kind = entries[p.row].type;             // "text" | "table" | "image" | "error"
+
+    // `previous` is still preferred — but only when it was built for this kind.
+    const previous = p.previous && kindOf.get(p.previous) === kind ? p.previous : undefined;
+    const cell = previous ?? p.recycle?.(kind) ?? document.createElement("div");
+    p.setReuseKey?.(cell, kind);
+    kindOf.set(cell, kind);
+
+    if (cell !== previous) buildRow(cell, entries[p.row]);
+    return cell;
+}
+```
+
+| | |
+|---|---|
+| `p.recycle(reuseKey?)` | With a key, only cells released under that same key are eligible; a request that finds none returns `undefined` — a miss, and a `createElement`, rather than a cell of the wrong shape. With no key, any pooled element will do, exactly as before. |
+| `p.setReuseKey(el, reuseKey?)` | Declares what the cell ended up being built for, so the pool can hand it back to a compatible row. Called with no key, the cell returns to the untagged pool. |
+
+**The key is yours and the library never inspects it.** A string is the usual choice. Keys compare
+by `Map` semantics — identity for objects and symbols, value for strings and numbers.
+
+`p.previous` is **not** filtered by key: it is the element already at that coordinate, and whether
+it is still the right shape is a question only the renderer can answer — hence the guard in the
+snippet. Checking it is what makes a row that changed kind in place rebuild.
+
+A renderer that passes no key gets the pool it always had, down to the hit/miss counts in
+`grid.render.stats.pool`. Nothing about a homogeneous grid changes.
+
+### Keeping a cell's state — `keepCellsAttached`
+
+Ordinary scrolling removes a cell from the DOM the moment it leaves the render window. For a data
+grid that is exactly right: the cells are inert, and detaching is the cheapest way to evict one.
+
+It is wrong for a cell that **owns** something. Removing a subtree destroys what is inside it, and
+the browser does not put it back on re-insertion. Measured on a cell holding a nested scroller and
+an `<iframe>`, scrolled out of the window and back:
+
+| | detached (default) | `keepCellsAttached: true` |
+|---|---|---|
+| nested scroller position | `300` → **`0`** | `300` → **`300`** |
+| iframe `load` events | 1 → **2** (document torn down and reloaded) | 1 → **1** |
+| `contentWindow` while evicted | **`null`** | live |
+
+```js
+new RenderGrid(host, {
+    rowCount, columnCount, renderCell,
+    keepCellsAttached: true,     // evicted cells are hidden, not detached
+});
+```
+
+An evicted cell is given `display: none`, has its `data-row` / `data-col` removed and gains
+`data-avg-pooled`, and is left where it is. It contributes no layout and paints nothing, so it
+costs what a detached cell costs everywhere except the node count — and it keeps its frames, its
+media and its nested scroll offsets. Admission restores the display and clears the marker.
+
+Cells are still detached **when the pool overflows**, which is what bounds how many hidden elements
+can accumulate: the cap is the pool's `maxSize`.
+
+**This keeps the element alive; it does not route it back to the same row.** An unkeyed pool hands
+out whichever element it has, so pair it with a [reuse key](#reuse-keys--when-the-rows-are-not-all-alike)
+per row when the state belongs to a particular row:
+
+```js
+renderCell: (p) => {
+    const el = p.previous ?? p.recycle?.(p.row) ?? document.createElement("div");
+    p.setReuseKey?.(el, p.row);
+    ...
+}
+```
+
+Off by default, because it trades DOM nodes for state and a grid whose cells own nothing gains
+nothing. On the stateful cells above it is also **faster** — 0.59 ms a paint against 1.65 ms, and a
+quarter of the childList mutations — because the expensive part was rebuilding the iframe.
+
+### Surviving a host that moves the grid
+
+Chromium resets **every scroller inside a detached subtree**, keeps it reset when the subtree is
+re-inserted, and fires **no scroll event** either way. So a host framework that re-renders the slot
+the grid lives in leaves it painting rows at an offset the container no longer has — measured, a
+grid at `scrollTop: 20000` came back at `0` with the model still at `20000` and **the entire
+viewport unpainted**, and it did not self-heal until someone scrolled.
+
+The grid handles this itself. There is nothing to call and nothing to configure:
+
+```js
+const grid = new RenderGrid(host, { rowCount, columnCount, renderCell });
+// host re-renders its slot, detaching and re-appending the grid — the position comes back
+```
+
+It works two ways, because one detector cannot see both cases. A detach that spans a frame is
+caught by the size the grid measures. A host that removes and re-inserts the subtree **within a
+single task** — what a framework does when it moves a node during a commit — produces no size
+change at all that any observer can sample, so the grid also watches the child lists of its own
+ancestors. Those are nodes it never touches, so on a page that leaves the grid alone this observes
+nothing and costs nothing.
+
+| Option / method | |
+|---|---|
+| `watchHost` | Default `true`. Set `false` to turn the automatic watching off. |
+| `grid.revalidate()` | Check now and repair. On `RenderGrid` and on `AVGrid`. |
+
+**A disagreement between the container and the model is never acted on by itself.** A scroll event
+is delivered a frame *after* the scroll it reports, so during any user scroll the container is
+routinely ahead of the model — writing the model back there would undo the scroll, and because the
+write fires a scroll event of its own the two take turns, which reads as a list that scrolls half
+the time. What separates the two cases is not the disagreement but what follows it: a scroll the
+browser performed is always followed by an event, and a position it discarded is followed by none.
+So a disagreement is carried across two frames and any scroll event arriving in that window vetoes
+it. Verified: scrolling to the top while the host churns an ancestor every frame lands at the top
+and stays there.
+
+### Scrolling after a paint — `scrollToRowAfterPaint`
+
+The engine's two scroll entry points, and the distinction is load bearing.
+
+```js
+grid.model.scrollToRow(row, "center");             // the rows have not changed
+grid.model.scrollToRowAfterPaint(row, "center");   // the rows have just changed
+```
+
+`scrollTop` is clamped to the scrollable extent, and the extent is the sizer's height, which the
+**paint** writes. Scrolling before that frame clamps against the old extent: the list renders
+correctly and is simply scrolled to the wrong place, with nothing re-issuing the request. Measured
+on a grid grown from 20 rows to 3,000 in one turn and asked for row 2,000 (`scrollTop: 48000`), it
+landed at **100** — the whole of the old extent — and at 48,000 through `scrollToRowAfterPaint`.
+`setTimeout(0)` and a single `requestAnimationFrame` both measured **100** as well; the first lands
+after the microtask that recomputes the geometry but before the frame that applies it, and the
+second is registered before the paint's own frame.
+
+| | |
+|---|---|
+| `model.scrollToRowAfterPaint(row, align?)` | Queue a scroll for the end of the next paint. Requests a paint itself, so it is correct on its own. |
+| `model.flushPendingScroll()` | Drain the register. The shell calls this at the end of every paint; a host driving `RenderGridModel` without `RenderGrid` must call it itself. |
+| `model.measured` | Whether the grid has a layout box the write could land in. |
+
+**One slot, last-wins.** The register holds a single request and is overwritten rather than
+appended to, so a burst issued while the extent is unknown collapses to the newest and a stale row
+is discarded by construction.
+
+**`scrollToRow` shares it.** A request issued while the grid has no usable size — a list built
+inside a popover that lays out later — is queued in the same slot instead of writing a `scrollTop`
+the browser will clamp to nothing, and is drained by the same flush. Measured: a request for row
+1,500 issued while the host was `display: none` landed at **0** before, and at **36000** after,
+once the popover opened.
+
+**A queued scroll outranks the scroll reconciliation above.** Both write `scrollTop`, and they mean
+different things: the reconciliation repairs a position the browser *discarded*, while the register
+holds one the host explicitly asked for, and asked for later. Within a paint the flush runs last;
+across frames the reconciliation stands down while the register is loaded. Restoring first would
+write the stale offset, fire a scroll event of its own, and be overwritten a frame later — a
+visible jump to the old place and back. Verified together: a host that reparents the grid in the
+same turn as an after-paint scroll lands on the requested row (28,800), not on the old offset
+(20,000).
+
+### Changing the shell's layout after construction
+
+`height`, `growToHeight`, `growToWidth` and `fitToWidth` are **live**. Pass any of them to
+`setOptions` and the shell follows:
+
+```js
+// An autocomplete popup that resizes as its filtered list grows.
+grid.setOptions({ height: undefined, growToHeight: `${Math.min(rows.length * 24, 300)}px` });
+```
+
+There is nothing else to touch — the grid's own elements are private, and a host should never need
+to reach into them to resize it. The change reaches the geometry too, not only the styles: measured,
+a grid capped at 100px showing 5 rows re-capped to 360px shows **16**.
+
+Before this these four were read once, at construction. A `setOptions({ growToHeight: "150px" })`
+left the root at its original 400px with `max-height: unset`.
+
+A `setOptions` that touches none of them costs nothing: every write goes through the same
+skip-if-unchanged path the constructor uses, and no paint is forced.
+
+### Row heights measured from the DOM — `MeasuredRowGrid`
+
+`rowHeight` accepts a function, which covers every height that can be **computed**. It does not
+cover a height that is only knowable once the row has been laid out: wrapped text of
+unpredictable length, a chat bubble, a log entry with a stack trace in it, a comment with an
+image in it. `MeasuredRowGrid` is an opt-in companion for that case.
+
+```js
+import { MeasuredRowGrid } from "av-grid";
+
+const grid = new MeasuredRowGrid(host, {
+    rowCount: () => entries.length,
+    columnCount: 1,
+    columnWidth: () => "100%",
+    fitToWidth: true,
+    height: "100%",                       // as for RenderGrid: the root needs a definite height
+    minRowHeight: 18,
+    maxRowHeight: 800,
+    getInitialRowHeight: (row) => cache.get(entries[row].id),
+    renderCell: (p) => {
+        const cell = p.previous ?? p.recycle?.() ?? document.createElement("div");
+        applyCellStyle(cell, p.style);    // exactly as for any RenderGrid renderer
+
+        let body = cell.firstElementChild;
+        if (!body) cell.append((body = document.createElement("div")));
+        body.textContent = entries[p.row].text;
+
+        p.measure(body);                  // ← this row is as tall as `body`
+        return cell;
+    },
+});
+
+grid.model.scrollToRow(entries.length - 1, "bottom");
+grid.destroy();
+```
+
+**Nominate a child, not the cell.** The engine writes the cell's `height` from what it currently
+believes the row to be, so measuring the cell reports that belief straight back and the row never
+grows. A child is laid out by its own content, which is the height the row actually needs. A
+renderer that nominates nothing falls back to measuring the cell — right for a cell the renderer
+left unsized, and a harmless no-op for one it sized.
+
+It is a **companion, not a mode**: it owns a `RenderGrid` rather than changing one. A host that
+never constructs it runs the same code it ran before this existed, and the 100,000-row fixed-height
+benchmark measures the same path it always did.
+
+| Option | Meaning |
+|---|---|
+| `minRowHeight` | Floor for every height, measured or hinted. Defaults to **24**. |
+| `maxRowHeight` | Ceiling for every height. Unbounded when absent. |
+| `getInitialRowHeight(row)` | A height already known from somewhere other than the DOM — a cached measurement, a value stored with the record. Used until the row is measured, so the first paint is close instead of uniform. Clamped like a measurement. |
+| `preferMinHeightForNewRows` | Estimate a never-measured row at `minRowHeight` rather than at the last measured height. Right for a list that appends short entries to a tail the user is watching. |
+| `rowHeight` | The last-resort estimate, when there is no hint and nothing has been measured. Only a **number** is read here. |
+
+Everything else is `RenderGrid`'s option surface unchanged, `keepCellsAttached` and `watchHost`
+included. The members forwarded from the shell are `model`, `root`, `scrollElement`, `stats`,
+`addOverlay()`, `revalidate()`, `setOptions()` and `destroy()`; `grid.grid` is the `RenderGrid`
+itself and `grid.heights` is the policy, whose `heightOf(row)` is how a host caches a measurement
+to feed back through `getInitialRowHeight` next time.
+
+**How it behaves.** One `ResizeObserver` watches every nominated element. A cell is measured
+synchronously when it is rendered, again when it is admitted, and once more in the following
+animation frame — the last of those is the only one that can see the layout the admission caused.
+Measurements are coalesced **per row on a 50 ms debounce** before the geometry is told, because a
+cell settles over several frames as fonts load and images decode. A zero is ignored: a hidden,
+detached or not-yet-laid-out element reports zero, and none of those mean the row is zero tall.
+
+**Updating options does not repaint the grid.** `setOptions` mutates the height policy and keeps
+the same `rowHeight` and `renderCell` functions — `RenderGridModel` compares those by identity, so
+replacing them would make every option change a full geometry invalidation. That includes replacing
+your own `renderCell`: it is stored and reached through the stable wrapper.
+
+Measured, on 5,000 rows of wrapped text of random length through a 400 px viewport, against the
+same rows and the same renderer at a fixed 48 px: **0.685 ms a paint against 0.119 ms (5.8×)**,
+both at 60 fps. That is the price of the feature, and it is paid only while heights are being
+discovered — a settled grid is completely idle (**0 paints and 0 pool activity over a second**),
+and a full repaint of every visible cell does **0 DOM insertions or removals**, exactly as the
+fixed path does.
+
+### `RerenderInfo.fromRow` — geometry, not content
+
+```js
+model.update({ fromRow: row });
+```
+
+"Every row from here down has moved." Different in kind from `rows`, which says "these rows'
+*content* changed". A row that grows or shrinks does not change what any row below it renders — it
+changes where each one **starts**, and it changes the total scrollable height.
+
+`{ rows: [row] }` is not a substitute: it repaints one row and leaves the rest of the list drawn at
+its old offsets, overlapping or gapped. `{ all: true }` is not either: it invalidates content that
+did not change.
+
+Bounded like every other entry in a dirty set — marking from row 12 in a 100,000-row list costs a
+viewport, not a dataset. Rows above `fromRow` are untouched. Absent, everything behaves exactly as
+it did before the field existed.
+
+Measured on the board: a row grown from 88 px to 296 px moved the **seven** rendered rows below it
+by exactly 208 px each, left the row above it at its offset, and re-rendered none of their content.
+
+### Cell lifecycle — `onCellAttached` / `onCellReleased`
+
+Two optional `RenderGrid` callbacks, for a layer built **over** the engine. An ordinary renderer
+needs neither; it hears about a cell through `renderCell`.
+
+```js
+new RenderGrid(host, {
+    onCellAttached: (el) => observer.observe(el),
+    onCellReleased: (el) => observer.unobserve(el),
+    // …
+});
+```
+
+**"Released" means "left the active render set", not "detached from the DOM".** With
+`keepCellsAttached` the element stays in the document, hidden, and is still released; when the pool
+overflows it is detached *after* the callback. Tying the meaning to detachment would make the
+contract depend on the pool's overflow limit and would skip retained cells entirely.
+
+`onCellAttached` fires for **every** admission, including the re-admission of a retained cell whose
+`parentElement` never changed — a hidden element measures **zero**, so a re-admitted cell needs a
+fresh look. It runs after the element is attached and after any hiding is undone, so it is the
+first moment a measurement is meaningful.
+
+Neither is a cleanup hook: a cell is released and re-admitted constantly while scrolling, so
+anything torn down there is rebuilt within a frame.
 
 ---
 

@@ -330,3 +330,95 @@ describe("prepareRerender", () => {
         });
     });
 });
+
+// ---------------------------------------------------------------------------
+// Task 34 — `fromRow`, geometry invalidation
+// ---------------------------------------------------------------------------
+
+describe("fromRow", () => {
+    it("marks every rendered row from there down, and nothing above it", () => {
+        const old = makeOld();
+        const res = prepareRerender(
+            { fromRow: 4 },
+            old,
+            sameInput(old),
+            old.columnLength,
+            old.rowLength,
+        );
+
+        const rows = dirtyRows(res);
+        expect(rows[0]).toBe(4);
+        expect(rows[rows.length - 1]).toBe(old.rendered.bottom);
+        expect(rows).toEqual(
+            Array.from({ length: old.rendered.bottom - 3 }, (_, i) => i + 4),
+        );
+        // Geometry only: no column and no individual cell is implicated.
+        expect(dirtyColumns(res)).toEqual([]);
+        expect(res!.cells).toEqual({});
+        expect(res!.all).toBe(false);
+    });
+
+    it("clamps to the top of the rendered window rather than marking off-screen rows", () => {
+        const old = makeOld({ offset: { x: 0, y: 4000 } });
+        const res = prepareRerender(
+            { fromRow: 0 },
+            old,
+            sameInput(old),
+            old.columnLength,
+            old.rowLength,
+        );
+
+        const rows = dirtyRows(res);
+        // A row 200 rows above the viewport moving must cost a viewport, not a dataset.
+        expect(rows.length).toBeLessThan(40);
+        expect(Math.min(...rows)).toBeGreaterThanOrEqual(
+            Math.min(old.rendered.top, old.input.stickyTop),
+        );
+    });
+
+    it("marks nothing when the changed row is below the rendered window", () => {
+        const old = makeOld();
+        const res = prepareRerender(
+            { fromRow: 900 },
+            old,
+            sameInput(old),
+            old.columnLength,
+            old.rowLength,
+        );
+        // Nothing on screen moved; only the total extent did, which the caller recomputes
+        // regardless. Reporting rows here would repaint a viewport for no visible change.
+        expect(res).toBeNull();
+    });
+
+    it("reaches the sticky bottom band, which sits past the rendered window", () => {
+        const old = makeOld({ stickyBottom: 2 });
+        const res = prepareRerender(
+            { fromRow: 995 },
+            old,
+            sameInput(old),
+            old.columnLength,
+            old.rowLength,
+        );
+        expect(dirtyRows(res)).toEqual([998, 999]);
+    });
+
+    it("behaves exactly as before when absent", () => {
+        const old = makeOld();
+        const withField = prepareRerender(
+            { rows: [3], fromRow: undefined },
+            old,
+            sameInput(old),
+            old.columnLength,
+            old.rowLength,
+        );
+        const without = prepareRerender(
+            { rows: [3] },
+            old,
+            sameInput(old),
+            old.columnLength,
+            old.rowLength,
+        );
+        expect(withField).toEqual(without);
+        expect(dirtyRows(withField)).toEqual([3]);
+    });
+});

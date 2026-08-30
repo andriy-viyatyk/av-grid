@@ -72,6 +72,22 @@ export interface RerenderInfoPrepared {
 export interface RerenderInfo {
     all?: boolean;
     rows?: Array<number>;
+    /**
+     * **Geometry** invalidation: every row from here down has moved.
+     *
+     * Different in kind from `rows`, which says "these rows' *content* changed". A row that
+     * grows or shrinks does not change what any row below it renders — it changes where each
+     * one *starts*, and it changes the total scrollable height. Repainting only the row that
+     * changed leaves the rest of the list drawn at its old offsets, overlapping or gapped.
+     *
+     * This is what a measured-height layer marks when a row's measured height is committed:
+     * `update({ fromRow: row })`. `{ rows: [row] }` is not a substitute (it repaints one row
+     * and leaves the others mispositioned) and `{ all: true }` is not either (it invalidates
+     * content that did not change, and still does not state the contract).
+     *
+     * Absent, everything behaves exactly as it did before this field existed.
+     */
+    fromRow?: number;
     columns?: Array<number>;
     cells?: Array<RenderCell>;
     /** Repaint even where the engine believes nothing changed. Escape hatch; use sparingly. */
@@ -143,8 +159,34 @@ export interface RenderInputPrepared {
  * The element arrives in **whatever state its previous occupant left it** — same children,
  * classes, attributes and listeners. That is deliberate: reusing the inner structure is most
  * of the saving. A cell renderer that recycles must therefore overwrite everything it sets.
+ *
+ * Pass a `reuseKey` when the list's rows are **not all alike** — a log of text, tables and
+ * images; a notebook of mixed cells. Only a cell released under that same key comes back, so a
+ * renderer never has to tear down and rebuild an incompatible one, and a keyed request that
+ * finds nothing returns `undefined` rather than something of the wrong kind. Pair it with
+ * `setReuseKey`, which is what tells the pool the kind the cell ended up being built for.
+ *
+ * A renderer that passes no key gets the pool's original behaviour: any element will do.
  */
-export type RecycleFunc = () => HTMLElement | undefined;
+export type RecycleFunc = (reuseKey?: CellReuseKey) => HTMLElement | undefined;
+
+/**
+ * A consumer-owned “same kind of cell” token, opaque to the library. A string is the usual
+ * choice (`"text"`, `"image"`); anything works. Keys compare by `Map` semantics — identity for
+ * objects and symbols, value for strings and numbers.
+ */
+export type CellReuseKey = unknown;
+
+/**
+ * Declares what kind of row a cell was built for, so the pool can hand it back to a compatible
+ * one later. Call it after resolving the element, with the same key passed to `recycle`:
+ *
+ * `p.setReuseKey?.(cell, kind);`
+ *
+ * Calling it with no key returns the cell to the untagged pool. A renderer whose rows are all
+ * alike never needs it.
+ */
+export type SetReuseKeyFunc = (element: HTMLElement, reuseKey?: CellReuseKey) => void;
 
 export interface RenderCellParams {
     col: number;
@@ -154,6 +196,11 @@ export interface RenderCellParams {
     renderInfo: RenderInputPrepared;
     /** Present when a cell pool is attached. See `RecycleFunc`. */
     recycle?: RecycleFunc;
+    /**
+     * Present when a cell pool is attached. Only needed by a renderer whose rows differ in
+     * structure — see `SetReuseKeyFunc`.
+     */
+    setReuseKey?: SetReuseKeyFunc;
     /**
      * The element already rendered at this coordinate, when there is one — i.e. the cell is
      * being re-rendered because it went dirty, not because it just scrolled into view.
@@ -174,6 +221,7 @@ export type RenderCellFunc = (p: RenderCellParams) => RenderedCell;
 export interface RenderData {
     renderCell: RenderCellFunc;
     recycle?: RecycleFunc;
+    setReuseKey?: SetReuseKeyFunc;
     old: RenderInputPrepared;
     newInfo: RenderInputPrepared;
     rerender: RerenderInfoPrepared | null;
@@ -193,6 +241,8 @@ export interface CalcRenderInfoInput {
     renderCell: RenderCellFunc;
     /** Forwarded verbatim to every `renderCell` call. The geometry never calls it itself. */
     recycle?: RecycleFunc;
+    /** Forwarded verbatim too, beside `recycle`. */
+    setReuseKey?: SetReuseKeyFunc;
     stickyTop: number;
     stickyLeft: number;
     stickyRight: number;
