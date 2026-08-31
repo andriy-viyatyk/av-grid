@@ -832,12 +832,13 @@ export const css = `
 /* Width stated rather than stretched. An input in a flex column does not fill it: its width:auto
    resolves to the intrinsic size a text field has, so align-items:stretch never applies and the
    box sits at ~120px however wide the popover is. The calc is the two 4px margins. */
-.avg-list-search {
-    flex: 0 0 auto;
+/* One look for every text input a filter popover holds — the checklist's search box and the
+   text filter's input are the same control in two panels, and must read as one. Only layout
+   (width, margin) differs, below. */
+.avg-list-search,
+.avg-text-filter-input {
     box-sizing: border-box;
-    width: calc(100% - 8px);
-    margin: 4px;
-    padding: 1px 6px;
+    padding: 2px 6px;
     /* After the shorthand, which would otherwise reset it. */
     font: inherit;
     line-height: 18px;
@@ -848,12 +849,26 @@ export const css = `
     outline: none;
 }
 
-/* The 1px border is the focus indicator. A host's own :focus-visible ring would sit outside it
-   at whatever width that host chose — 2px on a Persephone board — and a bare .avg-list-search
-   ties with a bare :focus-visible on specificity, so it loses on source order. Scoped to the
-   list to outrank it, and both states named because the host may style either. */
+.avg-list-search {
+    flex: 0 0 auto;
+    width: calc(100% - 8px);
+    margin: 4px;
+}
+
+/* The whole popover width; the body's own padding is the margin. */
+.avg-text-filter-input {
+    width: 100%;
+}
+
+/* The 1px border is the focus indicator, for both inputs. A host's own :focus-visible ring
+   would sit outside it at whatever width that host chose — 2px on a Persephone board — and a
+   bare class selector ties with a bare :focus-visible on specificity, so it loses on source
+   order. Scoped to the panel to outrank it, and both states named because the host may style
+   either. */
 .avg-list .avg-list-search:focus,
-.avg-list .avg-list-search:focus-visible {
+.avg-list .avg-list-search:focus-visible,
+.avg-text-filter-body .avg-text-filter-input:focus,
+.avg-text-filter-body .avg-text-filter-input:focus-visible {
     border-color: var(--avg-accent);
     outline: none;
 }
@@ -1007,23 +1022,8 @@ export const css = `
     padding: 8px;
 }
 
-.avg-text-filter-input {
-    /* The whole popover width. box-sizing, because a host page's input rules reach in here
-       and content-box + 100% would overflow the padding. */
-    box-sizing: border-box;
-    width: 100%;
-    padding: 4px 6px;
-    font: inherit;
-    color: var(--avg-text);
-    background-color: var(--avg-bg);
-    border: solid 1px var(--avg-border-color);
-    border-radius: 4px;
-    outline: none;
-}
-
-.avg-text-filter-input:focus {
-    border-color: var(--avg-accent);
-}
+/* The input's look is shared with the checklist's search box — see .avg-list-search above:
+   the two popovers must read as one control set. */
 
 /* The three operators: one horizontal row of chips under the input, spread to its width. */
 .avg-text-filter-ops {
