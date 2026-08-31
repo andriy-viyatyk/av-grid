@@ -83,7 +83,8 @@ jobs:
                   # Pages serves what is here; anything missing is a 404 nobody sees until a
                   # visitor clicks it. Fail the build instead.
                   for f in site/index.html site/examples/index.html site/dist/av-grid.js \
-                           site/dist/av-grid.css site/dist/react.js \n                           site/examples/persephone-board/lib/av-grid.js; do
+                           site/dist/av-grid.css site/dist/react.js \
+                           site/examples/persephone-board/lib/av-grid.js; do
                       test -s "$f" || { echo "::error::missing or empty: $f"; exit 1; }
                   done
                   echo "assembled $(find site -type f | wc -l) files"
