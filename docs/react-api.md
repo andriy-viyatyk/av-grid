@@ -120,6 +120,29 @@ would appear if one of those guards were ever dropped.
 The cost is one `setOptions` per commit in which the prop's *reference* changed. Keep the value in
 state, as above, rather than rebuilding it during render, and that is one call per real change.
 
+**Server-side filtering and sorting** is this same pattern plus two lane-3 booleans —
+`externalFilter` and `externalSort` (see [Host-owned filtering and
+sorting](api.md#host-owned-filtering-and-sorting) for what each one changes). The grid keeps its
+whole filter and sort UI but never re-filters or reorders the rows you pass; the callbacks drive
+your fetch instead of your state echo:
+
+```tsx
+<AVGrid
+    rows={page}                       // already filtered and sorted by the server
+    columns={columns}
+    externalFilter
+    externalSort
+    filterBar
+    onFiltersChange={(filters) => refetch({ filters })}   // e.g. a React Query key
+    onSortChange={(sort) => refetch({ sort })}
+    onGetOptions={getOptions}         // stable identity — the values are the server's
+/>
+```
+
+No new prop shape: both are plain booleans through the ordinary option diff, and a text filter's
+value arrives in `onFiltersChange` as `{ op: "contains" | "equals" | "startsWith", text: string }`,
+ready to translate into a query.
+
 `focus` is worth a word, because it is the newest of the four and the one people reach for when
 restoring a session: pass it **keys only** — `{ rowKey, columnKey, isDragging: false }` — and the
 grid resolves the indices against the rows as they are now, so a restored focus lands on the right

@@ -249,6 +249,31 @@ removes them all. The bar takes no space at all until something is filtered. Eve
 while the bar is up mutates **zero** DOM nodes; the bar appearing or going away costs one row of
 cells, because it changes the grid's height by 32 px.
 
+**A text filter, built in.** `filterType: "text"` swaps a column's checklist for one input and
+three operator chips — contains (the default), equals, starts with — matched case-insensitively
+against the *displayed* text, the same `formatValue` → `displayFormat` → `row[key]` projection the
+search box reads, so a formatted date column filters by what its cells show. The value is public
+surface and JSON-shaped — `{ op, text }`, a bare string accepted and normalized on the way in —
+so it persists with no `serialize` and translates straight into a server predicate. Measured at
+100,000 rows against the checklist on the same column: **2.1 ms** for the options pass, **3.8 /
+4.2 / 5.1 ms** for equals / starts with / contains — the price of `String()` + `toLowerCase` per
+row, with the needle lowercased **once per pass** and never written into the value. Enter applies,
+empty (trimmed) text removes the filter, and the chip reads `Name: contains smith`.
+
+**Or the host filters, and the grid only reports.** `externalFilter: true` keeps the whole
+filter UI — funnels, popovers, chips, persistence, `onFiltersChange` — while the grid never tests
+a row against `filters`: for rows that arrive already filtered, usually by a server.
+`externalSort: true` is the same deal for the sort — arrows, position numbers, `aria-sort` and
+`onSortChange` all live, the rows never reordered, `sortValue`/`rowCompare` never called. The two
+are independent, both are plain `setOptions`-togglable options (turning `externalFilter` off
+re-validates the columns, so a `match`-less filter definition accepted under the flag can never be
+left silently keeping every row), and `searchString` deliberately stays local. Measured at 100,000
+rows with three filters applied: the local pass costs **12.2–17 ms** per filter change; the same
+call under `externalFilter` costs **0.2–0.4 ms** — that difference is the feature. The one rule
+the docs insist on: pass `onGetOptions` with `externalFilter`, because a server-filtered page has
+the column's own filter baked in, so a checklist built from loaded rows can narrow but never
+re-widen.
+
 **Free text, and where it matched.** `searchString` keeps a row when every whitespace-separated
 word appears in some column's displayed value, and each of those words is then marked inside the
 cells, so it is visible *why* a row survived. The mark is the accent colour by default;

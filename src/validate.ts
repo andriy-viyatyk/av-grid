@@ -29,6 +29,7 @@ import type {
     FilterDefinition,
     PersistFiltersOptions,
     SortColumn,
+    TextFilterValue,
 } from "./types";
 
 /** Rows scanned when inferring columns and widths. Enough to be representative, not enough to cost. */
@@ -294,6 +295,8 @@ export function validateColumns<R>(
      * adding and `setColumns` exempts the columns the grid already has.
      */
     exemptKeys?: ReadonlySet<string>,
+    /** `externalFilter` — a filter definition may omit `match` while the host filters. */
+    matchOptional?: boolean,
 ): Column<R>[] {
     if (!Array.isArray(columns)) {
         fail(
@@ -342,7 +345,9 @@ export function validateColumns<R>(
         seen.add(key);
 
         const col = column as Column<R>;
-        if (col.filter !== undefined) validateFilterDefinition(col.filter, key);
+        if (col.filter !== undefined) {
+            validateFilterDefinition(col.filter, key, matchOptional);
+        }
 
         if (
             col.pinned !== undefined &&
@@ -469,8 +474,17 @@ function withDetectedWidths<R>(
  * A definition missing `match` would filter nothing and one missing `label` would draw a blank
  * chip — both silent, and silence is the failure mode this file exists to prevent. The message
  * names the column and the field, because it is usually read by whoever can fix it in one edit.
+ *
+ * `matchOptional` is `externalFilter`: with the host filtering the rows, `match` never runs and
+ * requiring a `match: () => true` on every column would be the workaround that option exists to
+ * remove. The flag is re-checked when `externalFilter` is toggled off at runtime, so a
+ * definition accepted without one can never silently keep every row.
  */
-function validateFilterDefinition(filter: unknown, columnKey: string): void {
+function validateFilterDefinition(
+    filter: unknown,
+    columnKey: string,
+    matchOptional?: boolean,
+): void {
     if (!filter || typeof filter !== "object") {
         fail(
             `Column "${columnKey}" has a \`filter\` that is ${describe(filter)}. ` +
@@ -490,15 +504,31 @@ function validateFilterDefinition(filter: unknown, columnKey: string): void {
     const required: [keyof FilterDefinition, string][] = [
         ["create", "create: (ctx) => ({ element, getValue })   // the popover body"],
         ["label", "label: (value, column) => String(value)     // the chip's text"],
-        ["match", "match: (value, row, column) => boolean      // keep the row?"],
     ];
+    if (!matchOptional) {
+        required.push([
+            "match",
+            "match: (value, row, column) => boolean      // keep the row?",
+        ]);
+    }
     for (const [field, example] of required) {
         if (typeof f[field] !== "function") {
             fail(
                 `Column "${columnKey}" has a \`filter\` named "${f.name}" with no \`${field}\` ` +
-                    `function (it was ${describe(f[field])}). Add:\n    ${example}`,
+                    `function (it was ${describe(f[field])}).` +
+                    (field === "match" && !matchOptional
+                        ? ` Without it the filter would keep every row. Add:\n    ${example}\n` +
+                          `(\`match\` may be omitted only with \`externalFilter: true\`, where ` +
+                          `the host filters the rows.)`
+                        : ` Add:\n    ${example}`),
             );
         }
+    }
+    if (matchOptional && f.match !== undefined && typeof f.match !== "function") {
+        fail(
+            `Column "${columnKey}": \`filter.match\` must be a function when present, but was ` +
+                `${describe(f.match)}.`,
+        );
     }
 
     for (const field of ["serialize", "deserialize"] as const) {
@@ -617,12 +647,12 @@ export function validateFilters<R>(
         // place to get it wrong.
         const definition = column.filter;
         const type = definition ? definition.name : (f.type ?? column.filterType ?? "options");
-        if (!definition && type !== "options") {
+        if (!definition && type !== "options" && type !== "text") {
             fail(
                 `\`filters[${index}].type\` is ${JSON.stringify(type)}, but column ` +
                     `"${columnKey}" has no \`filter\` definition of that name — so nothing knows ` +
-                    `how to match it. Either give the column a \`filter\`, or use the built-in ` +
-                    `"options" type.`,
+                    `how to match it. Either give the column a \`filter\`, or use a built-in ` +
+                    `type: "options" (a checklist) or "text" (contains / equals / starts with).`,
             );
         }
         if (definition && f.type !== undefined && f.type !== definition.name) {
@@ -643,8 +673,13 @@ export function validateFilters<R>(
         };
 
         // A custom filter's value is whatever its own `getValue` returns — an object, a pair of
-        // numbers, a regexp. Only the built-in checklist has a shape to normalize.
+        // numbers, a regexp. Only the built-in types have a shape to normalize.
         if (definition) return normalized;
+
+        if (type === "text") {
+            normalized.value = normalizeTextValue(normalized.value, index);
+            return normalized;
+        }
 
         if (normalized.value !== undefined && normalized.value !== null) {
             if (!Array.isArray(normalized.value)) {
@@ -663,6 +698,52 @@ export function validateFilters<R>(
 
         return normalized;
     });
+}
+
+const TEXT_FILTER_OPS = ["contains", "equals", "startsWith"] as const;
+
+/**
+ * Normalize a `"text"` filter's value to `{ op, text }`, or to `undefined` — the shape the row
+ * test, the chips and persistence all read.
+ *
+ * A bare string is the shortest thing a caller can write, so it is accepted and given the
+ * default operator; `op` alone may be omitted for the same reason. The text is trimmed — a
+ * trailing space silently failing `equals` is the kind of bug nobody can see — and trimmed-empty
+ * text means no filter at all, the same nullish rule the checklist follows.
+ */
+function normalizeTextValue(value: unknown, index: number): TextFilterValue | undefined {
+    if (value === undefined || value === null) return undefined;
+
+    if (typeof value === "string") {
+        const text = value.trim();
+        return text.length ? { op: "contains", text } : undefined;
+    }
+
+    if (typeof value !== "object") {
+        fail(
+            `\`filters[${index}].value\` on a "text" filter must be a string or ` +
+                `{ op, text }, but was ${describe(value)}. ` +
+                `For example: value: "smith", or value: { op: "startsWith", text: "smi" }.`,
+        );
+    }
+
+    const v = value as TextFilterValue;
+    const op = v.op ?? "contains";
+    if (!TEXT_FILTER_OPS.includes(op)) {
+        fail(
+            `\`filters[${index}].value.op\` must be one of ` +
+                `${TEXT_FILTER_OPS.map((o) => `"${o}"`).join(", ")}, but was ${describe(v.op)}.`,
+        );
+    }
+    if (typeof v.text !== "string") {
+        fail(
+            `\`filters[${index}].value.text\` must be a string, but was ${describe(v.text)}. ` +
+                `Omit the value entirely to remove the filter.`,
+        );
+    }
+
+    const text = v.text.trim();
+    return text.length ? { op, text } : undefined;
 }
 
 /**
@@ -735,7 +816,14 @@ export function resolveOptions<R>(options: unknown): ResolvedOptions<R> {
             ? inferColumns<R>(o.rows)
             : // Same-group columns are gathered together up front, so the model is built on
               // the normalized order — `ColumnsModel.setColumns` does the same for later sets.
-              gatherByGroup(validateColumns<R>(o.columns, o.rows));
+              gatherByGroup(
+                  validateColumns<R>(
+                      o.columns,
+                      o.rows,
+                      undefined,
+                      Boolean(o.externalFilter),
+                  ),
+              );
 
     // Validated for its own sake; the resolved value is read from the model, not from here.
     validateSort(o.sort, columns, Boolean(o.multiSort));

@@ -55,6 +55,8 @@ av-grid/
             GroupHeader.ts       ← the column-group band: overlay divs, not pooled cells
             FilterPopover.ts     ← showFilterPopover(): dispatch on filterType, resolve on close
             OptionsFilterContent.ts ← the checklist body: search, select-all, Apply, Clear
+            TextFilterContent.ts ← the "text" body: full-width input, operator chips, Enter applies
+            CustomFilterContent.ts ← a host definition's body, wrapped in the grid's Apply / Clear
             Button.ts            ← the two buttons the filter UI needs, and nothing else
             Popover.ts           ← the floating panel: anchor, flip, clamp, dismiss, resize
             VirtualList.ts       ← virtualized checklist: search, select-all, keyboard

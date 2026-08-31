@@ -134,8 +134,11 @@ if you would rather hold them in React state. Full page: [`docs/react-api.md`](d
   two rows, at zero scroll cost
 - **Sorting** by header click, with `sortValue` or `rowCompare` for a custom order — and
   **multi-column sort** (`multiSort: true`, Ctrl+click appends a level)
-- **Filtering** — a searchable checklist per column, cascaded against the other filters, plus a bar
-  of removable chips, `localStorage` persistence, and host-defined filter types
+- **Filtering** — a searchable checklist per column, cascaded against the other filters, a built-in
+  **text filter** (`filterType: "text"` — contains / equals / starts with), a bar of removable
+  chips, `localStorage` persistence, and host-defined filter types
+- **Server-side data** — `externalFilter` / `externalSort` keep the whole filter and sort UI while
+  the host owns the row set: the grid never re-filters or reorders a page the server already did
 - **Cell focus and full keyboard navigation**, Excel-style — with grid ARIA semantics and
   `aria-sort` (see [what conformance we claim](docs/capabilities.md#accessibility--what-conformance-we-claim))
 - **Range selection** by drag or by shift, and row selection through a checkbox column
@@ -188,6 +191,7 @@ the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of ea
 | [12-react](https://andriy-viyatyk.github.io/av-grid/examples/12-react.html) | the React wrapper, no build step | [source](examples/12-react.html) |
 | [13-report](https://andriy-viyatyk.github.io/av-grid/examples/13-report.html) | pinned columns and a footer band — a report shape | [source](examples/13-report.html) |
 | [14-groups](https://andriy-viyatyk.github.io/av-grid/examples/14-groups.html) | column groups and multi-column sort | [source](examples/14-groups.html) |
+| [15-external-data](https://andriy-viyatyk.github.io/av-grid/examples/15-external-data.html) | host-owned filtering and sorting, and the text filter | [source](examples/15-external-data.html) |
 | [persephone-board](https://andriy-viyatyk.github.io/av-grid/examples/persephone-board/) | the grid inside a Persephone board | [source](examples/persephone-board/) |
 
 ## Documentation

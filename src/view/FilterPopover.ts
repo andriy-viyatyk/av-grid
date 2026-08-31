@@ -12,8 +12,9 @@
  * or `undefined` if the popover was dismissed.
  *
  * The body is chosen by the column: a `filter` definition of its own, else its `filterType`,
- * else the filter's own `type`. Two arms today — the built-in checklist and a host's element,
- * which the grid wraps in the same panel and the same Apply / Clear.
+ * else the filter's own `type`. Three arms — the built-in checklist, the built-in text filter
+ * (`filterType: "text"`), and a host's element, which the grid wraps in the same panel and the
+ * same Apply / Clear.
  */
 
 import type { AVGridModel } from "../model/AVGridModel";
@@ -24,6 +25,7 @@ import {
     OPTIONS_FILTER_MIN_WIDTH,
 } from "./OptionsFilterContent";
 import { CustomFilterContent } from "./CustomFilterContent";
+import { TextFilterContent } from "./TextFilterContent";
 
 /**
  * What the popover needs of whatever is inside it. `OptionsFilterContent` and
@@ -97,10 +99,11 @@ export function showFilterPopover<R>(
     const type = definition
         ? definition.name
         : (column.filterType ?? filter.type ?? "options");
-    if (!definition && type !== "options") {
+    if (!definition && type !== "options" && type !== "text") {
         console.warn(
             `av-grid: no filter body for filterType "${type}" on column "${columnKey}". ` +
-                `A filter type of your own is a \`filter\` definition on the column.`,
+                `The built-in types are "options" and "text"; a filter type of your own is a ` +
+                `\`filter\` definition on the column.`,
         );
         return Promise.resolve(undefined);
     }
@@ -124,17 +127,19 @@ export function showFilterPopover<R>(
     // popover to a size, the option count no longer gets to decide it.
     let resized = Boolean(options.size);
 
+    // The checklist is the only body that is resized: it is a scrolling list of unknown
+    // length, where a host's element and the text filter have intrinsic sizes.
+    const isChecklist = !definition && type !== "text";
+
     const popover = new Popover<Filter>({
         anchor,
         className: "avg-filter-popover",
         placement: "bottom-start",
         offset: options.offset,
-        // The checklist is resized because it is a scrolling list of unknown length. A host's
-        // body has an intrinsic size, so the popover takes it and offers no grip.
-        resizable: !definition,
+        resizable: isChecklist,
         size: options.size,
-        minWidth: definition ? undefined : OPTIONS_FILTER_MIN_WIDTH,
-        minHeight: definition ? undefined : 160,
+        minWidth: isChecklist ? OPTIONS_FILTER_MIN_WIDTH : undefined,
+        minHeight: isChecklist ? 160 : undefined,
         onResize: (size) => {
             resized = true;
             options.onResize?.(size);
@@ -169,6 +174,11 @@ export function showFilterPopover<R>(
             popover.destroy();
             return Promise.resolve(undefined);
         }
+    } else if (type === "text") {
+        body = new TextFilterContent({
+            filter,
+            onApply: applyAndClose,
+        });
     } else {
         // Declared before it is built: the body reports its preferred height from inside its own
         // constructor, when the options resolve synchronously.

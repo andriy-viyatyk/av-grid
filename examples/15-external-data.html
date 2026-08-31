@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<!--
+    av-grid — host-owned filtering and sorting, and the built-in "text" filter.
+
+    A fake async "server" holds 50,000 people; the grid only ever sees one 200-row page,
+    already filtered and sorted server-side. `externalFilter: true` / `externalSort: true`
+    keep the whole filter and sort UI working — funnels, chips, arrows, multi-sort — while
+    the grid itself never re-filters or reorders the page it was handed: every change goes
+    through `onFiltersChange` / `onSortChange`, back to the "server", and returns as a new
+    page. The status line under the header says what the server did, so you can see the
+    round trip that would otherwise be invisible.
+
+    The Name column is `filterType: "text"` — one input, contains / equals / starts with —
+    whose `{ op, text }` value translates straight into the server predicate. The Status
+    checklist gets its options from `onGetOptions`, because a server-filtered page can only
+    offer values that already pass — the server has to answer with the full set.
+
+    Run: npm run build once, then serve this folder and open the file:
+        npx serve .          (or: python -m http.server)
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — host-owned filtering and sorting</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0; color: #666; }
+        #server-line { padding: 6px 16px; font-size: 12px; color: #2f6f3e; background: #f4faf5; border-bottom: 1px solid #ddd; }
+        #host { flex: 1 1 auto; min-height: 0; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Host-owned filtering and sorting</h1>
+        <p>The grid holds one 200-row page of 50,000. Filter by <b>Name</b> (a text filter —
+        contains / equals / starts with) or <b>Status</b>, click headers to sort — every change
+        is a round trip to a fake server, and the line below says what it did.</p>
+    </header>
+
+    <div id="server-line">the server did this: initial page — 200 of 50,000 rows</div>
+    <div id="host"></div>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        // ------------------------------------------------------------------
+        // The fake server: 50,000 rows the grid never sees all of.
+        // ------------------------------------------------------------------
+        const FIRST = ["Ada", "Alan", "Grace", "Edsger", "Donald", "Barbara", "John", "Margaret"];
+        const LAST = ["Lovelace", "Turing", "Hopper", "Dijkstra", "Knuth", "Liskov", "Backus", "Hamilton"];
+        const STATUS = ["active", "invited", "suspended", "closed"];
+
+        const DATABASE = Array.from({ length: 50_000 }, (_, i) => ({
+            id: i + 1,
+            name: `${FIRST[i % FIRST.length]} ${LAST[(i * 7) % LAST.length]} ${i + 1}`,
+            status: STATUS[(i * 13) % STATUS.length],
+            score: ((i * 37) % 1000) / 10,
+        }));
+
+        const PAGE_SIZE = 200;
+
+        /** What a real backend would do with the query — filter, sort, page. */
+        async function serverQuery({ filters = [], sort = [] }) {
+            await new Promise((r) => setTimeout(r, 120));   // network
+
+            let rows = DATABASE;
+            for (const f of filters) {
+                if (f.type === "text" && f.value) {
+                    // The text filter's value is `{ op, text }` — made for this translation.
+                    const { op, text } = f.value;
+                    const needle = text.toLowerCase();
+                    rows = rows.filter((r) => {
+                        const hay = String(r[f.columnKey]).toLowerCase();
+                        if (op === "equals") return hay === needle;
+                        if (op === "startsWith") return hay.startsWith(needle);
+                        return hay.includes(needle);
+                    });
+                } else if (Array.isArray(f.value)) {
+                    const keep = new Set(f.value.map((o) => o.value ?? o));
+                    rows = rows.filter((r) => keep.has(r[f.columnKey]));
+                }
+            }
+
+            const total = rows.length;
+            const levels = Array.isArray(sort) ? sort : sort ? [sort] : [];
+            if (levels.length) {
+                rows = [...rows].sort((a, b) => {
+                    for (const { key, direction } of levels) {
+                        const d = a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0;
+                        if (d) return direction === "desc" ? -d : d;
+                    }
+                    return 0;
+                });
+            }
+
+            return { rows: rows.slice(0, PAGE_SIZE), total };
+        }
+
+        /** The distinct values of a column — only the server can answer this in full. */
+        async function serverValues(columnKey) {
+            await new Promise((r) => setTimeout(r, 60));
+            const distinct = [...new Set(DATABASE.map((r) => r[columnKey]))].sort();
+            return distinct.map((value) => ({ value, label: String(value) }));
+        }
+
+        // ------------------------------------------------------------------
+        // The grid: it does less, on purpose.
+        // ------------------------------------------------------------------
+        const line = document.getElementById("server-line");
+        const query = { filters: [], sort: [] };
+
+        async function reload(reason) {
+            const { rows, total } = await serverQuery(query);
+            grid.setRows(rows);
+            line.textContent =
+                `the server did this: ${reason} — ` +
+                `${rows.length} of ${total.toLocaleString()} matching rows` +
+                (query.filters.length ? `, ${query.filters.length} filter(s)` : "") +
+                (query.sort.length ? `, sorted by ${query.sort.map((s) => s.key).join(" → ")}` : "");
+        }
+
+        const grid = AVGrid.create("#host", {
+            rows: [],
+            columns: [
+                { key: "id", name: "ID", width: 80, pinned: "left" },
+                { key: "name", name: "Name", width: 220, filterType: "text" },
+                { key: "status", name: "Status", width: 110 },
+                { key: "score", name: "Score", dataType: "number", align: "right", width: 90 },
+            ],
+            externalFilter: true,       // the page is already filtered…
+            externalSort: true,         // …and already sorted
+            multiSort: true,
+            filterBar: true,
+            rowNoun: "person",
+            onFiltersChange: (filters) => {
+                query.filters = filters;
+                reload("re-filtered");
+            },
+            onSortChange: (sort) => {
+                query.sort = sort;
+                reload("re-sorted");
+            },
+            // The checklist's values must come from the server: the loaded page has every
+            // filter — including the column's own — already baked in.
+            onGetOptions: (columns, filters, columnKey) => serverValues(columnKey),
+        });
+
+        reload("initial page");
+    </script>
+</body>
+</html>

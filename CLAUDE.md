@@ -21,7 +21,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-05.md`](tasks/plan-done-05.md) | The finished plan for phase 9, the React wrapper, tasks 38–43. **Its decision log applies too** |
 | [`tasks/plan-done-06.md`](tasks/plan-done-06.md) | The finished plan for phase 10, tasks 44–46 and 49–50: the wide-grid gate, pinned columns, `footerRows`, accessibility. **Its decision log applies too** — and it holds the full designs for the deferred tasks 47–48 |
 | [`tasks/plan-done-07.md`](tasks/plan-done-07.md) | The finished plan for phase 11, tasks 47–48: `Column.group` (the two-row header) and multi-column sort. **Its decision log applies too** |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 12, currently empty: no task is committed. The standing rules and open questions carry forward. Read the archived decision logs before starting anything |
+| [`tasks/plan-done-08.md`](tasks/plan-done-08.md) | The finished plan for phase 12, tasks 51–52: `externalFilter` / `externalSort` (the host owns the row set) and the built-in `"text"` filter type. **Its decision log applies too** — including the four review resolutions and the loan-ledger patch record |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 13, deliberately empty: the next task arrives when a consumer asks. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -31,8 +32,9 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 12, **empty**: no task is
-committed; the open questions (header focus, `--avg-*` on `:root`) wait for a consumer to ask.
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 13, **deliberately empty**. The
+open questions it carries (header focus, group collapse, `--avg-*` on `:root`, a `loading` state
+for host-owned grids, built-in range filters) wait for a consumer to ask.
 A plan is archived as `plan-done-<nn>.md` once
 all its tasks are ✅; the next `plan.md` starts at the new phase, carrying forward the standing rules
 and a pointer back to the logs. **Every archived
@@ -106,6 +108,22 @@ numbers appear only with 2+ sorted columns, `aria-sort` stays on the primary. Th
 to one decorate tuple + one composite comparator, so `sortValue` keeps its once-per-row contract.
 Sorting still has **no keyboard binding** — Ctrl+click is a pointer gesture; the gap stays named.
 
+**Phase 12 is done** (tasks 51–52, shipped as **2.7.0** — see
+[`tasks/plan-done-08.md`](tasks/plan-done-08.md)). **`externalFilter` / `externalSort`** let a
+host that filters and sorts server-side keep the whole filter and sort UI while the grid never
+re-filters or reorders the page it was handed — two independent flat booleans, the whole change
+two guards in `RowsModel`, measured at 100k rows as 12–17 ms per filter change removed down to
+0.2–0.4 ms. `FilterDefinition.match` is optional under the flag (typed `match?:` for everyone,
+required-ness enforced at `create()`, re-checked when the flag is toggled off), `searchString`
+deliberately stays local (`highlightString` is the server-search pairing), and the docs name the
+checklist's exact failure under server-filtered rows — pass `onGetOptions`. **`filterType:
+"text"`** is the built-in text filter: one full-width input over three operator chips — contains
+/ equals / starts with, radio semantics, Enter applies — matching case-insensitively against the
+*displayed* text (the search box's projection), with a public JSON value `{ op, text }` a host
+reads to build a server predicate. A bare string normalizes to `contains`; trimmed-empty text is
+no filter. The needle lowercases once per pass in `filterRows`' resolved tuple, never per row and
+never into the value.
+
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,
 `searchString` and `focus` may all be held in host state and echoed straight back, because each
@@ -151,7 +169,7 @@ happy-dom does **no layout**, so a green suite says nothing about whether the gr
 performs. The boards under `test-boards/` are the real browser: [`RenderGridTest/`](test-boards/RenderGridTest/CLAUDE.md)
 (`window.bench`, the 100k gate), [`AVGridBoard/`](test-boards/AVGridBoard/CLAUDE.md) (`window.avg`,
 the whole grid), [`CustomizationBoard/`](test-boards/CustomizationBoard/CLAUDE.md)
-(`window.custom`, 20 pass/fail claims from the docs) and [`ReactApp/`](test-boards/ReactApp/CLAUDE.md)
+(`window.custom`, 29 pass/fail claims from the docs) and [`ReactApp/`](test-boards/ReactApp/CLAUDE.md)
 (`window.__grid`, the React wrapper under a real React 19 — a Vite dev app, not a board:
 `npm run dev` there, then `open_url`; `av-grid` is aliased to `src/`, so **no build step**).
 

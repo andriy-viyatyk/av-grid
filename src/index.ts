@@ -94,6 +94,8 @@ export {
 export type { OptionsFilterContentOptions } from "./view/OptionsFilterContent";
 export { CustomFilterContent } from "./view/CustomFilterContent";
 export type { CustomFilterContentOptions } from "./view/CustomFilterContent";
+export { TextFilterContent, TEXT_FILTER_MIN_WIDTH } from "./view/TextFilterContent";
+export type { TextFilterContentOptions } from "./view/TextFilterContent";
 export { FilterBar, optionsFilterValues, describeFilter } from "./view/FilterBar";
 export type { FilterBarOptions, FilterChipText } from "./view/FilterBar";
 export { createButton, createIconButton } from "./view/Button";

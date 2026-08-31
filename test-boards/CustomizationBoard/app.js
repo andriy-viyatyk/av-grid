@@ -102,6 +102,9 @@ function columns() {
             key: "task",
             name: "Task",
             width: "35%",
+            // Near-unique strings: the checklist is the wrong shape here, which is exactly
+            // what the built-in text filter is for. Its popover is live on this board.
+            filterType: "text",
             // A constant string builds no context object at all.
             cellClass: hooksOn ? "wrap" : undefined,
             headerClass: hooksOn ? "wrap" : undefined,
@@ -502,6 +505,125 @@ async function checkFreezeEnds() {
     ];
 }
 
+/**
+ * `externalFilter` / `externalSort` — the host owns the row set. The state that looks broken by
+ * design: a chip on the bar while every row stays, an arrow on the header while nothing moves.
+ * Checked live because that is also the state a layout bug would fake.
+ */
+async function checkExternalData() {
+    const out = [];
+    const baseline = grid.getState().rowCount;
+    const firstId = grid.getVisibleRows()[0].id;
+    let reported = null;
+
+    grid.setOptions({
+        externalFilter: true,
+        externalSort: true,
+        onFiltersChange: (filters) => (reported = filters),
+    });
+    grid.applyFilter({ columnKey: "priority", value: ["critical"] });
+    await settle(2);
+
+    out.push({
+        claim: "externalFilter: the chip appears and the row set does not change",
+        ok:
+            grid.getState().rowCount === baseline &&
+            Boolean(document.querySelector('.avg-filter-chip[data-column-key="priority"]')),
+        detail: `${grid.getState().rowCount} of ${baseline} rows, chip ${
+            document.querySelector('.avg-filter-chip[data-column-key="priority"]')
+                ? "shown"
+                : "missing"
+        }`,
+    });
+    out.push({
+        claim: "externalFilter: onFiltersChange fired with the normalized list",
+        ok:
+            Array.isArray(reported) &&
+            reported[0]?.columnKey === "priority" &&
+            reported[0]?.value?.[0]?.label === "critical",
+        detail: JSON.stringify(reported?.[0]?.value?.[0] ?? null),
+    });
+
+    grid.setSort({ key: "id", direction: "desc" });
+    await settle(2);
+    out.push({
+        claim: "externalSort: the sort is state (arrow, getSort) but the rows do not move",
+        ok:
+            grid.getSort()?.direction === "desc" &&
+            grid.getVisibleRows()[0].id === firstId,
+        detail: `getSort ${JSON.stringify(grid.getSort())}, first row id ${
+            grid.getVisibleRows()[0].id
+        }`,
+    });
+
+    // Restore: flags off re-runs the pipeline — the local filter and sort take effect, so
+    // clear both first.
+    grid.clearFilters();
+    grid.setSort(undefined);
+    grid.setOptions({
+        externalFilter: false,
+        externalSort: false,
+        onFiltersChange: undefined,
+    });
+    await settle(2);
+    out.push({
+        claim: "setOptions toggles both flags off and the local pipeline is back",
+        ok: grid.getState().rowCount === baseline,
+        detail: `${grid.getState().rowCount} rows after restore`,
+    });
+    return out;
+}
+
+/** The built-in `"text"` filter: one claim per operator, plus its popover body. */
+async function checkTextFilter() {
+    const out = [];
+    const lower = (r) => r.task.toLowerCase();
+
+    const cases = [
+        { op: "contains", text: "release", test: (r) => lower(r).includes("release") },
+        { op: "startsWith", text: "task 1", test: (r) => lower(r).startsWith("task 1") },
+        { op: "equals", text: rows[0].task, test: (r) => lower(r) === rows[0].task.toLowerCase() },
+    ];
+    for (const { op, text, test } of cases) {
+        grid.setFilters([{ columnKey: "task", value: { op, text } }]);
+        await settle(2);
+        const expected = rows.filter(test).length;
+        const got = grid.getState().rowCount;
+        out.push({
+            claim: `filterType "text": ${op} keeps the rows the docs say`,
+            ok: got === expected && expected > 0,
+            detail: `${got} rows, expected ${expected}`,
+        });
+    }
+
+    const chip = document.querySelector(
+        '.avg-filter-chip[data-column-key="task"] .avg-filter-chip-values',
+    );
+    out.push({
+        claim: "the chip spells the operator as the switch is labelled",
+        ok: chip?.textContent?.startsWith("equals ") ?? false,
+        detail: chip?.textContent ?? "(no chip)",
+    });
+
+    grid.setFilters([]);
+    await settle(2);
+
+    // The popover: the text body, not the checklist, with the input focused.
+    void grid.showFilterPopover("task");
+    await settle(2);
+    const input = document.querySelector(".avg-filter-popover .avg-text-filter-input");
+    out.push({
+        claim: "the funnel opens the text body with the input focused",
+        ok: Boolean(input) && document.activeElement === input,
+        detail: input
+            ? `input present, focus on ${document.activeElement?.className || "?"}`
+            : "(no text input)",
+    });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await settle(2);
+    return out;
+}
+
 async function checkAll() {
     const results = [
         ...checkClassHooks(),
@@ -512,6 +634,8 @@ async function checkAll() {
         ...(await checkEditor()),
         ...checkCopyValue(),
         ...(await checkFreezeEnds()),
+        ...(await checkExternalData()),
+        ...(await checkTextFilter()),
     ];
     show(results);
     return {
@@ -554,6 +678,8 @@ window.custom = {
     checkEditor,
     checkCopyValue,
     checkFreezeEnds,
+    checkExternalData,
+    checkTextFilter,
     pressCell,
     settle,
     get grid() {

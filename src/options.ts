@@ -511,6 +511,55 @@ export interface AVGridOptions<R = any> {
      * May return a promise. Receives the *other* applied filters, so options can cascade.
      */
     onGetOptions?: GetFilterOptions<R>;
+    /**
+     * The host owns filtering: the grid keeps the whole filter UI — funnels, popovers, chips,
+     * `onFiltersChange`, persistence — but never tests a row against `filters`. Default `false`.
+     *
+     * For rows that arrive already filtered, usually by a server:
+     *
+     * ```js
+     * AVGrid.create(el, {
+     *     rows,                                              // one server-filtered page
+     *     externalFilter: true,
+     *     filterBar: true,
+     *     onFiltersChange: (filters) => reload({ filters }), // the round trip is the host's
+     *     onGetOptions: async (columns, filters, columnKey, search) =>
+     *         (await fetch(`/values/${columnKey}?q=${search ?? ""}`)).json(),
+     * });
+     * ```
+     *
+     * Pass `onGetOptions` with this: the built-in checklist offers the distinct values of the
+     * *loaded* rows, and a server-filtered page has every filter — including the column's own —
+     * already baked in, so a checklist built from it can only offer values that already pass and
+     * can never re-widen a filter. Only the host has seen the full value set.
+     *
+     * `searchString` still filters locally — it is a local row search by definition. A host
+     * searching server-side should pass its words to `highlightString` instead, which marks
+     * matches without filtering anything.
+     *
+     * Independent of `externalSort`: a grid may sort a loaded page locally while filtering
+     * server-side.
+     */
+    externalFilter?: boolean;
+    /**
+     * The host owns sorting: the grid keeps the whole sort UI — header clicks, arrows,
+     * `multiSort` position numbers, `aria-sort`, `onSortChange` — but never reorders the rows.
+     * Default `false`.
+     *
+     * For rows that arrive already sorted, usually by a server:
+     *
+     * ```js
+     * AVGrid.create(el, {
+     *     rows,                                      // already in server order
+     *     externalSort: true,
+     *     onSortChange: (sort) => reload({ sort }),  // the round trip is the host's
+     * });
+     * ```
+     *
+     * Independent of `externalFilter`; `Column.sortValue` and `Column.rowCompare` are simply
+     * never called while this is on.
+     */
+    externalSort?: boolean;
     disableSorting?: boolean;
     /** Take the funnel off every header. A column opts out on its own with `filterType: null`. */
     disableFiltering?: boolean;

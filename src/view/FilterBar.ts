@@ -25,7 +25,7 @@
  */
 
 import type { AVGridModel } from "../model/AVGridModel";
-import type { Column, DisplayFormat, Filter } from "../types";
+import type { Column, DisplayFormat, Filter, TextFilterValue } from "../types";
 import { formatDisplayValue } from "../gridUtils";
 import { createIconButton } from "./Button";
 import { chevronDownIcon, chevronUpIcon, closeIcon } from "./icons";
@@ -87,6 +87,17 @@ export function optionsFilterValues(filter: Filter, maxCharCount: number): strin
 }
 
 /**
+ * A `"text"` filter's chip text: `contains smith` — the operator word spelled as the popover's
+ * switch is labelled (`starts with`, not `startsWith`), then the text as typed.
+ */
+function textFilterValues(filter: Filter): string {
+    const value = filter.value as TextFilterValue | undefined;
+    if (!value?.text) return "";
+    const op = value.op === "startsWith" ? "starts with" : (value.op ?? "contains");
+    return `${op} ${value.text}`;
+}
+
+/**
  * The chip's text: a custom filter's own `label`, else the built-in value list.
  *
  * The host's label is not truncated. `MAX_LABEL_CHARS` exists because a checklist of twenty
@@ -114,6 +125,7 @@ function filterValues<R>(
             return definition.name;
         }
     }
+    if (filter.type === "text") return textFilterValues(filter);
     return optionsFilterValues(filter, maxCharCount);
 }
 
@@ -121,6 +133,8 @@ function filterValues<R>(
 function fullValues<R>(filter: Filter, column?: Column<R>): string {
     // A custom filter has one label and no list behind it, so the tooltip is that label.
     if (column?.filter) return filterValues(filter, MAX_LABEL_CHARS, column);
+    // A text filter's label is never truncated, so the tooltip is the same text.
+    if (filter.type === "text") return textFilterValues(filter);
     const values = Array.isArray(filter.value) ? filter.value : [];
     return values.map((o) => optionText(o, filter.displayFormat)).join(", ");
 }

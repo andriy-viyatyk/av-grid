@@ -259,6 +259,41 @@ describe("the option diff lane", () => {
         expect(made).toHaveLength(1);
     });
 
+    it("carries the phase-12 options — externalFilter and externalSort — with no wrapper change", () => {
+        // Same claim as phase 10's: every new core option reaches the wrapper through lane 3
+        // by construction. Verified by test, not by reading.
+        const made = spyOnCreate();
+        const unsorted = [...rows].reverse();
+        // One object across renders: an inline literal would be re-sent by Object.is, which is
+        // the wrapper's documented contract for object props.
+        const sort = { key: "name", direction: "asc" as const };
+        const view = render(
+            <AVGridReact<Row>
+                rows={unsorted}
+                columns={columns}
+                externalSort
+                sort={sort}
+            />,
+        );
+        const grid = made.at(-1)!;
+        // The sort is state, but the host owns the order.
+        expect(grid.getVisibleRows()).toEqual(unsorted);
+
+        const setOptions = vi.spyOn(grid, "setOptions");
+        view.rerender(
+            <AVGridReact<Row>
+                rows={unsorted}
+                columns={columns}
+                externalSort
+                externalFilter
+                sort={sort}
+            />,
+        );
+        expect(setOptions).toHaveBeenCalledTimes(1);
+        expect(setOptions).toHaveBeenCalledWith({ externalFilter: true });
+        expect(made).toHaveLength(1);
+    });
+
     it("sends undefined for a prop that disappeared, and the option goes back to its default", () => {
         const made = spyOnCreate();
         const view = render(

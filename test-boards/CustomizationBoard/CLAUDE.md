@@ -8,6 +8,9 @@ row per documented claim** with the value it was checked against:
 `Column.cellClass` · `Column.headerClass` · `rowClass` · `Column.editor` · `Column.filter` ·
 `Column.copyValue` · `Column.sortValue`
 
+Phase 12 added two more subjects: `externalFilter` / `externalSort` (the host owns the row set)
+and the built-in `filterType: "text"` — the Task column runs it live.
+
 Its sibling [`AVGridBoard/`](../AVGridBoard/CLAUDE.md) measures what those hooks **cost** —
 `measureClassHooks`, `measureCustomEditor`, `measureCustomFilter`, `measureCopyValue`,
 `measureSortValue`. This board asks the other question and answers it as pass/fail. Neither
@@ -36,6 +39,8 @@ await window.custom.checkFilterPopover() // the funnel opens the host body; the 
 await window.custom.checkEditor()       // open, Escape, Tab-commit, and eviction by scroll
 window.custom.checkCopyValue()          // copyValue on the real ctrl+C path
 await window.custom.checkFreezeEnds()   // a filter cleared after an edit re-runs the pipeline
+await window.custom.checkExternalData() // externalFilter/externalSort: state without a row pass
+await window.custom.checkTextFilter()   // the "text" type: each operator, the chip, the popover
 window.custom.createGrid(50000)         // rebuild at any size
 window.custom.grid                      // the live AVGrid
 ```
@@ -44,7 +49,9 @@ window.custom.grid                      // the live AVGrid
 the "checked against" column carrying the number or string the assertion saw — a failure says
 *what it found*, not only that it failed.
 
-**The expected result is 20/20.** Anything else is a regression, and the detail column names it.
+**The expected result is 29/29** (20 through phase 6, +9 from phase 12). Anything else is a
+regression, and the detail column names it. Run `checkAll()` from a clean grid — a filter left
+applied by an earlier experiment pollutes the row-count claims (`createGrid()` resets).
 
 ## Key files
 
@@ -88,6 +95,13 @@ the "checked against" column carrying the number or string the assertion saw —
 - **The freeze** — a regression check for the bug this board's example found: an edit freezes the
   row order, and a filter change has to end that freeze. Before the fix, clearing a filter after
   an edit left the filtered-out rows on screen (`942 filtered → 942 after clear`).
+- **External data** — the state that *looks* broken by design: a chip on the bar while every row
+  stays, a sort arrow while nothing moves. Checked live because that is also the state a layout
+  bug would fake — the claims pin the chip's presence, the unchanged row set, the normalized
+  callback payload, and that toggling both flags off restores the local pipeline.
+- **The text filter** — one claim per operator against row counts computed from the same data,
+  the chip spelling `starts with` (not `startsWith`), and the funnel opening the text body with
+  the input focused.
 
 ## Gotchas
 

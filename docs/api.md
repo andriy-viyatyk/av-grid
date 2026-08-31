@@ -378,6 +378,8 @@ once per row, so keep it a property read rather than a search.
 | `filters` | `Filter[]` | `[]` | Applied column filters. See [Filtering](#filtering). |
 | `persistFilters` | `PersistFiltersOptions` | — | Remember the filters across reloads. Passing this **is** the consent to write. |
 | `onGetOptions` | `GetFilterOptions<R>` | — | Supply the options a filter popover offers, instead of the column's distinct values. May return a promise. |
+| `externalFilter` | `boolean` | `false` | The host owns filtering: the whole filter UI keeps working, but the grid never tests a row against `filters`. For rows that arrive already filtered, usually by a server. See [Host-owned filtering and sorting](#host-owned-filtering-and-sorting). |
+| `externalSort` | `boolean` | `false` | The host owns sorting: header clicks, arrows and `onSortChange` keep working, but the grid never reorders the rows. Independent of `externalFilter`. See [Host-owned filtering and sorting](#host-owned-filtering-and-sorting). |
 | `disableSorting` | `boolean` | `false` | |
 | `disableFiltering` | `boolean` | `false` | Take the funnel off every header. One column opts out with `filterType: null`. |
 | `filterBar` | `boolean` | `false` | A bar of removable filter chips directly above the grid. Read at `create()`. |
@@ -478,7 +480,8 @@ interface Column<R = any> {
 
     sortValue?: (row: R) => any;                 // the value this column sorts by, read once per row
     rowCompare?: (left: R, right: R) => number;  // ...or the comparison itself; wins over sortValue
-    filterType?: "options" | null;  // default "options"; null takes the funnel off
+    filterType?: "options" | "text" | null;  // default "options"; "text" is contains/equals/
+                                    // starts with; null takes the funnel off
     filter?: FilterDefinition<R>;   // a filter type of your own, in place of the checklist
 
     validate?: (column: Column<R>, row: R, value: any) => any;
@@ -606,7 +609,7 @@ each one tries; the first hook present wins.
 | **What the cell shows** | `render` → the checkbox/tick (`dataType: "boolean"`) → `formatValue` → `displayFormat` → `row[key]` |
 | **Sorting** | `rowCompare` → `sortValue` → `row[key]`; whichever value is reached is compared by its runtime type (number, string via `localeCompare`, `Date` by instant, boolean, nullish first) |
 | **The search box** | `formatValue` → `displayFormat` → `row[key]` |
-| **A filter's row test** | `filter.match(value, row, column)` when the column has a custom `filter`, which reads whatever it likes; otherwise `formatValue` → `row[key]` |
+| **A filter's row test** | `filter.match(value, row, column)` when the column has a custom `filter`, which reads whatever it likes; a `"text"` filter matches the search box's projection — `formatValue` → `displayFormat` → `row[key]`, `String()`-coerced, case-insensitive; otherwise (`"options"`) `formatValue` → `row[key]` |
 | **A filter's option list** | values from `formatValue` → `row[key]`; each label through `displayFormat` |
 | **Copy** | `copyValue` → `formatValue` → `displayFormat` → text of `render` → `row[key]` |
 | **Paste** | `validate` → `defaultValidate` for the column's `dataType` |
@@ -1305,7 +1308,7 @@ interface ColumnStateSnapshot {
     hasRender: boolean;             // a custom renderer is installed
     hasOptions: boolean;            // edits through the dropdown
     hasEditor: boolean;             // the column supplies its own editor
-    filterType: string | null;      // "options", a custom definition's name, or null
+    filterType: string | null;      // "options", "text", a custom definition's name, or null
 }
 
 interface ViewportSnapshot {
@@ -1413,17 +1416,70 @@ the chips read and what `persistFilters` stores, and it is safe to hand straight
 An empty or absent `value` means **no filter at all**, which is why applying one and removing it
 are the same call: applying an empty selection means "no filter", not "no rows".
 
-`FilterType` is `"options"` — the built-in checklist — or the `name` of a `FilterDefinition` you
-put on the column. Do not write `type` by hand for a custom filter: it is taken from the column,
-and a filter naming a type the column does not have is rejected.
+`FilterType` is `"options"` — the built-in checklist — or `"text"` — the built-in text filter —
+or the `name` of a `FilterDefinition` you put on the column. Do not write `type` by hand for a
+custom filter: it is taken from the column, and a filter naming a type the column does not have
+is rejected.
 
 ### The funnel
 
 Every column carries one by default. `filterType: null` takes it off one column,
 `disableFiltering: true` off all of them. Clicking it opens a searchable checklist of that
 column's distinct values, **cascaded against the other filters**, with select-all, Apply and
-Clear. A column with 100,000 distinct values puts 12 rows in the checklist. Give the column a
-`filter` definition and the same funnel opens that instead — see below.
+Clear. A column with 100,000 distinct values puts 12 rows in the checklist. `filterType: "text"`
+opens the built-in text filter instead — see below. Give the column a `filter` definition and
+the same funnel opens that — see [a filter type of your own](#columnfilter--a-filter-type-of-your-own).
+
+### `filterType: "text"` — the built-in text filter
+
+For a high-cardinality column — names, descriptions, ids — where a checklist of every distinct
+value is the wrong shape. One input, three operators: **contains** (the default), **equals**,
+**starts with**.
+
+```js
+AVGrid.create(el, {
+    rows,
+    columns: [
+        { key: "name", filterType: "text" },   // input + contains | equals | starts with
+        { key: "status" },                     // unchanged: the options checklist
+    ],
+    filterBar: true,
+});
+```
+
+The value is JSON-shaped, so persistence needs no `serialize`, and it is the whole of what a
+host building a server-side predicate reads:
+
+```ts
+interface TextFilterValue { op: "contains" | "equals" | "startsWith"; text: string }
+```
+
+```js
+grid.setFilters([{ columnKey: "name", value: "smith" }]);                       // bare string —
+// normalizes to { op: "contains", text: "smith" }
+grid.setFilters([{ columnKey: "name", value: { op: "startsWith", text: "A" } }]);
+```
+
+The rules, all shared with the checklist where they can be:
+
+- **It filters locally.** `match` runs case-insensitively against the *displayed* text — the
+  same `formatValue` → `displayFormat` → `row[key]` projection the search box matches,
+  `String()`-coerced — so a date column filters by what its cells actually show, and a nullish
+  cell never matches. `equals` compares the whole displayed string. (Under
+  [`externalFilter`](#host-owned-filtering-and-sorting) the local test never runs and the host
+  reads `op` and `text` instead.)
+- **Empty text removes the filter** — the input's text is trimmed, and Apply on a trimmed-empty
+  input is Clear, exactly like the checklist's empty selection.
+- **The chip** reads `Name: contains smith`, the operator spelled as the switch is labelled
+  (`starts with`, not `startsWith`).
+- **Keyboard**: Alt+↓ opens the popover with the caret in the input (stretched to the popover's
+  width); the operators are a row of chips under it carrying radio semantics — arrow keys cycle
+  them; **Enter applies**.
+- The needle is lowercased once per filter pass, never once per row, and never written into the
+  value — `getFilters()` hands back exactly `{ op, text }` as typed.
+
+`endsWith`, negation, regex and ranges are deliberately not here; a range is the worked example
+under [a filter type of your own](#columnfilter--a-filter-type-of-your-own).
 
 ### `column.filter` — a filter type of your own
 
@@ -1467,7 +1523,9 @@ interface FilterDefinition<R = any> {
     name: string;                                          // stored as the filter's `type`
     create: (ctx: FilterBodyContext<R>) => FilterBody;
     label: (value: any, column: Column<R>) => string;
-    match: (value: any, row: R, column: Column<R>) => boolean;
+    match?: (value: any, row: R, column: Column<R>) => boolean;
+    // ^ optional in the type only for `externalFilter: true`, where the row test never runs.
+    //   Required — enforced at create(), naming the column — everywhere else.
     serialize?: (value: any) => any;                       // only if the value is not JSON
     deserialize?: (stored: any) => any;
 }
@@ -1549,6 +1607,54 @@ is discarded. Ignore `search` and the list narrows the returned options itself.
 ```ts
 interface DisplayOption<T = any> { value: T; label: string; italic?: boolean }
 ```
+
+### Host-owned filtering and sorting
+
+For rows that arrive already filtered and sorted — usually by a server, over a dataset too large
+to load. The grid keeps its whole filter and sort UI; the host owns the round trip:
+
+```js
+AVGrid.create(el, {
+    rows,                                  // one server-filtered, server-sorted page
+    externalFilter: true,                  // don't test rows against `filters`
+    externalSort: true,                    // don't reorder rows
+    filterBar: true,
+    onFiltersChange: (filters) => reload({ filters }),   // the round trip is the host's
+    onSortChange: (sort) => reload({ sort }),
+    onGetOptions: async (columns, filters, columnKey, search) =>
+        (await fetch(`/values/${columnKey}?q=${search ?? ""}`)).json(),
+});
+```
+
+**What each flag changes — deliberately almost nothing.**
+
+| | `externalFilter: true` | `externalSort: true` |
+|---|---|---|
+| **Skipped** | the `filters` test in the row pass | the reorder in the row pass |
+| **Unchanged** | funnels, popovers, filter types, chips, the bar, persistence, `onFiltersChange`, `isFiltered`, `applyFilter` / `setFilters` / `clearFilters` | header arrows, position numbers, `aria-sort`, the click and Ctrl/Cmd+click gestures, `multiSort`, `onSortChange`, `getSort` / `setSort` |
+| **Unused by the grid** | `FilterDefinition.match` | `Column.sortValue`, `Column.rowCompare` |
+
+The two are independent — a grid may sort a loaded page locally while filtering server-side, and
+the other way around. Both are ordinary options: toggle either with `setOptions()` and the row
+pipeline re-runs; both reach the React wrapper as plain props.
+
+**Pass `onGetOptions` with `externalFilter`.** The built-in checklist offers the distinct values
+of the *loaded* rows — and a server-filtered page has every filter, **including the column's
+own**, already baked in. The cascade's usual rule (a column's own filter is excluded, so unticked
+values stay offered) cannot work when the exclusion already happened on the server: the checklist
+can only offer values that currently pass, so it can narrow a filter but never re-widen one. Only
+the host has seen the full value set. Not enforced — a boolean column's two page-derived values
+are still correct — but it is the confusing case this option exists to remove.
+
+**`FilterDefinition.match` may be omitted** while `externalFilter` is on — the row test never
+runs, and `match: () => true` on every column would be noise. It stays required otherwise, checked
+at `create()` with an error naming the column; turning `externalFilter` *off* with `setOptions()`
+re-checks, so a definition accepted without one can never be left silently keeping every row.
+
+**There is no `externalSearch`, on purpose.** `searchString` is a local row search by definition
+and keeps filtering the loaded page. A host searching server-side already has the right tool:
+pass its words to [`highlightString`](#search-highlighting), which marks matches and filters
+nothing.
 
 ### Persistence
 

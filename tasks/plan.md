@@ -1,9 +1,9 @@
-# av-grid — Implementation Plan 08: (no committed task)
+# av-grid — Implementation Plan 09: (no committed task)
 
-**Phase 12 — empty.** Phases 1–11 are done and shipped through **2.6.0**; nothing is committed
+**Phase 13 — empty.** Phases 1–12 are done and shipped through **2.7.0**; nothing is committed
 here yet. The next task arrives when a consumer asks — the open questions below are the known
 candidates. **Before starting any task here, read the decision logs in `plan-done-01.md` …
-`plan-done-07.md`** — every one of them still applies.
+`plan-done-08.md`** — every one of them still applies.
 
 ## Ground rules (standing, carried forward)
 
@@ -19,8 +19,7 @@ candidates. **Before starting any task here, read the decision logs in `plan-don
 
 | # | Task | Status |
 |---|------|--------|
-| 1–50 | Phases 1–11 | see `plan-done-01.md` … `plan-done-07.md` — ✅ Done |
-| — | The loan ledger: reclaim pool cells rendered by a superseded recompute (found by a consumer, shipped as a patch) | ✅ Done |
+| 1–52 | Phases 1–12 | see `plan-done-01.md` … `plan-done-08.md` — ✅ Done |
 
 ## Open questions carried forward
 
@@ -31,9 +30,11 @@ candidates. **Before starting any task here, read the decision logs in `plan-don
    proves otherwise (answered in plan 06, restated so it is not re-litigated).
 3. **`--avg-*` on `:root`** — the standing theming question from CLAUDE.md, still open, still not
    urgent.
-
-## Decision log
-
-| Decision | Why | What it cost / what to know |
-|---|---|---|
-| The pool's `recycle` is wrapped in a loan ledger (`acquireCell` records, `reclaimLoaned(active)` at the end of `paint()` re-parks what the painted info did not claim) | `renderCell` runs during the model's *recompute*, and a frame can hold more than one — two scroll events, or two state writes in separate microtasks. Only the last render info is painted; the dropped pass's cells came out of the pool, and with `keepCellsAttached` a pooled cell is still an un-hidden child of its region that was never in `attached`, so no `syncRegion` can ever evict it — stale rows on screen for the life of the grid | Found by a consumer's file tree (lazy loads + expand/collapse make two recomputes per frame easy), diagnosed by its agent: the signature is `data-avg-pooled` **and** `data-row` on one element, a combination `evictCell`/`admitCell` make impossible on the normal path. The ledger also reclaims a cell a renderer takes with `recycle()` and drops. `onCellReleased` can now fire twice with no attach between — `MeasuredRowGrid`'s handler is idempotent, and any future listener must be too. Gate unmoved (1.8 ms / 0.96× / 60 fps / 0) |
+4. **A `loading` state for a host-owned grid** (raised by plan 08) — a filter round trip is the
+   first time the grid's own gesture starts something slow. Deliberately unshipped: let a real
+   screen say what it needs (dim the rows? keep the header live? a spinner slot?) before
+   inventing it. Today the host draws its own overlay.
+5. **Range filters — number and date — as built-in types** (raised by plan 08). `docs/api.md`
+   already teaches a date range as *the* custom-filter example. If consumers keep writing subtly
+   different ranges, that is the argument for adopting them; the `"text"` type is the precedent
+   for how a built-in arm lands.

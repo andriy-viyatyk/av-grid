@@ -135,6 +135,14 @@
             its position beside the arrow.</p>
         </li>
         <li>
+            <a href="15-external-data.html">Host-owned filtering + text filter</a>
+            <p class="d">A fake async server holds 50,000 rows; the grid holds one page.
+            <code>externalFilter</code> / <code>externalSort</code> keep the whole filter and
+            sort UI while every change round-trips through <code>onFiltersChange</code> /
+            <code>onSortChange</code> — and the Name column is the built-in
+            <code>filterType: "text"</code>: contains / equals / starts with.</p>
+        </li>
+        <li>
             <a href="persephone-board/index.html">Persephone board</a>
             <span style="font-weight: 400; color: #666">·
             <a href="https://github.com/andriy-viyatyk/av-grid/blob/main/examples/persephone-board/README.md"

@@ -124,19 +124,31 @@ export class RowsModel<R> {
      * `options.filters` is read, not owned: `FiltersModel` is the only thing that writes it,
      * and calls `updateRows()` when it does. This model's job is which rows survive, never
      * which filters are applied.
+     *
+     * Under `externalFilter` the filters are withheld from the pass rather than the pass
+     * skipped: `searchString` is a *local* row search whatever the host does server-side, so it
+     * keeps filtering. The guard lives here and not in `filterRows` — the utility is pure, has
+     * other callers (the cascade in `defaultFilterOptions`), and the policy belongs to the
+     * model that owns the pipeline.
      */
     private filter = (rows: readonly R[]): readonly R[] =>
         filterRows(
             rows,
             this.model.data.columns,
             this.model.options.searchString,
-            this.model.options.filters,
+            this.model.options.externalFilter
+                ? undefined
+                : this.model.options.filters,
         );
 
     private sort = (
         rows: readonly R[],
         direction?: SortDirection,
     ): readonly R[] => {
+        // The host owns the order: the sort state still drives the arrows, the position
+        // numbers and `onSortChange`, but the rows stay exactly as they were handed over.
+        if (this.model.options.externalSort) return rows;
+
         const rowCompare = this.model.data.rowCompare;
         if (!rowCompare) return rows;
 

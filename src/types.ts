@@ -365,13 +365,14 @@ export type OnColumnsReorder = (sourceKey: string, targetKey: string) => void;
 // ---------------------------------------------------------------------------
 
 /**
- * Which filter body a column opens. `"options"` is the built-in checklist; any other string is
- * the `name` of a `FilterDefinition` supplied as the column's `filter`.
+ * Which filter body a column opens. `"options"` is the built-in checklist, `"text"` the built-in
+ * text filter (contains / equals / starts with); any other string is the `name` of a
+ * `FilterDefinition` supplied as the column's `filter`.
  *
- * The `(string & {})` arm is what keeps `"options"` in an editor's autocomplete while still
+ * The `(string & {})` arm is what keeps the built-ins in an editor's autocomplete while still
  * accepting a custom name — a plain `string` would offer nothing.
  */
-export type FilterType = "options" | (string & {});
+export type FilterType = "options" | "text" | (string & {});
 
 /**
  * One applied column filter.
@@ -427,6 +428,30 @@ export type OptionsFilterValue = DisplayOption[];
 export interface OptionsFilter extends Filter {
     type?: "options";
     value?: OptionsFilterValue | readonly any[];
+}
+
+/**
+ * A `"text"` filter's value. This shape is public surface: a host building a server-side
+ * predicate reads `op` and `text` and nothing else, and it is what `persistFilters` stores.
+ *
+ * A bare string is accepted on the way in and normalized to `{ op: "contains", text }`, so the
+ * shortest useful text filter is:
+ *
+ * ```js
+ * grid.setFilters([{ columnKey: "name", value: "smith" }]);   // name contains "smith"
+ * ```
+ *
+ * Empty text means no filter at all — the same nullish rule the checklist follows — so applying
+ * an empty input removes the filter rather than filtering to nothing.
+ */
+export interface TextFilterValue {
+    op: "contains" | "equals" | "startsWith";
+    text: string;
+}
+
+export interface TextFilter extends Filter {
+    type?: "text";
+    value?: TextFilterValue | string;
 }
 
 /**
@@ -532,8 +557,17 @@ export interface FilterDefinition<R = any> {
     create: (ctx: FilterBodyContext<R>) => FilterBody;
     /** The chip's text in the filter bar, and its tooltip. */
     label: (value: any, column: Column<R>) => string;
-    /** Keep this row? Called once per row, per filter, on every filter pass. */
-    match: (value: any, row: R, column: Column<R>) => boolean;
+    /**
+     * Keep this row? Called once per row, per filter, on every filter pass.
+     *
+     * Optional in the *type* only because `externalFilter: true` — where something upstream
+     * filters the rows and the grid's own row test never runs — makes it genuinely unnecessary,
+     * and TypeScript cannot condition a field on a runtime option. Everywhere else it is
+     * required, enforced at `create()` with an error naming the column, and toggling
+     * `externalFilter` off at runtime re-checks so a definition without one can never silently
+     * keep every row.
+     */
+    match?: (value: any, row: R, column: Column<R>) => boolean;
     /**
      * Only if the value is not JSON-shaped. `persistFilters` stores it with `JSON.stringify` and
      * revives ISO date strings on the way back, which covers most values as they stand.

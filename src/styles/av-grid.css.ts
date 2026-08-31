@@ -994,6 +994,69 @@ export const css = `
     padding: 8px;
 }
 
+/* The built-in text filter: an input over a radio group. Intrinsic size, no grip, so the
+   buttons take the same padding a custom body's do. */
+.avg-text-filter-content > .avg-filter-buttons {
+    padding: 6px;
+}
+
+.avg-text-filter-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+}
+
+.avg-text-filter-input {
+    /* The whole popover width. box-sizing, because a host page's input rules reach in here
+       and content-box + 100% would overflow the padding. */
+    box-sizing: border-box;
+    width: 100%;
+    padding: 4px 6px;
+    font: inherit;
+    color: var(--avg-text);
+    background-color: var(--avg-bg);
+    border: solid 1px var(--avg-border-color);
+    border-radius: 4px;
+    outline: none;
+}
+
+.avg-text-filter-input:focus {
+    border-color: var(--avg-accent);
+}
+
+/* The three operators: one horizontal row of chips under the input, spread to its width. */
+.avg-text-filter-ops {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.avg-text-filter-op {
+    padding: 1px 6px;
+    font: inherit;
+    font-size: 0.85em;
+    white-space: nowrap;
+    color: var(--avg-text-muted);
+    background-color: transparent;
+    border: solid 1px var(--avg-border-color);
+    /* The same rounding as the input and the buttons — the chips are part of one panel. */
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.avg-text-filter-op:hover {
+    background-color: var(--avg-hover-bg);
+}
+
+.avg-text-filter-op-selected,
+.avg-text-filter-op-selected:hover {
+    color: var(--avg-button-primary-text);
+    background-color: var(--avg-button-primary-bg);
+    border-color: var(--avg-button-primary-bg);
+}
+
 .avg-button {
     padding: 3px 12px;
     font: inherit;

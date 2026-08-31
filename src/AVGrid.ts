@@ -450,7 +450,12 @@ export class AVGrid<R = any> {
     setColumns(columns: Column<R>[]): void {
         if (!this.alive("grid.setColumns()")) return;
         this.model.setColumns(
-            validateColumns<R>(columns, this.model.options.rows, this.knownColumnKeys()),
+            validateColumns<R>(
+                columns,
+                this.model.options.rows,
+                this.knownColumnKeys(),
+                Boolean(this.model.options.externalFilter),
+            ),
         );
     }
 
@@ -519,6 +524,7 @@ export class AVGrid<R = any> {
                 columns,
                 this.model.options.rows,
                 new Set(columns.map((c) => String(c?.key))),
+                Boolean(this.model.options.externalFilter),
             ),
             index,
         );
@@ -903,6 +909,33 @@ export class AVGrid<R = any> {
     setOptions(options: Partial<AVGridOptions<R>>): void {
         if (!this.alive("grid.setOptions()")) return;
 
+        // Before the columns: a `match`-less filter definition is legal only under
+        // `externalFilter`, so the flag must be current when columns are validated — and
+        // turning it *off* re-checks the columns that will be in effect, so a definition
+        // accepted without a `match` can never be left silently keeping every row.
+        let externalChanged = false;
+        if ("externalFilter" in options) {
+            const next = Boolean(options.externalFilter);
+            if (next !== Boolean(this.model.options.externalFilter)) {
+                if (!next) {
+                    validateColumns<R>(
+                        options.columns ?? this.model.options.columns,
+                        options.rows ?? this.model.options.rows,
+                        this.knownColumnKeys(),
+                    );
+                }
+                this.model.options.externalFilter = next;
+                externalChanged = true;
+            }
+        }
+        if ("externalSort" in options) {
+            const next = Boolean(options.externalSort);
+            if (next !== Boolean(this.model.options.externalSort)) {
+                this.model.options.externalSort = next;
+                externalChanged = true;
+            }
+        }
+
         // Order matters: columns first, because row filtering matches against them.
         if ("columns" in options && options.columns) this.setColumns(options.columns);
         if ("rows" in options && options.rows) this.setRows(options.rows);
@@ -926,6 +959,8 @@ export class AVGrid<R = any> {
         delete rest.multiSort;
         delete rest.selected;
         delete rest.focus;
+        delete rest.externalFilter;
+        delete rest.externalSort;
 
         // An explicit `undefined` means "back to the default", not "leave it alone". That is
         // what a host adapter sends when a prop disappears — `av-grid/react` does exactly this
@@ -1010,6 +1045,12 @@ export class AVGrid<R = any> {
             });
             this.syncAria();
         }
+
+        // The two flags change which rows survive without changing any input the handlers
+        // above watch, so the pipeline is re-run for them explicitly. `refilterRows`, not
+        // `updateRows`: the order an editing freeze was holding steady is the one the flag
+        // has just redefined.
+        if (externalChanged) this.model.models.rows.refilterRows();
 
         this.syncAffordances();
         this.refresh();

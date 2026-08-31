@@ -18,6 +18,7 @@ import type {
     OptionsFilter,
     RowCompare,
     SortColumn,
+    TextFilterValue,
 } from "./types";
 
 /**
@@ -112,6 +113,12 @@ export function formatDisplayValue(
 interface ResolvedFilter<R> {
     filter: Filter;
     column?: Column<R>;
+    /**
+     * A `"text"` filter's needle, lowercased once for the whole pass. Derived here rather than
+     * stored in the value: `TextFilterValue` is public surface a host reads to build a server
+     * predicate, and it is persisted — a derived field there would outlive its purpose.
+     */
+    needle?: string;
 }
 
 function filterValue<R>(row: R, resolved: ResolvedFilter<R>): any {
@@ -161,9 +168,13 @@ function filtersMatch<R>(row: R, filters?: ResolvedFilter<R>[]): boolean {
             const definition = column?.filter;
             if (definition) {
                 const value = filter.value;
+                // `match` may be absent only under `externalFilter`, where this pass receives
+                // no filters at all — but a hand-written `filterRows` call can still get here,
+                // and a definition that cannot test a row keeps it.
                 if (
                     value !== undefined &&
                     value !== null &&
+                    definition.match &&
                     !definition.match(value, row, column!)
                 ) {
                     match = false;
@@ -172,10 +183,9 @@ function filtersMatch<R>(row: R, filters?: ResolvedFilter<R>[]): boolean {
                 continue;
             }
 
-            const rowValue = filterValue(row, resolved);
-
             switch (filter.type ?? "options") {
                 case "options": {
+                    const rowValue = filterValue(row, resolved);
                     const optFilter = filter as OptionsFilter;
                     // An empty selection filters nothing — the model removes such a filter
                     // rather than showing an empty grid, and this is the same rule one level
@@ -183,6 +193,31 @@ function filtersMatch<R>(row: R, filters?: ResolvedFilter<R>[]): boolean {
                     if (optFilter.value?.length) {
                         if (!optFilter.value.some((o) => optionMatches(o, rowValue))) {
                             match = false;
+                        }
+                    }
+                    break;
+                }
+                case "text": {
+                    // The needle was resolved for the pass; no needle means no (or empty) text,
+                    // which filters nothing. The haystack is the *displayed* text — the same
+                    // `formatValue` → `displayFormat` → `row[key]` projection the search box
+                    // matches — so a date column filters by what its cells actually read.
+                    const needle = resolved.needle;
+                    if (needle !== undefined) {
+                        const value = column
+                            ? columnDisplayValue(column, row)
+                            : (row as any)?.[filter.columnKey];
+                        const hay =
+                            value === undefined || value === null
+                                ? undefined
+                                : String(value).toLowerCase();
+                        if (hay === undefined) {
+                            match = false;
+                        } else {
+                            const op = (filter.value as TextFilterValue | undefined)?.op;
+                            if (op === "equals") match = hay === needle;
+                            else if (op === "startsWith") match = hay.startsWith(needle);
+                            else match = hay.includes(needle);
                         }
                     }
                     break;
@@ -256,10 +291,26 @@ export function filterRows<R>(
     const searchLower = searchWords(searchString);
 
     const resolved = filters?.length
-        ? filters.map<ResolvedFilter<R>>((filter) => ({
-              filter,
-              column: columns.find((c) => String(c.key) === filter.columnKey),
-          }))
+        ? filters.map<ResolvedFilter<R>>((filter) => {
+              const column = columns.find(
+                  (c) => String(c.key) === filter.columnKey,
+              );
+              // A text filter's needle is lowercased here, once per pass — never per row, and
+              // never written into the value, which is public and persisted. A bare string is
+              // read too: `filterRows` is public and a hand-written call may skip the
+              // normalization that would have wrapped it.
+              const raw =
+                  !column?.filter &&
+                  (filter.type ?? column?.filterType) === "text"
+                      ? (filter.value as TextFilterValue | string | undefined)
+                      : undefined;
+              const text = typeof raw === "string" ? raw : raw?.text;
+              return {
+                  filter,
+                  column,
+                  needle: text ? text.toLowerCase() : undefined,
+              };
+          })
         : undefined;
 
     return rows.filter((r) => {
