@@ -131,6 +131,9 @@ const grid = AVGrid.create(document.body, { rows });    // or an element
 `container` is an element or a selector. `options.rows` is the only required option. Returns an
 `AVGrid` instance. Throws [`AVGridError`](#errors-and-warnings) on input the grid cannot use.
 
+> **Writing React?** Read [`react-api.md`](react-api.md) instead — the same grid as a
+> component, with everything on this page available as props. This page stays framework-free.
+
 ### `AVGrid.createFilterBar(container, { grid, className?, name? })`
 
 Mount a filter bar somewhere other than directly above the grid. See
@@ -178,6 +181,7 @@ AVGrid.create(el, {
 | `selectColumn` | `boolean` | `false` | The checkbox column, pinned left. It is the grid's own: it does not appear in `getColumns()` and does not survive into `setColumns()`. |
 | `selected` | `readonly string[]` | `[]` | Initially selected rows, **by row key**. |
 | `onSelectionChange` | `(keys: string[]) => void` | — | The checkbox selection changed. Call `getSelectedRows()` for the objects — that is O(rows) and so is not done for you. |
+| `focus` | `CellFocus<R> \| null` | `null` | The focused cell and the range around it. Keys alone are enough; `selection` may be omitted for a single cell. The same value `onFocusChange` reports, and safe to hand straight back — see [Focus and range selection](#focus-and-range-selection). |
 
 ```js
 AVGrid.create(el, {
@@ -1058,12 +1062,28 @@ grid.element.addEventListener("keydown", (e) => {
 | Method | Returns | Notes |
 |---|---|---|
 | `getFocus()` | `CellFocus<R> \| undefined` | The focused cell and the range anchored on it. |
-| `setFocus(focus \| undefined)` | `void` | Keys alone are enough — the indices are optional. |
+| `setFocus(focus \| undefined)` | `void` | Keys alone are enough — the indices are optional. Identical to `setOptions({ focus })`. |
 | `clearFocus()` | `void` | |
 | `focusCell(rowIndex, colIndex, withScroll?)` | `void` | Discards any selection. |
 | `selectRange(rowStart, colStart, rowEnd, colEnd)` | `void` | The focus lands on the end corner, as after a drag. |
 | `getSelection()` | `GridSelection<R> \| undefined` | The selected rows and columns, with their index ranges. |
 | `focus()` | `void` | Give the grid keyboard **DOM** focus, so arrow keys reach it without a click first. The focused cell and the selection are untouched — this is `grid.element.focus({ preventScroll: true })` and nothing else. Rarely needed: any press inside the grid already does it, unless the press lands on a control that takes focus itself — an open editor, or a `<button>` a `render` hook drew. |
+
+**The focus is also an option**, so it can be restored at `create()` and driven from a host that
+holds it in state:
+
+```js
+const grid = AVGrid.create(el, {
+    rows,
+    focus: JSON.parse(sessionStorage.getItem("focus")),      // keys are enough
+    onFocusChange: (f) => sessionStorage.setItem("focus", JSON.stringify(f)),
+});
+```
+
+**Echoing it straight back is safe.** Setting a focus equal *in value* to the current one does
+nothing: no repaint, and no second `onFocusChange`. So the round trip *grid moves the focus →
+`onFocusChange` → host state → `focus` → back in* terminates, which is what lets a framework
+binding treat it as a controlled value. The same holds for `sort`, `filters` and `selected`.
 
 ```js
 grid.focusCell(10, 2);
@@ -1462,6 +1482,9 @@ const bar = AVGrid.createFilterBar("#toolbar", { grid });
 bar.element;     // the root; append it wherever
 bar.refresh();   // redraw from the grid's current filters
 bar.destroy();   // yours to destroy — grid.destroy() does not own this one
+
+// Chips only — for a toolbar that has its own clear control
+AVGrid.createFilterBar("#toolbar", { grid, clearButton: false });
 ```
 
 A grid can have any number of bars watching it, mounted either way; they all show the same filters
@@ -1471,6 +1494,40 @@ and any of them can edit them.
 that is not something to do to a page later. `setOptions({ filterBar: false })` still takes the
 bar away, and `true` puts it back on a grid that was *created* with one — on a grid that was not,
 it warns and points you at `createFilterBar()`.
+
+### A bar of your own
+
+When the built-in bar's markup is not enough — chips interleaved with your own controls, your own
+chip design — skip it and render chips yourself. Everything a chip does is a public call, and
+`describeFilter()` hands you the exact strings the built-in chip would show, so the two can never
+disagree:
+
+```js
+const grid = AVGrid.create("#host", { rows, onFiltersChange: renderChips });
+
+function renderChips(filters) {
+    toolbar.replaceChildren(
+        ...filters.map((f) => {
+            const { name, values, title } = grid.describeFilter(f);
+            const chip = document.createElement("span");
+            chip.title = title;                                     // the full value list
+            chip.textContent = `${name}: ${values}`;                // e.g. `Status: open,pending (+3)`
+            chip.onclick = () => grid.showFilterPopover(f.columnKey, { anchor: chip });
+            // and a ✕ calling grid.removeFilter(f.columnKey)
+            return chip;
+        }),
+    );
+}
+myClearButton.onclick = () => grid.clearFilters();
+```
+
+| Piece of a chip | The call |
+|---|---|
+| Its text and tooltip | `grid.describeFilter(filter)` → `{ name, values, title }` |
+| Clicking its body | `grid.showFilterPopover(filter.columnKey, { anchor: chipElement })` |
+| Its ✕ | `grid.removeFilter(filter.columnKey)` |
+| The remove-all ✕ | `grid.clearFilters()` |
+| Knowing when to redraw | `onFiltersChange` — fired for every source: the API, a funnel, any bar |
 
 ---
 
@@ -1768,7 +1825,19 @@ is up.
 
 Root-level classes worth knowing: `avg-grid` (the root), `avg-grid-wrap` (the flex column a
 `filterBar` grid lives in), `avg-header-cell`, `avg-data-cell`, `avg-filter-bar`, `avg-popover`,
-`avg-menu`, `avg-list`. Inside a filter popover: `avg-filter-content` (either body),
+`avg-menu`, `avg-list`.
+
+The shell inside the root is classed too, for the styling the `--avg-*` tokens do not cover:
+
+| Class | The element |
+|---|---|
+| `avg-viewport` | The scrolling element. **The place for scrollbar styling** — `.avg-grid .avg-viewport::-webkit-scrollbar { … }` — and for `scrollbar-width` / `scrollbar-color`. |
+| `avg-cells-area` | The sized canvas the pooled cells position themselves in. |
+| `avg-sticky-top` | The band the header row lives in — a background or `box-shadow` here styles the whole header, not cell by cell. |
+| `avg-sticky-bottom` / `-left` / `-right`, `avg-sticky-top-left` / `-top-right` / `-bottom-left` / `-bottom-right` | The other sticky bands and corners. Empty unless something is frozen on that edge (the checkbox column sits in `avg-sticky-left`). |
+
+These are containers, not cells: put backgrounds, borders and scrollbar styling on them, but leave
+`position`, `overflow` and `transform` alone — the virtualization owns those. Inside a filter popover: `avg-filter-content` (either body),
 `avg-filter-buttons` (the Apply / Clear row), and for a `column.filter`,
 `avg-custom-filter-content` on the panel with `avg-custom-filter-body` around the element your
 `create()` returned.

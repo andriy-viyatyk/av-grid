@@ -24,6 +24,8 @@ export type {
     ViewportSnapshot,
 } from "./AVGrid";
 export type { AVGridOptions, ResolvedOptions } from "./options";
+export { CALLBACK_OPTION_KEYS, PAINT_PATH_CALLBACK_KEYS } from "./options";
+export type { CallbackOptionKey } from "./options";
 export { AVGridError } from "./validate";
 export {
     injectStyles,
@@ -92,8 +94,8 @@ export {
 export type { OptionsFilterContentOptions } from "./view/OptionsFilterContent";
 export { CustomFilterContent } from "./view/CustomFilterContent";
 export type { CustomFilterContentOptions } from "./view/CustomFilterContent";
-export { FilterBar, optionsFilterValues } from "./view/FilterBar";
-export type { FilterBarOptions } from "./view/FilterBar";
+export { FilterBar, optionsFilterValues, describeFilter } from "./view/FilterBar";
+export type { FilterBarOptions, FilterChipText } from "./view/FilterBar";
 export { createButton, createIconButton } from "./view/Button";
 
 // --- helpers --------------------------------------------------------------

@@ -80,17 +80,23 @@ av-grid/
         measured/                ← measured row heights: an opt-in companion over the engine
             MeasuredRowHeights.ts ← height policy; no DOM, so it unit-tests without a browser
             MeasuredRowGrid.ts   ← DOM observation + the RenderGrid it owns
+        react/                   ← the `av-grid/react` entry; imports the core by package name
+            index.ts             ← the subpath's whole surface: two components, two prop types
+            AVGridReact.tsx      ← create/destroy in a layout effect + the three update lanes
+            AVGridFilterBar.tsx  ← the detached filter bar, mounted when the instance arrives
     test-boards/                 ← Persephone boards used to run and debug the grid
         RenderGridTest/          ← the engine alone: the 100k-row performance harness
         AVGridBoard/             ← the whole grid: rendering, interaction, theming
         CustomizationBoard/      ← the host hooks: every documented claim, checked
-    examples/                    ← twelve runnable standalone examples
+        ReactApp/                ← the React wrapper under a real React 19 (a Vite app, not a board)
+    examples/                    ← thirteen runnable standalone examples
     temp/                        ← gitignored scratch space: notes, working files, nothing shipped
 ```
 
 Tests sit next to their subject as `*.test.ts`. Everything runs in the node environment except
-`RenderGrid.test.ts`, `AVGrid.test.ts` and `measured/MeasuredRowGrid.test.ts`, which need a DOM and
-opt into happy-dom with a per-file `// @vitest-environment happy-dom` docblock.
+`RenderGrid.test.ts`, `AVGrid.test.ts`, `measured/MeasuredRowGrid.test.ts` and
+`react/AVGridReact.test.tsx`, which need a DOM and opt into happy-dom with a per-file
+`// @vitest-environment happy-dom` docblock.
 
 **`measured/` is deliberately outside `render/`.** It is composed *over* the engine rather than
 being part of it: it constructs a `RenderGrid`, supplies its `rowHeight` and wraps its

@@ -36,6 +36,7 @@
 
 import { AVGridModel } from "./model/AVGridModel";
 import { RenderGrid } from "./render/RenderGrid";
+import { defaultRowHeight } from "./render/RenderGridModel";
 import type { RenderCellFunc } from "./render/types";
 import { injectStyles } from "./styles/av-grid.css";
 import { renderDataCell } from "./view/DataCell";
@@ -46,10 +47,12 @@ import {
     showFilterPopover,
     type ShowFilterPopoverOptions,
 } from "./view/FilterPopover";
-import { FilterBar } from "./view/FilterBar";
+import { FilterBar, describeFilter } from "./view/FilterBar";
+import type { FilterChipText } from "./view/FilterBar";
 import type { AVGridOptions } from "./options";
 import {
     AVGridError,
+    inferGetRowKey,
     resolveContainer,
     resolveOptions,
     validateColumns,
@@ -248,7 +251,13 @@ export class AVGrid<R = any> {
      */
     static createFilterBar<R = any>(
         container: HTMLElement | string,
-        options: { grid: AVGrid<R>; className?: string; name?: string },
+        options: {
+            grid: AVGrid<R>;
+            className?: string;
+            name?: string;
+            /** `false` drops the remove-all ✕ — for a toolbar with its own clear control. */
+            clearButton?: boolean;
+        },
     ): FilterBar<R> {
         const host = resolveContainer(container);
         if (!options?.grid?.model) {
@@ -264,6 +273,7 @@ export class AVGrid<R = any> {
             model: options.grid.model,
             className: options.className,
             name: options.name,
+            clearButton: options.clearButton,
         });
         host.appendChild(bar.element);
         return bar;
@@ -354,6 +364,11 @@ export class AVGrid<R = any> {
 
         this.dataSubscription = this.model.data.onChange.subscribe(this.onDataChange);
         this.syncAffordances();
+
+        // Late, and deliberately: a `focus` carrying keys only resolves its indices against the
+        // rows and columns, so it needs them built. `initFocus` rather than `setFocus` because
+        // nothing has changed yet — see FocusModel.
+        this.model.models.focus.initFocus(resolved.focus ?? undefined);
 
         // The models ran their first pass in the AVGridModel constructor, before the render
         // model existed to be told about it. Paint what they produced.
@@ -597,6 +612,24 @@ export class AVGrid<R = any> {
     /** Is a filter applied to this column? What the header's funnel indicator asks. */
     isFiltered(columnKey: string): boolean {
         return this.model.models.filters.isFiltered(columnKey);
+    }
+
+    /**
+     * The strings the built-in filter-bar chip would show for this filter — for drawing your
+     * own chips. `name` is the column's name, `values` the truncated value list
+     * (`open,pending (+3)`, or a custom filter's `label`), `title` the full untruncated list
+     * for a tooltip.
+     *
+     * ```js
+     * grid.getFilters().map((f) => {
+     *     const { name, values, title } = grid.describeFilter(f);
+     *     // render a chip; reopen with grid.showFilterPopover(f.columnKey, { anchor: chip });
+     *     // remove with grid.removeFilter(f.columnKey)
+     * });
+     * ```
+     */
+    describeFilter(filter: Filter): FilterChipText {
+        return describeFilter(this.model, filter);
     }
 
     // -----------------------------------------------------------------------
@@ -855,6 +888,19 @@ export class AVGrid<R = any> {
         delete rest.filters;
         delete rest.sort;
         delete rest.selected;
+        delete rest.focus;
+
+        // An explicit `undefined` means "back to the default", not "leave it alone". That is
+        // what a host adapter sends when a prop disappears — `av-grid/react` does exactly this
+        // — and `Object.assign` below would otherwise leave the *resolved* value cleared while
+        // the engine kept the old one. So the resolver's defaults are put back by hand for the
+        // three options that carry one and are not already handled above.
+        if ("getRowKey" in rest && rest.getRowKey === undefined) {
+            rest.getRowKey = inferGetRowKey(this.model.options.rows);
+        }
+        if ("rowHeight" in rest && rest.rowHeight === undefined) {
+            rest.rowHeight = defaultRowHeight;
+        }
         Object.assign(this.model.options, rest);
 
         // Showing or hiding the checkbox column changes what the render layer sees, which
@@ -874,35 +920,46 @@ export class AVGrid<R = any> {
             this.model.requestRepaint();
         }
         if ("selected" in options) this.setSelected(options.selected);
+        // After the rows, columns, filters and sort above: a focus carrying keys only resolves
+        // its indices against the data as it is *now*, not as it was before this call.
+        if ("focus" in options) this.setFocus(options.focus ?? undefined);
         // An editor left open on a grid that is no longer editable would commit on its next
         // blur, writing a value the host has just said it does not accept.
         if (options.editable === false) this.model.models.editing.cancelEdit();
 
-        if (rest.cellBorders !== undefined) {
+        // `"key" in rest`, not `rest.key !== undefined`, for the same reason: passing the key
+        // with an `undefined` value is how a default is asked for back. The engine's own
+        // defaults are restated where they differ from this layer's — `overscanRow` is 4 here
+        // and 0 in `RenderGridModel`, which serves the bare engine.
+        if ("cellBorders" in rest) {
             if (rest.cellBorders === false) {
                 this.render.root.setAttribute("data-cell-borders", "off");
             } else {
                 this.render.root.removeAttribute("data-cell-borders");
             }
         }
-        if (rest.className !== undefined) {
+        if ("className" in rest) {
             this.render.setOptions({
                 className: ["avg-grid", rest.className].filter(Boolean).join(" "),
             });
         }
-        if (rest.rowHeight !== undefined) {
-            this.render.setOptions({ rowHeight: rest.rowHeight });
+        if ("rowHeight" in rest) {
+            this.render.setOptions({ rowHeight: rest.rowHeight ?? defaultRowHeight });
         }
-        if (rest.fitToWidth !== undefined) {
-            this.render.setOptions({ fitToWidth: rest.fitToWidth });
+        if ("fitToWidth" in rest) {
+            this.render.setOptions({ fitToWidth: rest.fitToWidth ?? false });
         }
-        if (rest.overscanRow !== undefined) {
-            this.render.setOptions({ overscanRow: rest.overscanRow });
+        if ("overscanRow" in rest) {
+            this.render.setOptions({
+                overscanRow: rest.overscanRow ?? DEFAULT_OVERSCAN_ROW,
+            });
         }
-        if (rest.overscanColumn !== undefined) {
-            this.render.setOptions({ overscanColumn: rest.overscanColumn });
+        if ("overscanColumn" in rest) {
+            this.render.setOptions({
+                overscanColumn: rest.overscanColumn ?? DEFAULT_OVERSCAN_COLUMN,
+            });
         }
-        if (rest.whiteSpaceY !== undefined) {
+        if ("whiteSpaceY" in rest) {
             this.render.setOptions({ whiteSpaceY: rest.whiteSpaceY });
         }
 

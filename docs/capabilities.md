@@ -601,7 +601,7 @@ commits to the class names and `data-*` attributes as public while explicitly le
 was read out of the source rather than recalled; two of them (`filterRows`, `rowsToCsvText`) were
 not what the obvious guess would have been.
 
-**[`examples/`](../examples/) holds twelve runnable files**, one topic each, every one standalone
+**[`examples/`](../examples/) holds thirteen runnable files**, one topic each, every one standalone
 and meant to be copied whole: minimal · columns · cell rendering · sorting and filtering ·
 selection and keyboard · editing · clipboard · theming · the 100k benchmark · customization ·
 host integration · a Persephone board. Each was opened in a real browser and driven, which is how three of them ended up

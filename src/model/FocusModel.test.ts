@@ -218,6 +218,151 @@ describe("focus", () => {
     });
 });
 
+// ---------------------------------------------------------------------------
+// The `focus` option
+// ---------------------------------------------------------------------------
+
+describe("the focus option", () => {
+    it("focuses a cell at create, from keys alone", async () => {
+        const g = grid(20, {
+            focus: { rowKey: "3", columnKey: "name", isDragging: false },
+        });
+        await paint(g);
+
+        expect(g.getFocus()?.rowKey).toBe("3");
+        expect(classesAt(g, 2, 1)).toContain("avg-focused");
+    });
+
+    it("restores a whole range at create", async () => {
+        const g = grid(20, {
+            focus: {
+                rowKey: "4",
+                columnKey: "name",
+                isDragging: false,
+                selection: {
+                    rowKeyStart: "2",
+                    colKeyStart: "id",
+                    rowStart: 1,
+                    colStart: 0,
+                    rowKeyEnd: "4",
+                    colKeyEnd: "name",
+                    rowEnd: 3,
+                    colEnd: 1,
+                },
+            },
+        });
+        await paint(g);
+
+        expect(g.getSelection()?.rowRange).toEqual([1, 3]);
+        expect(classesAt(g, 2, 0)).toContain("avg-in-selection");
+        expect(classesAt(g, 4, 0)).not.toContain("avg-in-selection");
+    });
+
+    it("does not report the focus it was handed at create", () => {
+        const onFocusChange = vi.fn();
+        grid(20, {
+            focus: { rowKey: "3", columnKey: "name", isDragging: false },
+            onFocusChange,
+        });
+        expect(onFocusChange).not.toHaveBeenCalled();
+    });
+
+    it("moves the focus through setOptions", async () => {
+        const onFocusChange = vi.fn();
+        const g = grid(20, { onFocusChange });
+
+        g.setOptions({ focus: { rowKey: "5", columnKey: "score", isDragging: false } });
+        await paint(g);
+
+        expect(g.getFocus()?.rowKey).toBe("5");
+        expect(classesAt(g, 4, 2)).toContain("avg-focused");
+        expect(onFocusChange).toHaveBeenCalledTimes(1);
+    });
+
+    it("clears the focus when the option is set to undefined", () => {
+        const g = grid();
+        g.focusCell(2, 1);
+        g.setOptions({ focus: undefined });
+        expect(g.getFocus()).toBeUndefined();
+    });
+
+    /**
+     * The property the whole thing rests on. A host that echoes `onFocusChange` back as the
+     * `focus` option hands back an equal but *different* object; re-applying it would fire the
+     * callback again, producing another object, for ever.
+     */
+    /**
+     * The bug the browser found the first time `focus` was driven as a controlled prop, and the
+     * reason `isDragging` is not host-writable. A host echoing `onFocusChange` back sends the
+     * *previous* event's value: the one from `pointerdown`, which says a drag is in flight,
+     * arriving after the `pointerup` that ended it. The grid must keep its own flag.
+     */
+    it("never lets a host-supplied focus change isDragging", () => {
+        const g = grid();
+        g.focusCell(2, 1);
+        expect(g.getFocus()?.isDragging).toBe(false);
+
+        const stale = { ...structuredClone(g.getFocus())!, isDragging: true };
+        g.setOptions({ focus: stale });
+
+        expect(g.getFocus()?.isDragging).toBe(false);
+    });
+
+    it("drops isDragging from a focus restored at create", () => {
+        const g = grid(20, {
+            focus: { rowKey: "3", columnKey: "name", isDragging: true },
+        });
+        expect(g.getFocus()?.isDragging).toBe(false);
+    });
+
+    it("keeps a live drag armed when the focus is echoed back mid-gesture", async () => {
+        const g = grid();
+        const cell = cellAt(g, 1, 1)!;
+        pointer(cell, "pointerdown");
+        await paint(g);
+        expect(g.getFocus()?.isDragging).toBe(true);
+
+        // What a controlled binding does on the commit after `pointerdown`.
+        g.setOptions({ focus: structuredClone(g.getFocus()) });
+        expect(g.getFocus()?.isDragging).toBe(true);
+
+        window.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
+        expect(g.getFocus()?.isDragging).toBe(false);
+    });
+
+    it("ignores a focus that is equal in value but not in identity", () => {
+        const onFocusChange = vi.fn();
+        const g = grid(20, { onFocusChange });
+        g.focusCell(2, 1);
+        expect(onFocusChange).toHaveBeenCalledTimes(1);
+
+        const echoed = structuredClone(g.getFocus());
+        expect(echoed).not.toBe(g.getFocus());
+
+        g.setOptions({ focus: echoed });
+        g.setOptions({ focus: structuredClone(echoed) });
+
+        expect(onFocusChange).toHaveBeenCalledTimes(1);
+        expect(g.getFocus()?.rowKey).toBe("3");
+    });
+
+    it("still reports a focus that differs in only one field", () => {
+        const onFocusChange = vi.fn();
+        const g = grid(20, { onFocusChange });
+        g.selectRange(1, 0, 3, 1);
+        onFocusChange.mockClear();
+
+        const wider = structuredClone(g.getFocus())!;
+        wider.selection!.rowEnd = 4;
+        wider.selection!.rowKeyEnd = "5";
+        wider.rowKey = "5";
+        g.setOptions({ focus: wider });
+
+        expect(onFocusChange).toHaveBeenCalledTimes(1);
+        expect(g.getSelection()?.rowRange).toEqual([1, 4]);
+    });
+});
+
 describe("range selection", () => {
     it("selectRange marks every cell in the rectangle", async () => {
         const g = grid();

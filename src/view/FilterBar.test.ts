@@ -239,6 +239,76 @@ describe("mounting", () => {
     });
 });
 
+describe("a bar of your own", () => {
+    it("clearButton: false renders the chips and no remove-all", () => {
+        const grid = create({ rows });
+        const host = document.createElement("div");
+        document.body.append(host);
+        const detached = AVGrid.createFilterBar(host, { grid, clearButton: false });
+        grid.applyFilter({ columnKey: "status", value: ["open"] });
+
+        expect(chipTexts(detached.element)).toEqual(["Status: open"]);
+        expect(detached.element.querySelector(".avg-filter-bar-clear")).toBeNull();
+        // The built-in bar still has one by default.
+        const withButton = AVGrid.createFilterBar(host, { grid });
+        expect(withButton.element.querySelector(".avg-filter-bar-clear")).not.toBeNull();
+        detached.destroy();
+        withButton.destroy();
+    });
+
+    it("describeFilter hands out the strings the built-in chip shows", () => {
+        const grid = create({ rows, filterBar: true });
+        grid.setFilters([{ columnKey: "status", value: ["open", "done"] }]);
+        const [filter] = grid.getFilters();
+
+        const text = grid.describeFilter(filter!);
+        expect(text.name).toBe("Status");
+        expect(text.values).toBe("open,done");
+        expect(text.title).toBe("Status: open, done"); // the tooltip breathes: comma-space
+        // The exact strings on the chip, so a custom bar and the built-in one cannot disagree.
+        expect(chipTexts()).toEqual([`${text.name}: ${text.values}`]);
+    });
+
+    it("describeFilter uses a custom filter's own label", () => {
+        const grid = create({
+            rows,
+            columns: [
+                {
+                    key: "id",
+                    filter: {
+                        name: "min-id",
+                        create: () => ({
+                            element: document.createElement("div"),
+                            getValue: () => 2,
+                        }),
+                        label: (v) => `≥ ${v}`,
+                        match: (v, row: any) => row.id >= v,
+                    },
+                },
+            ],
+        });
+        grid.applyFilter({ columnKey: "id", type: "min-id", value: 2 });
+        expect(grid.describeFilter(grid.getFilters()[0]!).values).toBe("≥ 2");
+    });
+
+    it("removeFilter takes one filter off and reports through onFiltersChange", () => {
+        const onFiltersChange = vi.fn();
+        const grid = create({ rows, onFiltersChange });
+        grid.setFilters([
+            { columnKey: "status", value: ["open"] },
+            { columnKey: "team", value: ["data"] },
+        ]);
+        onFiltersChange.mockClear();
+
+        grid.removeFilter("status");
+        expect(grid.getFilters().map((f) => f.columnKey)).toEqual(["team"]);
+        expect(onFiltersChange).toHaveBeenCalledTimes(1);
+
+        grid.removeFilter("status"); // already gone — a no-op, not an error
+        expect(onFiltersChange).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe("chips", () => {
     it("shows one chip per filter, named by the column", () => {
         const grid = create({ rows, filterBar: true });

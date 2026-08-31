@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>av-grid React test app</title>
+  </head>
+  <body style="margin:0">
+    <div id="root"></div>
+    <script>
+      // Test-app only: capture everything React or the grid logs, from before the app boots.
+      window.__log = [];
+      for (const m of ["error", "warn"]) {
+        const o = console[m].bind(console);
+        console[m] = (...a) => { window.__log.push([m, a.map(String).join(" ").slice(0, 300)]); o(...a); };
+      }
+      window.addEventListener("error", (e) => window.__log.push(["uncaught", String(e.message)]));
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

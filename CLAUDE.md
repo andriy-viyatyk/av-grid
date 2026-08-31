@@ -17,7 +17,10 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-01.md`](tasks/plan-done-01.md) | The finished plan for the port, tasks 1–20. **Read its decision log before starting any task** — it records every deliberate divergence from the reference, several reference bugs fixed rather than carried over, and the traps that each cost a debugging session |
 | [`tasks/plan-done-02.md`](tasks/plan-done-02.md) | The finished plan for phase 6, customization, tasks 21–26. **Its decision log applies too** |
 | [`tasks/plan-done-03.md`](tasks/plan-done-03.md) | The finished plan for phase 7, the Persephone adoption gaps, tasks 27–32. **Its decision log applies too** |
+| [`tasks/plan-done-04.md`](tasks/plan-done-04.md) | The finished plan for phase 8, the Persephone consolidation, tasks 33–37. **Its decision log applies too** |
+| [`tasks/plan-done-05.md`](tasks/plan-done-05.md) | The finished plan for phase 9, the React wrapper, tasks 38–43. **Its decision log applies too** |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
+| [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
 | [`docs/capabilities.md`](docs/capabilities.md) | What the grid does today and what each subsystem measures, by subsystem |
 | [`docs/invariants.md`](docs/invariants.md) | The three rules below, in full, with what breaking each one cost |
@@ -25,7 +28,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**There is no active `plan.md`.** All three phases are archived, and phase 8 has not been opened.
+**There is no active `plan.md`.** All five phases are archived, and phase 10 has not been opened.
 A plan is archived as `plan-done-<nn>.md` once all its tasks are ✅; the next `plan.md` starts at
 the new phase, carrying forward the standing rules and a pointer back to the logs. **Every archived
 decision log still applies** — they are read before starting a task, not filed away.
@@ -51,17 +54,42 @@ context-menu item**, `rowNoun` (what this grid calls a row), `whiteSpaceY` (the 
 exposed) and `extraElement` (one host element after the last row). All five are additive: no
 existing option default, signature or CSS selector moved.
 
+**Phase 8, the Persephone consolidation, is done as well** (tasks 33–37, shipped as **2.3.0** —
+see [`tasks/plan-done-04.md`](tasks/plan-done-04.md)): the keyed cell pool, measured row heights,
+the scroll-loss fix, after-paint scrolling, and `setOptions` applying shell layout.
+
+**Phase 9, the React wrapper, is done** (tasks 38–43, shipped as **2.4.0** — see
+[`tasks/plan-done-05.md`](tasks/plan-done-05.md)): `av-grid/react` is a subpath export of this same
+package, with `react`/`react-dom` as **optional** peer dependencies, so a vanilla install pulls in
+neither and `dist/av-grid.js` is unchanged. `<AVGridReact>` is a **thin lifecycle adapter, not a
+controlled component**: three update lanes (`rows` → `setRows`; callbacks → stable proxies, never
+re-sent; everything else → one diffed `setOptions`), the real instance through `ref`,
+`<AVGridFilterBar>` for a bar mounted away from the grid, and **`reactEditor` / `reactFilterBody`**
+— adapters that mount a React component as a `Column.editor` or a `FilterDefinition.create`, the
+two hooks where a React root is safe (singleton, gesture-opened, explicit destroy; cell *content*
+stays DOM, that is the pooling invariant). The component is exported as **`AVGrid`**
+(with `AVGridReact` as the alias that cannot collide with the class). See
+[`docs/react-api.md`](docs/react-api.md).
+
+**Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
+one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,
+`searchString` and `focus` may all be held in host state and echoed straight back, because each
+setter guards on **value** and returns early on no change — which is what makes the round trip
+terminate. Those guards are load-bearing; `src/react/AVGridReact.test.tsx` and
+`src/model/FocusModel.test.ts` drive the full loop so that removing one fails a test rather than
+hanging a consumer. **`isDragging` is the exception**: it belongs to the pointer, and a
+host-supplied focus never sets it.
+
 **The gate holds at 100,000 rows**: first paint ~6 ms, 60 fps at the top and at row 99,000, a
 flat-cost ratio around 1.0×, and a full repaint of every visible cell doing **zero DOM mutations**.
 Per-subsystem gates and every measured number are in
 [`docs/capabilities.md`](docs/capabilities.md).
 
-**Open questions**, neither urgent:
+**Open question**, not urgent:
 
 - Whether the `--avg-*` defaults should move to `:root`, so an ancestor's `--avg-*` works. Today an
   ancestor's `--p-*` reaches everything and its `--avg-*` is shadowed — see
   [Theming](docs/capabilities.md#theming).
-- What phase 8 is. Nothing is planned past phase 7; open a new `tasks/plan.md` when there is.
 
 ## Commands
 
@@ -69,21 +97,28 @@ Per-subsystem gates and every measured number are in
 npm test              # vitest, all tests
 npm run test:watch
 npm run typecheck     # tsc --noEmit, strict
-npm run build         # typecheck + vite lib build to dist/ (ESM + UMD) + dist/av-grid.css
+npm run build         # typecheck + core lib (ESM + UMD) + dist/react.js + dist/av-grid.css
 npm run build:board   # bundle src/ into each board's lib/
 ```
 
 Tests sit next to their subject as `*.test.ts`, in the node environment — except
-`RenderGrid.test.ts` and `AVGrid.test.ts`, which opt into happy-dom with a per-file
-`// @vitest-environment happy-dom` docblock.
+`RenderGrid.test.ts`, `AVGrid.test.ts` and `react/AVGridReact.test.tsx`, which opt into happy-dom
+with a per-file `// @vitest-environment happy-dom` docblock.
+
+`npm run build` produces the core (`dist/av-grid.js`, `dist/av-grid.umd.cjs`) **and** the React
+entry (`dist/react.js` + `dist/react/*.d.ts`) from a second Vite config,
+[`vite.config.react.ts`](vite.config.react.ts), which keeps `react` and the core **external** —
+the react bundle must never contain a second copy of the grid.
 
 ## Test boards — how to actually run the grid
 
 happy-dom does **no layout**, so a green suite says nothing about whether the grid renders or
 performs. The boards under `test-boards/` are the real browser: [`RenderGridTest/`](test-boards/RenderGridTest/CLAUDE.md)
 (`window.bench`, the 100k gate), [`AVGridBoard/`](test-boards/AVGridBoard/CLAUDE.md) (`window.avg`,
-the whole grid) and [`CustomizationBoard/`](test-boards/CustomizationBoard/CLAUDE.md)
-(`window.custom`, 20 pass/fail claims from the docs).
+the whole grid), [`CustomizationBoard/`](test-boards/CustomizationBoard/CLAUDE.md)
+(`window.custom`, 20 pass/fail claims from the docs) and [`ReactApp/`](test-boards/ReactApp/CLAUDE.md)
+(`window.__grid`, the React wrapper under a real React 19 — a Vite dev app, not a board:
+`npm run dev` there, then `open_url`; `av-grid` is aliased to `src/`, so **no build step**).
 
 ```
 npm run build:board                     # each lib/ is a gitignored build artifact

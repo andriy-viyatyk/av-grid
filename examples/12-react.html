@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<!--
+    av-grid — the React wrapper, `av-grid/react`.
+
+    <AVGridReact> · <AVGridFilterBar> · the instance ref · the three update lanes
+
+    No build step and no JSX: React and ReactDOM come from a CDN as ES modules, the wrapper from
+    the local ../dist/, and the three elements are written with `createElement` directly. A real
+    project writes JSX and imports "av-grid/react" — see docs/react-api.md.
+
+    Run: npm run build once, then serve this folder (npx serve .) and open the file.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — React wrapper</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        button, input { font: inherit; }
+        #root { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+        .grid-host { flex: 1 1 auto; min-height: 0; }
+        code { background: #f3f3f3; padding: 0 3px; border-radius: 3px; }
+        .stat { font-family: ui-monospace, monospace; font-size: 12px; color: #555; }
+    </style>
+    <link rel="stylesheet" href="../dist/av-grid.css" />
+</head>
+<body>
+<header>
+    <h1>The React wrapper</h1>
+    <p>
+        One <code>&lt;AVGrid&gt;</code>, one detached
+        <code>&lt;AVGridFilterBar&gt;</code>, and the real instance through a
+        <code>ref</code>. <strong>Watch the counter:</strong> every button below re-renders the
+        component with freshly created inline callbacks, and the grid is never recreated —
+        <code>setOptions</code> is called only for the option that actually changed.
+    </p>
+</header>
+
+<div id="root"></div>
+
+<!--
+    `dist/react.js` imports React by bare name, exactly as a published library should — including
+    `react/jsx-runtime`, which the JSX transform adds. With no bundler here, an import map is what
+    resolves them; a real project gets the same from its bundler's node_modules resolution.
+-->
+<script type="importmap">
+{
+    "imports": {
+        "react": "https://esm.sh/react@19.2.0",
+        "react/jsx-runtime": "https://esm.sh/react@19.2.0/jsx-runtime",
+        "react-dom/client": "https://esm.sh/react-dom@19.2.0/client",
+        "av-grid/react": "../dist/react.js"
+    }
+}
+</script>
+
+<script type="module">
+    import React from "react";
+    import ReactDOM from "react-dom/client";
+    import { AVGrid, AVGridFilterBar } from "av-grid/react";
+
+    const { createElement: h, useState, useRef, useCallback } = React;
+
+    const CITIES = ["Kyiv", "Lviv", "Odesa", "Dnipro", "Kharkiv"];
+    const NAMES = ["Ada", "Alan", "Grace", "Edsger", "Barbara", "Donald"];
+
+    function makeRows(count, seed = 0) {
+        const out = new Array(count);
+        for (let i = 0; i < count; i++) {
+            out[i] = {
+                id: i + 1,
+                name: `${NAMES[(i + seed) % NAMES.length]} ${i + 1}`,
+                city: CITIES[(i * 7 + seed) % CITIES.length],
+                score: ((i * 37 + seed * 11) % 1000) / 10,
+                active: (i + seed) % 3 !== 0,
+            };
+        }
+        return out;
+    }
+
+    const columns = [
+        { key: "id", name: "ID", width: 70, dataType: "number", readonly: true },
+        { key: "name", name: "Name", width: 180 },
+        { key: "city", name: "City", width: 130 },
+        { key: "score", name: "Score", width: 90, dataType: "number" },
+        { key: "active", name: "Active", width: 80, dataType: "boolean" },
+    ];
+
+    function App() {
+        const [rows, setRows] = useState(() => makeRows(100000));
+        const [cellBorders, setCellBorders] = useState(true);
+        const [search, setSearch] = useState("");
+        const [edits, setEdits] = useState(0);
+        const [renders, setRenders] = useState(0);
+
+        // The instance, held twice on purpose: a ref for imperative calls, and state so the
+        // detached filter bar can mount as soon as the grid exists. `grid` is null on the very
+        // first render — that is the normal first value, and the bar handles it.
+        const gridRef = useRef(null);
+        const [grid, setGrid] = useState(null);
+        const takeGrid = useCallback((g) => {
+            gridRef.current = g;
+            setGrid(g);
+        }, []);
+
+        return h("div", { style: { display: "flex", flexDirection: "column", gap: 8, padding: 12, height: "100%", boxSizing: "border-box" } },
+            h("div", { className: "row" },
+                h("button", { onClick: () => setRows(makeRows(100000, renders + 1)) }, "new 100,000 rows"),
+                h("button", { onClick: () => setRows((r) => r.slice(0, 500)) }, "first 500"),
+                h("label", null,
+                    h("input", { type: "checkbox", checked: cellBorders, onChange: (e) => setCellBorders(e.target.checked) }),
+                    " cellBorders",
+                ),
+                h("input", { placeholder: "search…", value: search, onChange: (e) => setSearch(e.target.value) }),
+                h("button", { onClick: () => gridRef.current?.scrollToRow(50000, "center") }, "scroll to 50 000"),
+                h("button", { onClick: () => gridRef.current?.copySelection("copyWithHeaders") }, "copy with headers"),
+                h("button", { onClick: () => setRenders((n) => n + 1) }, `re-render (${renders})`),
+            ),
+            h("div", { className: "stat" }, `${rows.length.toLocaleString()} rows · ${edits} edits`),
+
+            // The bar, mounted above the grid but owned by neither — it takes no space until
+            // something is filtered.
+            h(AVGridFilterBar, { grid }),
+
+            h(AVGrid, {
+                ref: takeGrid,
+                rows,
+                columns,
+                selectColumn: true,
+                editable: true,
+                canAddRows: true,
+                canDeleteRows: true,
+                rowNoun: "person",
+                cellBorders,
+                searchString: search,
+                // Inline, re-created on every render. Lane 2 never re-sends these, and the
+                // newest closure is the one that fires.
+                onEdit: () => setEdits((n) => n + 1),
+                rowClass: (r) => (r.row.score > 90 ? "hot" : undefined),
+                className: "grid-host",
+            }),
+
+            h("style", null, ".avg-data-cell.hot { color: #b8860b; font-weight: 600; }"),
+        );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(
+        h(React.StrictMode, null, h(App)),
+    );
+</script>
+</body>
+</html>

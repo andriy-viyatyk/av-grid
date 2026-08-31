@@ -121,9 +121,12 @@ function setStyle(el: HTMLElement, prop: string, value: string): void {
     }
 }
 
-function div(dataType: string): HTMLDivElement {
+function div(dataType: string, className?: string): HTMLDivElement {
     const el = document.createElement("div");
     el.setAttribute("data-type", dataType);
+    // A fixed class besides the data-type, so host CSS has something ordinary to select — the
+    // scrollbar, the header band. Part of the DOM contract in docs/api.md; never reassigned.
+    if (className) el.className = className;
     return el;
 }
 
@@ -214,22 +217,22 @@ export class RenderGrid {
         if (options.name) this.root.setAttribute("data-name", options.name);
         if (options.className) this.root.className = options.className;
 
-        this.container = div("render-grid-scroll");
+        this.container = div("render-grid-scroll", "avg-viewport");
         // Focusable so keyboard navigation has somewhere to land, but not in the tab order.
         this.container.tabIndex = -1;
 
-        this.area = div("render-grid-area");
+        this.area = div("render-grid-area", "avg-cells-area");
 
         this.regions = {
             cells: this.area,
-            stickyTop: div("render-grid-sticky-top"),
-            stickyBottom: div("render-grid-sticky-bottom"),
-            stickyLeft: div("render-grid-sticky-left"),
-            stickyRight: div("render-grid-sticky-right"),
-            stickyTopLeft: div("render-grid-sticky-top-left"),
-            stickyTopRight: div("render-grid-sticky-top-right"),
-            stickyBottomLeft: div("render-grid-sticky-bottom-left"),
-            stickyBottomRight: div("render-grid-sticky-bottom-right"),
+            stickyTop: div("render-grid-sticky-top", "avg-sticky-top"),
+            stickyBottom: div("render-grid-sticky-bottom", "avg-sticky-bottom"),
+            stickyLeft: div("render-grid-sticky-left", "avg-sticky-left"),
+            stickyRight: div("render-grid-sticky-right", "avg-sticky-right"),
+            stickyTopLeft: div("render-grid-sticky-top-left", "avg-sticky-top-left"),
+            stickyTopRight: div("render-grid-sticky-top-right", "avg-sticky-top-right"),
+            stickyBottomLeft: div("render-grid-sticky-bottom-left", "avg-sticky-bottom-left"),
+            stickyBottomRight: div("render-grid-sticky-bottom-right", "avg-sticky-bottom-right"),
         };
 
         this.attached = {

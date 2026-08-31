@@ -75,6 +75,36 @@ export interface AVGridOptions<R = any> {
     selected?: readonly string[];
 
     /**
+     * The focused cell, and the range selected around it.
+     *
+     * ```js
+     * AVGrid.create(el, { rows, focus: { rowKey: "42", columnKey: "name", isDragging: false } });
+     * grid.setOptions({ focus });     // or grid.setFocus(focus) — the same call
+     * ```
+     *
+     * The counterpart of `onFocusChange`, and the last piece of grid state to become an option:
+     * `sort`, `filters` and `selected` were always settable this way, and focus was reachable
+     * only through the instance. It is one now so that a host holding grid state — a React
+     * component with `focus={focus} onFocusChange={setFocus}`, a session it restores on reload —
+     * can hand back everything it was given, not most of it.
+     *
+     * **Echoing it straight back is safe.** Setting a focus equal in value to the current one
+     * does nothing at all: no repaint, and no second `onFocusChange`. So the round trip
+     * *grid moves the focus → `onFocusChange` → host state → `focus` → back in* terminates,
+     * which is what makes it usable as a controlled value.
+     *
+     * `selection` may be left off for a single focused cell. Keys alone are enough — the
+     * indices are resolved from them — which is what makes a focus restored from storage land
+     * on the right row after a sort.
+     *
+     * **`isDragging` is ignored here.** It belongs to the pointer, not to the host: a value
+     * echoed back arrives one event after the release that ended the drag, and a value restored
+     * from storage describes a pointer that is not there. Whatever is passed, the grid keeps its
+     * own.
+     */
+    focus?: CellFocus<R> | null;
+
+    /**
      * The set of selected rows changed, by checkbox or by `setSelected()`.
      *
      * Receives the keys; call `grid.getSelectedRows()` for the row objects, which is O(rows)
@@ -519,3 +549,101 @@ export interface ResolvedOptions<R = any> extends AVGridOptions<R> {
     /** Always present and normalized — `FiltersModel` owns it, `RowsModel` reads it. */
     filters: Filter[];
 }
+
+// ---------------------------------------------------------------------------
+// The callback classification
+// ---------------------------------------------------------------------------
+
+/**
+ * Every function-valued option, derived from the type itself.
+ *
+ * Nothing hand-written here: adding a function option to `AVGridOptions` adds it here, and the
+ * assertion below then fails to compile until the new option is classified.
+ */
+type FunctionOptionKeys = {
+    [K in keyof AVGridOptions<never>]-?: NonNullable<AVGridOptions<never>[K]> extends (
+        ...args: never[]
+    ) => unknown
+        ? K
+        : never;
+}[keyof AVGridOptions<never>];
+
+/**
+ * The options that are **pure callbacks**: the grid calls them to report or to intercept, and
+ * *not passing one at all* is exactly equivalent to passing one that returns `undefined`.
+ *
+ * That equivalence is the whole point of the list. A host adapter — `av-grid/react` is the first
+ * — can install one stable proxy per key at `create()` time and forward to whatever function the
+ * host holds *now*, without ever calling `setOptions()` again for a callback. That is what lets a
+ * React consumer write `onEdit={(e) => …}` inline, re-created on every render, with neither
+ * `setOptions` churn nor a stale closure.
+ *
+ * **Deliberately not here** — four function options whose mere *presence* changes behaviour, so a
+ * proxy standing in for an absent one would change the grid:
+ *
+ * | Option | What presence means |
+ * |---|---|
+ * | `getRowKey` | absent → the grid infers a key; a proxy returning `undefined` would break identity |
+ * | `newRow`, `newColumn` | absent → the grid's own blank-row / blank-column defaults |
+ * | `onGetOptions` | absent → a filter popover offers the column's distinct values |
+ * | `onGridContextMenu` | absent → the grid draws its own context menu |
+ *
+ * Pass those four with a stable identity (a module-level function, or `useCallback`), because an
+ * adapter has no choice but to treat them as ordinary options.
+ *
+ * Two members are on the paint path — `onCellClass` and `rowClass` are consulted per *cell*, and
+ * their presence alone makes the cell renderer build a context object it otherwise skips. An
+ * adapter should install proxies for those only when the host actually supplies them.
+ */
+export const CALLBACK_OPTION_KEYS = [
+    "onSelectionChange",
+    "onEdit",
+    "onInvalidEdit",
+    "onAddRows",
+    "onDeleteRows",
+    "onAddColumns",
+    "onDeleteColumns",
+    "onSortChange",
+    "onFiltersChange",
+    "onColumnResize",
+    "onColumnsReorder",
+    "onColumnsChange",
+    "onVisibleRowsChange",
+    "onFocusChange",
+    "onCellClick",
+    "onCellDoubleClick",
+    "onCellContextMenu",
+    "getContextMenuItems",
+    "onCellClass",
+    "rowClass",
+] as const satisfies readonly FunctionOptionKeys[];
+
+/** A member of {@link CALLBACK_OPTION_KEYS}. */
+export type CallbackOptionKey = (typeof CALLBACK_OPTION_KEYS)[number];
+
+/**
+ * The subset of {@link CALLBACK_OPTION_KEYS} the cell renderer consults per painted cell, and
+ * whose presence alone costs work. An adapter proxies these only when the host supplies them.
+ */
+export const PAINT_PATH_CALLBACK_KEYS = [
+    "onCellClass",
+    "rowClass",
+] as const satisfies readonly CallbackOptionKey[];
+
+/** The function options deliberately left out of {@link CALLBACK_OPTION_KEYS} — see its table. */
+type PresenceSensitiveOptionKey =
+    | "getRowKey"
+    | "newRow"
+    | "newColumn"
+    | "onGetOptions"
+    | "onGridContextMenu";
+
+type AssertNever<T extends never> = T;
+
+/**
+ * Compile-time gate. Add a function option to `AVGridOptions` without listing it either in
+ * `CALLBACK_OPTION_KEYS` or in `PresenceSensitiveOptionKey`, and `npm run typecheck` fails here.
+ */
+export type _EveryFunctionOptionIsClassified = AssertNever<
+    Exclude<FunctionOptionKeys, CallbackOptionKey | PresenceSensitiveOptionKey>
+>;

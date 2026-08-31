@@ -22,11 +22,27 @@
             "import": "./dist/av-grid.js",
             "require": "./dist/av-grid.umd.cjs"
         },
+        "./react": {
+            "types": "./dist/react/index.d.ts",
+            "import": "./dist/react.js"
+        },
         "./av-grid.css": "./dist/av-grid.css"
     },
     "files": [
         "dist"
     ],
+    "peerDependencies": {
+        "react": ">=18",
+        "react-dom": ">=18"
+    },
+    "peerDependenciesMeta": {
+        "react": {
+            "optional": true
+        },
+        "react-dom": {
+            "optional": true
+        }
+    },
     "keywords": [
         "grid",
         "datagrid",
@@ -38,7 +54,7 @@
     ],
     "scripts": {
         "dev": "vite",
-        "build": "tsc --noEmit && vite build && tsc -p tsconfig.build.json && node scripts/build-css.mjs",
+        "build": "tsc --noEmit && vite build && vite build -c vite.config.react.ts && tsc -p tsconfig.build.json && node scripts/build-css.mjs",
         "build:board": "npm run build:board:render && npm run build:board:grid && npm run build:board:custom",
         "build:board:render": "vite build --outDir test-boards/RenderGridTest/lib --emptyOutDir false",
         "build:board:grid": "vite build --outDir test-boards/AVGridBoard/lib --emptyOutDir false",
@@ -50,8 +66,13 @@
         "test:watch": "vitest"
     },
     "devDependencies": {
+        "@testing-library/react": "^16.3.3",
         "@types/node": "^26.2.0",
+        "@types/react": "^19.2.18",
+        "@types/react-dom": "^19.2.5",
         "happy-dom": "^20.11.2",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
         "typescript": "^5.4.0",
         "vite": "^8.1.4",
         "vitest": "^3.0.0"

@@ -144,6 +144,25 @@ describe("structure", () => {
         }
     });
 
+    it("puts a stable class on every shell element, so host CSS can reach them", () => {
+        const { grid } = track(createGrid({ stickyTop: 1, stickyLeft: 1 }));
+
+        expect(grid.container.className).toBe("avg-viewport");
+        expect(grid.area.className).toBe("avg-cells-area");
+        for (const cls of [
+            "avg-sticky-top",
+            "avg-sticky-bottom",
+            "avg-sticky-left",
+            "avg-sticky-right",
+            "avg-sticky-top-left",
+            "avg-sticky-top-right",
+            "avg-sticky-bottom-left",
+            "avg-sticky-bottom-right",
+        ]) {
+            expect(grid.area.querySelector(`.${cls}`)).not.toBeNull();
+        }
+    });
+
     it("emits data-name when given one, for disambiguating instances", () => {
         const { grid } = track(createGrid({ name: "left-grid" }));
         expect(grid.root.getAttribute("data-name")).toBe("left-grid");

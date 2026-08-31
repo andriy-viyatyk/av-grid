@@ -9,8 +9,9 @@ real browser, real layout, driveable through the Persephone MCP tools.
 | [`RenderGridTest/`](../test-boards/RenderGridTest/CLAUDE.md) | The engine alone, with a stub cell renderer. The 100k-row performance gate. `window.bench` |
 | [`AVGridBoard/`](../test-boards/AVGridBoard/CLAUDE.md) | The whole grid: `AVGrid.create()`, inference, sorting, resize, reorder, theming. `window.avg` |
 | [`CustomizationBoard/`](../test-boards/CustomizationBoard/CLAUDE.md) | The seven host hooks, and whether the docs are true: 20 pass/fail claims. `window.custom` |
+| [`ReactApp/`](../test-boards/ReactApp/CLAUDE.md) | The `av-grid/react` wrapper under a real React 19. **A Vite app, not a board** — `npm run dev` there, then `open_url`. `window.__grid` |
 
-Each board puts its whole harness on one global — `window.bench`, `window.avg`, `window.custom` —
+Each Persephone board puts its whole harness on one global — `window.bench`, `window.avg`, `window.custom` —
 so a session runs without clicking. Each exposes paint timings and pool hit/miss counts, and a
 `resetStats()` that isolates a phase.
 
@@ -26,6 +27,12 @@ browser_take_screenshot { pageId }      # verify visually — a11y snapshots hid
 
 After editing board files, apply the changes with **`board_refresh { pageId }`** — boards do not
 auto-reload. After editing `src/`, run `npm run build:board` first.
+
+`ReactApp/` is the exception to all of the above: it is an ordinary Vite dev server
+(`cd test-boards/ReactApp && npm run dev`, then `open_url { url: "http://localhost:5199" }`),
+`av-grid` is aliased to `../../src` so **edits hot-reload with no build step**, and its handles are
+`window.__grid` (the live instance) and `window.__log` (captured console errors/warnings). Its
+[`CLAUDE.md`](../test-boards/ReactApp/CLAUDE.md) has the drive-it recipes.
 
 > **The accessibility tree cannot see layout.** Three separate bugs in this project — a grid
 > rendered as a narrow column, a `VirtualList` laid out in flow, a toolbar collapsed to 17 px —

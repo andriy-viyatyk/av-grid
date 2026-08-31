@@ -4,7 +4,7 @@ A virtualized data grid that renders straight to the DOM. **No runtime dependenc
 framework.** Built for **100,000+ rows** with no lag while scrolling, selecting a range, or
 editing.
 
-**[▶ Live demo](https://andriy-viyatyk.github.io/av-grid/)** — twelve examples in the browser,
+**[▶ Live demo](https://andriy-viyatyk.github.io/av-grid/)** — thirteen examples in the browser,
 including a [100,000-row benchmark](https://andriy-viyatyk.github.io/av-grid/examples/09-benchmark.html)
 you can run yourself.
 
@@ -99,6 +99,22 @@ Without a bundler, point at the files directly:
 The stylesheet is injected on first use and shared by every grid on the page. Pass
 `injectStyles: false` and link `dist/av-grid.css` yourself if you would rather control it.
 
+### React
+
+There is an official wrapper, published as a subpath of this same package. `react` and
+`react-dom` are optional peer dependencies — a vanilla install pulls in neither.
+
+```tsx
+import { AVGrid } from "av-grid/react";
+
+<AVGrid rows={rows} columns={columns} editable sort={sort} onSortChange={setSort} style={{ height: 400 }} />
+```
+
+It is a thin lifecycle adapter: options flow down as props, changes come back through the same
+callbacks, and `ref.current` is the real grid instance. Inline arrow callbacks cost nothing — they
+are proxied, not re-sent — and `sort`, `filters`, `selected` and `searchString` round-trip safely
+if you would rather hold them in React state. Full page: [`docs/react-api.md`](docs/react-api.md).
+
 > **Versions 1.x are a different library** — the 2021 React component this project is the
 > descendant of, preserved on the
 > [`react-1.x`](https://github.com/andriy-viyatyk/av-grid/tree/react-1.x) branch. The rewrite
@@ -146,7 +162,7 @@ it overrides.
 
 ## Examples
 
-Eleven standalone files, one topic each, every one meant to be copied whole. The names below open
+Twelve standalone files, one topic each, every one meant to be copied whole. The names below open
 the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of each is one file in
 [`examples/`](examples/), with no build step of its own.
 
@@ -163,6 +179,7 @@ the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of ea
 | [09-benchmark](https://andriy-viyatyk.github.io/av-grid/examples/09-benchmark.html) | the 100k harness — run it yourself | [source](examples/09-benchmark.html) |
 | [10-customization](https://andriy-viyatyk.github.io/av-grid/examples/10-customization.html) | all seven hooks in one file | [source](examples/10-customization.html) |
 | [11-host-integration](https://andriy-viyatyk.github.io/av-grid/examples/11-host-integration.html) | `rowNoun`, `highlightString`, `extraElement`, menu ids | [source](examples/11-host-integration.html) |
+| [12-react](https://andriy-viyatyk.github.io/av-grid/examples/12-react.html) | the React wrapper, no build step | [source](examples/12-react.html) |
 | [persephone-board](https://andriy-viyatyk.github.io/av-grid/examples/persephone-board/) | the grid inside a Persephone board | [source](examples/persephone-board/) |
 
 ## Documentation
@@ -170,6 +187,7 @@ the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of ea
 | | |
 |---|---|
 | [`docs/api.md`](docs/api.md) | **The complete public surface** — every option, column field, method and callback, the filter API, the keyboard map, the CSS tokens, the DOM contract |
+| [`docs/react-api.md`](docs/react-api.md) | **The React API** — `av-grid/react`: the component and props, the update lanes, the instance ref, the filter bar, the non-goals |
 | [`docs/capabilities.md`](docs/capabilities.md) | What each subsystem does and what it measures |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree, file by file |
 | [`docs/invariants.md`](docs/invariants.md) | The three rules that carry the performance — read before changing the render path |

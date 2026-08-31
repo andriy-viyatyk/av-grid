@@ -112,6 +112,42 @@ const NO_RANGES: Ranges = {
     focusCol: -1,
 };
 
+/**
+ * Do two focus values mean the same thing?
+ *
+ * Eleven field comparisons on a path that runs once per focus *change* — once per cell crossed
+ * during a drag, not once per pointer move and never per cell painted. The identity check comes
+ * first, which is the case every internal caller hits.
+ */
+function sameFocus(
+    a: CellFocus<any> | undefined,
+    b: CellFocus<any> | undefined,
+): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (
+        a.rowKey !== b.rowKey ||
+        a.columnKey !== b.columnKey ||
+        Boolean(a.isDragging) !== Boolean(b.isDragging)
+    ) {
+        return false;
+    }
+    const x = a.selection;
+    const y = b.selection;
+    if (x === y) return true;
+    if (!x || !y) return false;
+    return (
+        x.rowStart === y.rowStart &&
+        x.rowEnd === y.rowEnd &&
+        x.colStart === y.colStart &&
+        x.colEnd === y.colEnd &&
+        x.rowKeyStart === y.rowKeyStart &&
+        x.rowKeyEnd === y.rowKeyEnd &&
+        x.colKeyStart === y.colKeyStart &&
+        x.colKeyEnd === y.colKeyEnd
+    );
+}
+
 function maskAt(r: Ranges, row: number, col: number): number {
     let mask = 0;
     if (
@@ -337,9 +373,43 @@ export class FocusModel<R> {
         );
     };
 
-    /** Replace the focus wholesale. The host-facing setter behind `grid.setFocus()`. */
+    /**
+     * Replace the focus wholesale. The host-facing setter behind `grid.setFocus()` and the
+     * `focus` option.
+     *
+     * **`isDragging` is the pointer's, never the host's**, so the incoming one is discarded and
+     * the live value kept. It is transient interaction state that happens to travel inside
+     * `CellFocus`, and letting a host write it breaks two ways round: a focus echoed back from
+     * a host's state arrives one event late and would re-arm a drag the release had just ended,
+     * and a focus restored from storage would come back with a drag in flight that no pointer
+     * is driving. Neither is hypothetical — the first is what a React `focus={focus}` binding
+     * does on every click, and it is how this was found.
+     */
     setFocus = (focus: CellFocus<R> | undefined): void => {
-        this.applyFocus(() => focus);
+        this.applyFocus((previous) => {
+            const dragging = Boolean(previous?.isDragging);
+            if (!focus || Boolean(focus.isDragging) === dragging) return focus;
+            return { ...focus, isDragging: dragging };
+        });
+    };
+
+    /**
+     * The `focus` option, applied once at `create()`.
+     *
+     * Separate from `setFocus` because nothing has *changed* yet: firing `onFocusChange` while
+     * the host is still inside `AVGrid.create()` would report a value it has this moment
+     * supplied, back to a callback it may not have finished wiring up. `SelectedModel` treats
+     * the `selected` option the same way.
+     *
+     * Called late in the grid's construction, once the rows and columns exist, because a focus
+     * carrying keys only has to look its indices up in them.
+     */
+    initFocus = (focus: CellFocus<R> | undefined): void => {
+        if (!focus) return;
+        // Nothing can be dragging before the grid has had a pointer on it, whatever a restored
+        // value claims.
+        this._focus = focus.isDragging ? { ...focus, isDragging: false } : focus;
+        this.ranges = this.deriveRanges(this._focus);
     };
 
     clearFocus = (): void => {
@@ -363,7 +433,12 @@ export class FocusModel<R> {
     ): void {
         const previous = this._focus;
         const next = updater(previous);
-        if (next === previous) return;
+        // By value, not by identity. Identity alone was enough while every caller was internal
+        // and returned the previous object when it meant "no change" — `validateFocus` still
+        // does. It stops being enough the moment a host echoes the focus back as an option: the
+        // object that comes back is equal but new, and re-applying it would repaint, re-fire
+        // `onFocusChange`, and hand the host another new object to echo. That is a loop.
+        if (sameFocus(next, previous)) return;
 
         const oldRanges = this.ranges;
         this._focus = next;

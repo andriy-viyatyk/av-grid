@@ -132,6 +132,36 @@ export interface FilterBarOptions<R = any> {
     className?: string;
     /** Emitted as `data-name`, for finding this bar in a test or a devtools tree. */
     name?: string;
+    /**
+     * The ✕ that removes all filters, at the bar's right end. Default `true`. Pass `false`
+     * for a bar embedded in a toolbar that has its own clear control — wire that control to
+     * `grid.clearFilters()`.
+     */
+    clearButton?: boolean;
+}
+
+/**
+ * The strings a chip shows for one filter — for a host drawing its own chips.
+ * `grid.describeFilter(filter)` is the public way in.
+ */
+export interface FilterChipText {
+    /** The chip's leading label: the column's name. */
+    name: string;
+    /** The value list, truncated the way the built-in chip truncates: `open,pending (+3)`. */
+    values: string;
+    /** The tooltip: the full untruncated list behind `values`. */
+    title: string;
+}
+
+/** The strings the built-in chip would show for this filter. See `grid.describeFilter()`. */
+export function describeFilter<R>(model: AVGridModel<R>, filter: Filter): FilterChipText {
+    const column = model.data.columns.find((c) => String(c.key) === filter.columnKey);
+    const name = filter.columnName ?? filter.columnKey;
+    return {
+        name,
+        values: filterValues(filter, MAX_LABEL_CHARS, column),
+        title: `${name}: ${fullValues(filter, column)}`,
+    };
 }
 
 export class FilterBar<R = any> {
@@ -140,7 +170,7 @@ export class FilterBar<R = any> {
 
     private readonly model: AVGridModel<R>;
     private readonly chips: HTMLDivElement;
-    private readonly clearButton: HTMLButtonElement;
+    private readonly clearButton?: HTMLButtonElement;
     private readonly subscription: { unsubscribe: () => void };
 
     /**
@@ -168,11 +198,14 @@ export class FilterBar<R = any> {
 
         this.chips = doc.createElement("div");
         this.chips.className = "avg-filter-bar-chips";
-        this.clearButton = createIconButton(closeIcon, "clear-all", {
-            title: "Remove all filters",
-            className: "avg-filter-bar-clear",
-        });
-        this.element.append(this.chips, this.clearButton);
+        this.element.append(this.chips);
+        if (options.clearButton !== false) {
+            this.clearButton = createIconButton(closeIcon, "clear-all", {
+                title: "Remove all filters",
+                className: "avg-filter-bar-clear",
+            });
+            this.element.append(this.clearButton);
+        }
 
         // One listener for the whole bar, resolved by `data-action` — the same rule the grid
         // itself follows, and the reason a chip can be rebuilt without unbinding anything.

@@ -17,7 +17,16 @@
         "declarationDir": "dist",
         "emitDeclarationOnly": true,
         "outDir": "dist",
-        "types": ["vite/client", "node"]
+        "types": ["vite/client", "node"],
+        // Only `src/react/**` uses JSX; the core is plain `.ts` and unaffected by this setting.
+        "jsx": "react-jsx",
+        // The React wrapper imports the core by the package's own name, so the specifier it
+        // emits into `dist/react/index.d.ts` is the one a consumer resolves through `exports`.
+        // Before `dist/` exists there is nothing to resolve, hence the mapping back to source.
+        "baseUrl": ".",
+        "paths": {
+            "av-grid": ["./src/index.ts"]
+        }
     },
-    "include": ["src", "bench", "vite.config.ts"]
+    "include": ["src", "bench", "vite.config.ts", "vite.config.react.ts"]
 }
