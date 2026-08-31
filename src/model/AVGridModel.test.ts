@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AVGridModel } from "./AVGridModel";
 import { resolveOptions } from "../validate";
 import type { AVGridOptions } from "../options";
+import type { SortColumn } from "../types";
 
 interface Row {
     id: number;
@@ -62,7 +63,7 @@ describe("AVGridModel", () => {
             ]);
 
             model.models.sortColumn.sortColumn("name");
-            expect(model.state.get().sort?.direction).toBe("desc");
+            expect((model.state.get().sort as SortColumn)?.direction).toBe("desc");
             expect(model.data.rows.map((r) => r.name)).toEqual([
                 "Charlie",
                 "Bob",
@@ -278,6 +279,194 @@ describe("AVGridModel", () => {
             m.setSort({ key: "name", direction: "asc" });
             m.setSort({ key: "name", direction: "asc" });
             expect(onSortChange).toHaveBeenCalledTimes(1);
+        });
+
+        it("ignores the append flag when multiSort is off", () => {
+            model.models.sortColumn.sortColumn("name", true);
+            model.models.sortColumn.sortColumn("score", true);
+            // Plain single-sort behavior: the second click replaced the first.
+            expect(model.state.get().sort).toEqual({
+                key: "score",
+                direction: "asc",
+            });
+        });
+    });
+
+    describe("multiSort", () => {
+        // Ties in the first column are what a second sort column exists for.
+        const teamRows = [
+            { id: 1, name: "B", score: 2 },
+            { id: 2, name: "A", score: 1 },
+            { id: 3, name: "B", score: 1 },
+            { id: 4, name: "A", score: 2 },
+        ];
+
+        function makeMulti(options?: Partial<AVGridOptions<Row>>) {
+            return makeModel({
+                rows: teamRows as Row[],
+                multiSort: true,
+                ...options,
+            });
+        }
+
+        it("appends ascending, cycles to descending, then removes — leaving the rest alone", () => {
+            const { model: m } = makeMulti();
+            const sort = m.models.sortColumn;
+
+            sort.sortColumn("name");
+            sort.sortColumn("score", true);
+            expect(m.state.get().sort).toEqual([
+                { key: "name", direction: "asc" },
+                { key: "score", direction: "asc" },
+            ]);
+
+            sort.sortColumn("score", true);
+            expect(m.state.get().sort).toEqual([
+                { key: "name", direction: "asc" },
+                { key: "score", direction: "desc" },
+            ]);
+
+            sort.sortColumn("score", true);
+            expect(m.state.get().sort).toEqual([
+                { key: "name", direction: "asc" },
+            ]);
+        });
+
+        it("a plain click resets the whole list to the clicked column", () => {
+            const { model: m } = makeMulti();
+            const sort = m.models.sortColumn;
+
+            sort.sortColumn("name");
+            sort.sortColumn("score", true);
+            sort.sortColumn("score");
+            expect(m.state.get().sort).toEqual([
+                { key: "score", direction: "asc" },
+            ]);
+        });
+
+        it("a plain click still cycles the only sorted column, ending unsorted", () => {
+            const { model: m } = makeMulti();
+            const sort = m.models.sortColumn;
+
+            sort.sortColumn("name");
+            expect(m.state.get().sort).toEqual([
+                { key: "name", direction: "asc" },
+            ]);
+            sort.sortColumn("name");
+            expect(m.state.get().sort).toEqual([
+                { key: "name", direction: "desc" },
+            ]);
+            sort.sortColumn("name");
+            // Never an empty array internally — unsorted is undefined in either mode.
+            expect(m.state.get().sort).toBeUndefined();
+        });
+
+        it("sorts by every level, each with its own direction", () => {
+            const { model: m } = makeMulti();
+            m.setSort([
+                { key: "name", direction: "asc" },
+                { key: "score", direction: "desc" },
+            ]);
+            expect(m.data.rows.map((r) => `${r.name}${r.score}`)).toEqual([
+                "A2",
+                "A1",
+                "B2",
+                "B1",
+            ]);
+
+            m.setSort([
+                { key: "name", direction: "desc" },
+                { key: "score", direction: "asc" },
+            ]);
+            expect(m.data.rows.map((r) => `${r.name}${r.score}`)).toEqual([
+                "B1",
+                "B2",
+                "A1",
+                "A2",
+            ]);
+        });
+
+        it("reports arrays through onSortChange, [] when cleared", () => {
+            const onSortChange = vi.fn();
+            const { model: m } = makeMulti({ onSortChange });
+
+            m.setSort([{ key: "name", direction: "asc" }]);
+            expect(onSortChange).toHaveBeenLastCalledWith([
+                { key: "name", direction: "asc" },
+            ]);
+
+            m.setSort([]);
+            expect(onSortChange).toHaveBeenLastCalledWith([]);
+        });
+
+        it("guards setSort on value, element by element — the round trip terminates", () => {
+            const onSortChange = vi.fn();
+            const { model: m } = makeMulti({ onSortChange });
+
+            m.setSort([
+                { key: "name", direction: "asc" },
+                { key: "score", direction: "desc" },
+            ]);
+            // A rebuilt array with equal values — what a host echoes back from its own state.
+            m.setSort([
+                { key: "name", direction: "asc" },
+                { key: "score", direction: "desc" },
+            ]);
+            expect(onSortChange).toHaveBeenCalledTimes(1);
+        });
+
+        it("keeps sortValue's O(n) contract: one projection call per row per resolve", () => {
+            const projections = vi.fn((row: any) => row.score);
+            const { model: m } = makeMulti({
+                columns: [
+                    { key: "name" },
+                    { key: "score", sortValue: projections },
+                ],
+            });
+            projections.mockClear();
+
+            m.setSort([
+                { key: "name", direction: "asc" },
+                { key: "score", direction: "desc" },
+            ]);
+            expect(projections).toHaveBeenCalledTimes(teamRows.length);
+        });
+
+        it("honors a level's rowCompare, pairwise on the rows", () => {
+            const RANK: Record<string, number> = { B: 0, A: 1 };
+            const { model: m } = makeMulti({
+                columns: [
+                    {
+                        key: "name",
+                        rowCompare: (a, b) => RANK[a.name] - RANK[b.name],
+                    },
+                    { key: "score" },
+                ],
+            });
+            m.setSort([
+                { key: "name", direction: "asc" },
+                { key: "score", direction: "asc" },
+            ]);
+            expect(m.data.rows.map((r) => `${r.name}${r.score}`)).toEqual([
+                "B1",
+                "B2",
+                "A1",
+                "A2",
+            ]);
+        });
+
+        it("final ties keep source order — the composite sort is stable", () => {
+            const dupRows = [
+                { id: 1, name: "A", score: 1 },
+                { id: 2, name: "A", score: 1 },
+                { id: 3, name: "A", score: 1 },
+            ];
+            const { model: m } = makeMulti({ rows: dupRows as Row[] });
+            m.setSort([
+                { key: "name", direction: "desc" },
+                { key: "score", direction: "desc" },
+            ]);
+            expect(m.data.rows.map((r) => r.id)).toEqual([1, 2, 3]);
         });
     });
 

@@ -20,7 +20,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-04.md`](tasks/plan-done-04.md) | The finished plan for phase 8, the Persephone consolidation, tasks 33–37. **Its decision log applies too** |
 | [`tasks/plan-done-05.md`](tasks/plan-done-05.md) | The finished plan for phase 9, the React wrapper, tasks 38–43. **Its decision log applies too** |
 | [`tasks/plan-done-06.md`](tasks/plan-done-06.md) | The finished plan for phase 10, tasks 44–46 and 49–50: the wide-grid gate, pinned columns, `footerRows`, accessibility. **Its decision log applies too** — and it holds the full designs for the deferred tasks 47–48 |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 11, tasks 47–48 carried from phase 10: `columnGroups` (two-level headers) and multi-column sort (blocked until asked for). Read the archived decision logs first |
+| [`tasks/plan-done-07.md`](tasks/plan-done-07.md) | The finished plan for phase 11, tasks 47–48: `Column.group` (the two-row header) and multi-column sort. **Its decision log applies too** |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 12, currently empty: no task is committed. The standing rules and open questions carry forward. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -30,9 +31,9 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 11, tasks 47–48, **not started**:
-`columnGroups` (two-level headers, the one feature with no engine support yet) and multi-column
-sort (blocked until a consumer's screen asks). A plan is archived as `plan-done-<nn>.md` once
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 12, **empty**: no task is
+committed; the open questions (header focus, `--avg-*` on `:root`) wait for a consumer to ask.
+A plan is archived as `plan-done-<nn>.md` once
 all its tasks are ✅; the next `plan.md` starts at the new phase, carrying forward the standing rules
 and a pointer back to the logs. **Every archived
 decision log still applies** — they are read before starting a task, not filed away.
@@ -90,6 +91,20 @@ Alt+↓ opens the filter popover, the Menu key opens the context menu at the foc
 **not a fully conformant ARIA grid**, because there are deliberately no row elements; sorting has
 no keyboard binding and says so. Shipping it fixed one engine defect: a cell migrating between
 sticky regions in one paint is no longer evicted by the region losing it.
+
+**Phase 11 is done** (tasks 47–48, shipped as **2.6.0** — see
+[`tasks/plan-done-07.md`](tasks/plan-done-07.md)). **`Column.group`** is the two-row header: one
+string on the columns that belong together and the band appears — no switch, interleaved columns
+gathered stably, reorder off while groups show, pinned columns cannot group. The engine was not
+touched: row 0 doubles via a per-row `rowHeight` function, grouped headers shrink to its lower
+half, and the band is an `addOverlay(el, "header")` **overlay — one div per group, not pooled
+cells**, positioned from the engine's own column geometry (aligned to 0.0 px, zero mutations per
+scroll frame, measured). **`multiSort: true`** sorts by several columns — arity follows the
+option (`sort`/`getSort()`/`onSortChange` hold arrays only when it is on; the single-column path
+is untouched by construction), plain click resets, **Ctrl/Cmd+click appends a level**, position
+numbers appear only with 2+ sorted columns, `aria-sort` stays on the primary. The list resolves
+to one decorate tuple + one composite comparator, so `sortValue` keeps its once-per-row contract.
+Sorting still has **no keyboard binding** — Ctrl+click is a pointer gesture; the gap stays named.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

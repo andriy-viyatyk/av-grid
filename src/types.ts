@@ -32,6 +32,15 @@ export interface SortColumn {
     direction: SortDirection;
 }
 
+/**
+ * What `sort`, `getSort()` and `onSortChange` hold. **Arity follows `multiSort`**: with
+ * `multiSort: false` (the default) it is always a single `SortColumn` (or `undefined`), exactly
+ * as before the option existed; with `multiSort: true` it is always a `readonly SortColumn[]`
+ * (`[]` when unsorted, first element sorts first). No consumer ever handles the union at
+ * runtime — the type is wide only because one declaration serves both modes.
+ */
+export type SortState = SortColumn | readonly SortColumn[];
+
 export type DataType = "string" | "number" | "boolean";
 
 export type DisplayFormat =
@@ -115,6 +124,14 @@ export interface RowContext<R = any> {
 export interface HeaderContext<R = any> {
     column: Column<R>;
     colIndex: number;
+}
+
+/** What `columnGroupRender` and `columnGroupClass` receive: one group cell's span. */
+export interface ColumnGroupContext<R = any> {
+    /** The `group` string the columns share — the default label. */
+    group: string;
+    /** The visible columns under this group cell, in display order. */
+    columns: readonly Column<R>[];
 }
 
 /**
@@ -258,6 +275,32 @@ export interface Column<R = any> {
      * ```
      */
     pinned?: "left" | "right";
+
+    /**
+     * The group label drawn *over* this column's header, shared with the neighbours that
+     * carry the same string — a two-row header:
+     *
+     * ```js
+     * columns: [
+     *     { key: "member", name: "Member" },                 // no group: one tall header cell
+     *     { key: "q1_spend", name: "Spend", group: "Q1" },
+     *     { key: "q1_pmpm",  name: "PMPM",  group: "Q1" },
+     *     { key: "q2_spend", name: "Spend", group: "Q2" },
+     * ]
+     * ```
+     *
+     * The band appears as soon as any visible column has a `group` — there is no switch to
+     * remember. Columns of one group are **gathered together** if the array interleaves them
+     * (stable — each group stays where it first appears), and `getColumns()` returns that
+     * normalized order. While groups are shown, **drag-reorder is off**: a grouped order is a
+     * prepared view. Everything else — sort, filter, resize, `hidden` — works as always; a
+     * hidden column just shrinks its group. A pinned column cannot carry a `group` (validation
+     * error): the sticky corners keep their plain headers.
+     *
+     * Style the group cells with `columnGroupClass` / `columnGroupRender` (grid options) or
+     * the `.avg-group-cell` class.
+     */
+    group?: string;
 
     /**
      * The value this column sorts by, in place of `row[key]`. The short form of a custom sort,

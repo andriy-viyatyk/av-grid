@@ -17,6 +17,7 @@ const defaultChangeEvent = {
     columns: false,
     lastIsStatusIndex: false,
     stickyRightCount: false,
+    hasGroups: false,
     rowCompare: false,
     allSelected: false,
     hovered: false,
@@ -35,6 +36,7 @@ export class AVGridData<R> {
     private _columns: Column<R>[];
     private _lastIsStatusIndex = -1;
     private _stickyRightCount = 0;
+    private _hasGroups = false;
     private _rowCompare: RowCompare<R> | undefined;
     private _sortValue: ((row: R) => any) | undefined;
     private _allSelected = false;
@@ -115,6 +117,17 @@ export class AVGridData<R> {
         if (this._stickyRightCount === value) return;
         this._stickyRightCount = value;
         this._changeEvent.stickyRightCount = true;
+    }
+
+    /** Whether any visible column carries a `group` — the two-row header switch. */
+    get hasGroups(): boolean {
+        return this._hasGroups;
+    }
+
+    set hasGroups(value: boolean) {
+        if (this._hasGroups === value) return;
+        this._hasGroups = value;
+        this._changeEvent.hasGroups = true;
     }
 
     get rowCompare(): RowCompare<R> | undefined {

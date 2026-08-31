@@ -75,7 +75,7 @@ export class AVGridEvents<R> {
     }>();
     readonly onRowsAdded = new Subscription<{ rows: R[]; insertIndex?: number }>();
     readonly onRowsDeleted = new Subscription<{ rowKeys: string[] }>();
-    readonly onSortColumn = new Subscription<{ columnKey: string }>();
+    readonly onSortColumn = new Subscription<{ columnKey: string; append?: boolean }>();
 
     /**
      * The applied filters changed, however that happened.

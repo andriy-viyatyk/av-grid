@@ -280,6 +280,45 @@ describe("validateSort", () => {
         expect(validateSort(undefined, columns)).toBeUndefined();
         expect(validateSort(null, columns)).toBeUndefined();
     });
+
+    it("rejects an array without multiSort, naming the fix", () => {
+        expect(() =>
+            validateSort([{ key: "id", direction: "asc" }], columns),
+        ).toThrow(/multiSort: true/);
+    });
+
+    it("accepts an array with multiSort, validating each element", () => {
+        expect(
+            validateSort(
+                [
+                    { key: "id", direction: "asc" },
+                    { key: "name", direction: "desc" },
+                ],
+                columns,
+                true,
+            ),
+        ).toEqual([
+            { key: "id", direction: "asc" },
+            { key: "name", direction: "desc" },
+        ]);
+
+        expect(() =>
+            validateSort([{ key: "nmae", direction: "asc" }], columns, true),
+        ).toThrow(/Unknown column "nmae" in `sort\[0\]`/);
+    });
+
+    it("rejects a column that appears twice in the list", () => {
+        expect(() =>
+            validateSort(
+                [
+                    { key: "id", direction: "asc" },
+                    { key: "id", direction: "desc" },
+                ],
+                columns,
+                true,
+            ),
+        ).toThrow(/appears twice/);
+    });
 });
 
 describe("resolveOptions", () => {

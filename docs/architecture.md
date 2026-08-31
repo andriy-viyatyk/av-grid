@@ -52,6 +52,7 @@ av-grid/
             CellSelect.ts        ← the dropdown editor, for a column with `options`
             DefaultEditFormatter.ts ← which of the two a cell gets
             HeaderCell.ts        ← label, sort indicator, resize grip, filter funnel
+            GroupHeader.ts       ← the column-group band: overlay divs, not pooled cells
             FilterPopover.ts     ← showFilterPopover(): dispatch on filterType, resolve on close
             OptionsFilterContent.ts ← the checklist body: search, select-all, Apply, Clear
             Button.ts            ← the two buttons the filter UI needs, and nothing else

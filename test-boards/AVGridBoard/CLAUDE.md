@@ -66,6 +66,11 @@ await window.avg.measureWideAllVisible()  // …case 1 alone: horizontal paint c
 await window.avg.measureWideProjection()  // …case 2: 12-of-300 `hidden` against a 12-column baseline
 await window.avg.measureWideChooser()     // …case 3: setColumns() 12 → 40 — one paint, same root
 await window.avg.measureWideFilter()      // …case 4: one filter, 300 visible against 12 — row-bound
+await window.avg.measurePinned()          // the task-45 gate: 1 left + 2 right pinned over 300 columns
+await window.avg.measureFooter()          // the task-46 gate: a two-row footer band on 100k rows
+await window.avg.measureGroups()          // the task-47 gate: the two-row header — alignment, once-per-group, 0 band mutations
+await window.avg.measureMultiSort()       // the task-48 gate: two-level sort cost, Ctrl+click gesture, position numbers
+await window.avg.measureKeyboard()        // the task-49 gate: 17 keyboard/ARIA claims; quote allPass
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`

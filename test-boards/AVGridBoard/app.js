@@ -2546,6 +2546,209 @@ async function measureFooter(count = 100000) {
 }
 
 /**
+ * Task 47 — `Column.group`, the two-row header. 100k rows under 24 grouped columns. The
+ * claims a unit test cannot make, measured for real: the band paints **once per visible
+ * group** (overlay divs, not pooled cells), aligns to the pixel with the headers under it,
+ * adds **zero** DOM mutations to a scroll frame, and the vertical gate stays where the plain
+ * grid has it.
+ */
+async function measureGroups(count = 100000, colGroups = 8, colsPerGroup = 3) {
+    status(`group gate: ${count} rows, ${colGroups} groups × ${colsPerGroup} columns…`);
+    const built = buildRows(count);
+
+    const cols = [{ key: "id", name: "ID", width: 70 }];
+    for (let g = 0; g < colGroups; g++) {
+        for (let c = 0; c < colsPerGroup; c++) {
+            const first = g === 0 && c === 0;
+            cols.push({
+                key: first ? "firstName" : `g${g}c${c}`,
+                name: `Col ${c + 1}`,
+                width: 110,
+                group: `Group ${g + 1}`,
+                render: first ? undefined : (cell) => String(cell.row.id % 100),
+            });
+        }
+    }
+
+    grid?.destroy();
+    const host = el("grid-host");
+    host.textContent = "";
+    const startedAt = performance.now();
+    grid = AVGrid.create(host, { rows: built.rows, columns: cols });
+    const firstPaintMs = performance.now() - startedAt;
+    window.avg.grid = grid;
+    await settle(5);
+
+    const groupCells = () => [...grid.element.querySelectorAll('[data-type="group-cell"]')];
+
+    // Alignment: a group cell's rect must start where its first header starts and end where
+    // its last header ends, to the pixel. Checkable only for groups whose first and last
+    // column headers are both rendered — column virtualization drops off-screen headers,
+    // while the band (deliberately) always draws every group.
+    const alignment = groupCells()
+        .map((cell) => {
+            const g = cell.getAttribute("data-group");
+            const groupCols = cols.filter((c) => c.group === g);
+            const headOf = (key) =>
+                grid.element.querySelector(
+                    `[data-type="header-cell"][data-column-key="${key}"]`,
+                );
+            const first = headOf(groupCols[0]?.key)?.getBoundingClientRect();
+            const last = headOf(groupCols[groupCols.length - 1]?.key)?.getBoundingClientRect();
+            if (!first || !last) return null;
+            const r = cell.getBoundingClientRect();
+            return {
+                group: g,
+                leftDelta: Math.abs(r.left - first.left),
+                rightDelta: Math.abs(r.right - last.right),
+            };
+        })
+        .filter(Boolean);
+    const aligned =
+        alignment.length > 0 &&
+        alignment.every((a) => a.leftDelta < 0.51 && a.rightDelta < 0.51);
+
+    // One overlay div per group — total, not per column, and constant across scrolling
+    // (the band is not virtualized; group counts are small by nature).
+    const totalGroups = new Set(cols.map((c) => c.group).filter(Boolean)).size;
+    const oncePerGroup = groupCells().length === totalGroups;
+
+    // A vertical scroll must not touch the band: zero mutations from it, and the usual
+    // per-frame paint cost.
+    const sc = scrollEl();
+    const observer = new MutationObserver(() => {});
+    observer.observe(grid.element.querySelector('[data-type="group-row"]'), {
+        childList: true,
+        attributes: true,
+        subtree: true,
+        characterData: true,
+    });
+    grid.render.resetStats();
+    const t0 = performance.now();
+    const frames = 120;
+    for (let i = 0; i < frames; i++) {
+        sc.scrollTop = 200 + i * 48;
+        await nextFrame();
+    }
+    const vScrollMsPerFrame = (performance.now() - t0) / frames;
+    const bandMutationsPerScroll = observer.takeRecords().length;
+    observer.disconnect();
+
+    // Horizontal: the band still covers every visible group at the far right.
+    const maxX = sc.scrollWidth - sc.clientWidth;
+    sc.scrollLeft = maxX;
+    await settle(3);
+    const groupsAtRight = groupCells().length;
+    sc.scrollLeft = 0;
+    sc.scrollTop = 0;
+    await settle(3);
+
+    // Reorder is off; sorting from the leaf header still works.
+    const anyDraggable = [...grid.element.querySelectorAll('[data-type="header-cell"]')].some(
+        (h) => h.draggable,
+    );
+    grid.setSort({ key: "firstName", direction: "asc" });
+    await settle(2);
+    const sortedFirst = grid.getVisibleRows()[0].firstName;
+
+    // Toggling the groups away restores the single-height header.
+    grid.setColumns(cols.map(({ group, ...rest }) => rest));
+    await settle(3);
+    const bandGone = !grid.element.querySelector('[data-type="group-row"]');
+    grid.setColumns(cols);
+    await settle(3);
+
+    return {
+        count,
+        firstPaintMs,
+        buildMs: built.ms,
+        groupCellCount: groupCells().length,
+        totalGroups,
+        oncePerGroup,
+        aligned,
+        alignment,
+        vScrollMsPerFrame,
+        bandMutationsPerScroll,
+        groupsAtRight,
+        anyDraggable,
+        sortedFirst,
+        bandGone,
+        hidden: document.hidden,
+    };
+}
+
+/**
+ * Task 48 — multi-column sort on 100k rows: the cost of a two-level sort, the Ctrl+click
+ * gesture end to end through the real header, and the position indicators in the DOM.
+ */
+async function measureMultiSort(count = 100000) {
+    status("multi-sort gate: 100k rows, two levels…");
+    const built = buildRows(count);
+
+    grid?.destroy();
+    const host = el("grid-host");
+    host.textContent = "";
+    grid = AVGrid.create(host, { rows: built.rows, multiSort: true });
+    window.avg.grid = grid;
+    await settle(5);
+
+    const t0 = performance.now();
+    grid.setSort([
+        { key: "team", direction: "asc" },
+        { key: "score", direction: "desc" },
+    ]);
+    await settle(2);
+    const sortMs = performance.now() - t0;
+
+    const rowsNow = grid.getVisibleRows();
+    const top = rowsNow.slice(0, 3).map((r) => `${r.team}/${r.score}`);
+    // Within one team, scores must descend.
+    let ordered = true;
+    for (let i = 1; i < 2000; i++) {
+        const a = rowsNow[i - 1];
+        const b = rowsNow[i];
+        if (a.team === b.team && a.score < b.score) {
+            ordered = false;
+            break;
+        }
+    }
+
+    const header = (key) =>
+        grid.element.querySelector(`[data-type="header-cell"][data-column-key="${key}"]`);
+    const positions = {
+        team: header("team")?.querySelector(".avg-sort-pos")?.textContent ?? null,
+        score: header("score")?.querySelector(".avg-sort-pos")?.textContent ?? null,
+        ariaTeam: header("team")?.getAttribute("aria-sort"),
+        ariaScore: header("score")?.getAttribute("aria-sort"),
+    };
+
+    // The gesture: plain click resets, Ctrl+click appends and cycles.
+    header("firstName").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    header("score").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    header("score").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+    await settle(2);
+    const afterGesture = grid.getSort();
+
+    // A single-level sort of the same data, for the cost comparison.
+    const t1 = performance.now();
+    grid.setSort([{ key: "score", direction: "asc" }]);
+    await settle(2);
+    const singleSortMs = performance.now() - t1;
+
+    return {
+        count,
+        buildMs: built.ms,
+        sortMs,
+        singleSortMs,
+        top,
+        ordered,
+        positions,
+        afterGesture,
+        hidden: document.hidden,
+    };
+}
+
+/**
  * Task 49 — the grid driven start-to-finish from the keyboard, plus the ARIA wiring, in a
  * real browser. Every step is a pass/fail claim; `allPass` is the one to quote.
  */
@@ -3066,6 +3269,8 @@ window.avg = {
     measureWideFilter,
     measurePinned,
     measureFooter,
+    measureGroups,
+    measureMultiSort,
     measureKeyboard,
     scrollTo,
     settle,

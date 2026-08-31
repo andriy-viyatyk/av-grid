@@ -693,7 +693,14 @@ export class GridInteractions<R> {
                 return;
             }
             const key = header.el.getAttribute("data-column-key");
-            if (key) this.model.events.onSortColumn.send({ columnKey: key });
+            if (key) {
+                // Ctrl+click appends to the sort in `multiSort` mode; Cmd+click means the same
+                // on macOS, where Ctrl+click is the context-menu gesture and never gets here.
+                this.model.events.onSortColumn.send({
+                    columnKey: key,
+                    append: e.ctrlKey || e.metaKey,
+                });
+            }
             return;
         }
 
@@ -888,7 +895,10 @@ export class GridInteractions<R> {
 
     private onDragStart = (e: DragEvent): void => {
         const header = this.headerAt(e.target);
-        if (!header || this.resizing) {
+        // No reordering while column groups are shown — a grouped order is a prepared view
+        // (`HeaderCell` also stops setting `draggable`; this catches a drag already primed
+        // when the groups appeared mid-gesture).
+        if (!header || this.resizing || this.model.data.hasGroups) {
             e.preventDefault();
             return;
         }
@@ -917,6 +927,8 @@ export class GridInteractions<R> {
 
     private reorderAllowed(sourceKey: string, targetKey: string | undefined): boolean {
         if (targetKey === undefined) return false;
+        // Groups that appeared while a drag was in flight refuse its drop, too.
+        if (this.model.data.hasGroups) return false;
         return this.columnBand(sourceKey) === this.columnBand(targetKey);
     }
 

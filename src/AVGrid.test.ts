@@ -465,6 +465,101 @@ describe("headers", () => {
         expect(grid.getSort()).toBeUndefined();
     });
 
+    it("Ctrl+click appends to the sort in multiSort mode", () => {
+        const grid = create({ rows: people, multiSort: true });
+        const clickHeader = (key: string, ctrlKey = false) =>
+            grid.element
+                .querySelector(
+                    `[data-type="header-cell"][data-column-key="${key}"]`,
+                )!
+                .dispatchEvent(
+                    new MouseEvent("click", { bubbles: true, ctrlKey }),
+                );
+
+        clickHeader("name");
+        clickHeader("active", true);
+        expect(grid.getSort()).toEqual([
+            { key: "name", direction: "asc" },
+            { key: "active", direction: "asc" },
+        ]);
+
+        // Cmd+click means the same — Ctrl+click is the macOS context-menu gesture.
+        grid.element
+            .querySelector('[data-type="header-cell"][data-column-key="active"]')!
+            .dispatchEvent(
+                new MouseEvent("click", { bubbles: true, metaKey: true }),
+            );
+        expect(grid.getSort()).toEqual([
+            { key: "name", direction: "asc" },
+            { key: "active", direction: "desc" },
+        ]);
+
+        // A plain click resets the whole list to the clicked column.
+        clickHeader("active");
+        expect(grid.getSort()).toEqual([{ key: "active", direction: "asc" }]);
+    });
+
+    it("shows position numbers only when two or more columns sort, aria-sort on the primary", async () => {
+        const grid = create({
+            rows: people,
+            multiSort: true,
+            sort: [{ key: "name", direction: "asc" }],
+        });
+        const header = (key: string) =>
+            grid.element.querySelector(
+                `[data-type="header-cell"][data-column-key="${key}"]`,
+            ) as HTMLElement;
+
+        await settle();
+        // One sorted column: pixel-identical to the single-sort look — no number.
+        expect(header("name").querySelector(".avg-sort-pos")).toBeNull();
+        expect(header("name").getAttribute("aria-sort")).toBe("ascending");
+
+        grid.setSort([
+            { key: "name", direction: "asc" },
+            { key: "active", direction: "desc" },
+        ]);
+        await settle();
+        expect(header("name").querySelector(".avg-sort-pos")?.textContent).toBe("1");
+        expect(header("active").querySelector(".avg-sort-pos")?.textContent).toBe("2");
+        // ARIA recommends one aria-sort per grid — the primary column carries it.
+        expect(header("name").getAttribute("aria-sort")).toBe("ascending");
+        expect(header("active").hasAttribute("aria-sort")).toBe(false);
+        expect(header("active").getAttribute("data-sort")).toBe("desc");
+    });
+
+    it("re-normalizes the sort arity when multiSort flips through setOptions", () => {
+        const grid = create({
+            rows: people,
+            multiSort: true,
+            sort: [
+                { key: "name", direction: "asc" },
+                { key: "active", direction: "desc" },
+            ],
+        });
+
+        grid.setOptions({ multiSort: false });
+        // Single mode holds one column — the primary survives the flip.
+        expect(grid.getSort()).toEqual({ key: "name", direction: "asc" });
+
+        grid.setOptions({ multiSort: true });
+        expect(grid.getSort()).toEqual([{ key: "name", direction: "asc" }]);
+    });
+
+    it("getSort reports [] in multiSort mode when unsorted", () => {
+        const grid = create({ rows: people, multiSort: true });
+        expect(grid.getSort()).toEqual([]);
+    });
+
+    it("rejects an array sort without multiSort, naming the fix", () => {
+        expect(() =>
+            create({
+                rows: people,
+                sort: [{ key: "name", direction: "asc" }],
+            }),
+        ).toThrow(/multiSort: true/);
+    });
+
     it("marks a column resizable unless it is a status column", () => {
         const grid = create({
             rows: people,
@@ -1502,6 +1597,147 @@ describe("whiteSpaceY", () => {
 
     it("leaves the engine on its own default when the option is absent", () => {
         expect(engineWhiteSpaceY(create({ rows: people }))).toBeUndefined();
+    });
+});
+
+/**
+ * Column groups — the two-row header. What a test can pin: the band's DOM (one overlay cell
+ * per group, positioned from the engine's own starts), the order normalization, the doubled
+ * row 0, the reorder lockout and the validation. What it looks like — alignment at every
+ * zoom, the pinned corners — is a browser question, and the board answers it.
+ */
+describe("column groups", () => {
+    const groupedColumns = [
+        { key: "id", name: "ID", width: 50 },
+        { key: "name", name: "Name", width: 100, group: "Who" },
+        { key: "active", name: "Active", width: 100, group: "Who" },
+    ];
+
+    const groupCells = (grid: AVGrid<any>) =>
+        Array.from(
+            grid.element.querySelectorAll('[data-type="group-cell"]'),
+        ) as HTMLElement[];
+
+    it("draws one band cell per group, positioned over its columns", async () => {
+        const grid = create({ rows: people, columns: groupedColumns });
+        await settle();
+
+        const cells = groupCells(grid);
+        expect(cells).toHaveLength(1);
+        expect(cells[0].getAttribute("data-group")).toBe("Who");
+        expect(cells[0].textContent).toBe("Who");
+        expect(cells[0].style.left).toBe("50px");
+        expect(cells[0].style.width).toBe("200px");
+        // The band is presentational — the header row's ARIA semantics are unchanged.
+        expect(cells[0].closest('[data-type="group-row"]')?.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("doubles row 0 for the band and shrinks grouped headers to its lower half", async () => {
+        const grid = create({ rows: people, columns: groupedColumns });
+        await settle();
+
+        const rowHeight = grid.render.model.getOptions().rowHeight as (
+            r: number,
+        ) => number;
+        expect(typeof rowHeight).toBe("function");
+        expect(rowHeight(0)).toBe(48);
+        expect(rowHeight(1)).toBe(24);
+
+        const header = (key: string) =>
+            grid.element.querySelector(
+                `[data-type="header-cell"][data-column-key="${key}"]`,
+            ) as HTMLElement;
+        // Grouped: lower half. Ungrouped: the whole doubled slot, one tall cell.
+        expect(header("name").style.top).toBe("24px");
+        expect(header("name").style.height).toBe("24px");
+        expect(header("id").style.top).toBe("0px");
+        expect(header("id").style.height).toBe("48px");
+    });
+
+    it("gathers interleaved group columns together, stably, and getColumns agrees", () => {
+        const grid = create({
+            rows: people,
+            columns: [
+                { key: "name", group: "Who" },
+                { key: "id" },
+                { key: "active", group: "Who" },
+            ],
+        });
+        // "Who" anchors where it first appears; the ungrouped column keeps its relative spot.
+        expect(grid.getColumns().map((c) => String(c.key))).toEqual([
+            "name",
+            "active",
+            "id",
+        ]);
+        expect(
+            Array.from(
+                grid.element.querySelectorAll('[data-type="header-cell"]'),
+            ).map((el) => el.getAttribute("data-column-key")),
+        ).toEqual(["name", "active", "id"]);
+    });
+
+    it("turns drag-reorder off while groups are shown", () => {
+        const grid = create({ rows: people, columns: groupedColumns });
+        const draggable = Array.from(
+            grid.element.querySelectorAll('[data-type="header-cell"]'),
+        ).map((el) => (el as HTMLElement).draggable);
+        expect(draggable).toEqual([false, false, false]);
+    });
+
+    it("a hidden column shrinks its group; hiding all of them removes the band", async () => {
+        const grid = create({ rows: people, columns: groupedColumns });
+        await settle();
+
+        grid.setColumns([
+            { key: "id", name: "ID", width: 50 },
+            { key: "name", name: "Name", width: 100, group: "Who", hidden: true },
+            { key: "active", name: "Active", width: 100, group: "Who" },
+        ]);
+        await settle();
+        expect(groupCells(grid)[0].style.width).toBe("100px");
+
+        grid.setColumns([{ key: "id", name: "ID", width: 50 }]);
+        await settle();
+        expect(groupCells(grid)).toHaveLength(0);
+        expect(grid.element.querySelector('[data-type="group-row"]')).toBeNull();
+        // And row 0 is back to a single height.
+        expect(typeof grid.render.model.getOptions().rowHeight).toBe("number");
+    });
+
+    it("columnGroupRender and columnGroupClass shape a group cell", async () => {
+        const grid = create({
+            rows: people,
+            columns: groupedColumns,
+            columnGroupRender: ({ group, columns }) =>
+                `${group} (${columns.length})`,
+            columnGroupClass: ({ group }) => group.toLowerCase(),
+        });
+        await settle();
+
+        const cell = groupCells(grid)[0];
+        expect(cell.textContent).toBe("Who (2)");
+        expect(cell.className).toBe("avg-group-cell who");
+    });
+
+    it("raises on a pinned column with a group, naming both", () => {
+        expect(() =>
+            create({
+                rows: people,
+                columns: [
+                    { key: "id", pinned: "left", group: "Who", width: 50 },
+                    { key: "name" },
+                ],
+            }),
+        ).toThrow(/pinned and has group/);
+    });
+
+    it("raises on a group that is not a string", () => {
+        expect(() =>
+            create({
+                rows: people,
+                columns: [{ key: "id", group: 5 as any }],
+            }),
+        ).toThrow(/group is its label/);
     });
 });
 

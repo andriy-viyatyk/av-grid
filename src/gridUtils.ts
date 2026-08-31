@@ -17,6 +17,7 @@ import type {
     Filter,
     OptionsFilter,
     RowCompare,
+    SortColumn,
 } from "./types";
 
 /**
@@ -289,6 +290,72 @@ export function gridBoolean(v: any): boolean {
  * (not focusable, not editable, not copied, not draggable, sticky left) asks this instead of
  * either field, so the two can never drift apart.
  */
+/**
+ * Gather same-`group` columns together, stably: each group stays anchored where it first
+ * appears, ungrouped columns keep their positions relative to the groups around them. Returns
+ * the **same array** when nothing moves, so change detection by identity keeps working.
+ *
+ * This is normalization, not validation — an interleaved group order is the author's model of
+ * "the order was prepared as a view, fix the accidents", so mixing is repaired rather than
+ * raised on.
+ */
+export function gatherByGroup<T extends { group?: string }>(columns: T[]): T[] {
+    const buckets: T[][] = [];
+    const byGroup = new Map<string, T[]>();
+
+    for (const col of columns) {
+        const group = col.group;
+        if (group === undefined) {
+            buckets.push([col]);
+        } else {
+            const existing = byGroup.get(group);
+            if (existing) existing.push(col);
+            else {
+                const bucket = [col];
+                byGroup.set(group, bucket);
+                buckets.push(bucket);
+            }
+        }
+    }
+
+    const out = buckets.flat();
+    const moved = out.some((col, i) => col !== columns[i]);
+    return moved ? out : columns;
+}
+
+/**
+ * The sort as a list, whichever arity the state holds. `[]` for unsorted. The one place the
+ * `SortColumn | readonly SortColumn[]` union is unpacked — every internal reader goes through
+ * this instead of branching on `Array.isArray` itself.
+ */
+export function sortAsList(
+    sort: SortColumn | readonly SortColumn[] | undefined,
+): readonly SortColumn[] {
+    if (sort === undefined) return EMPTY_SORT;
+    return Array.isArray(sort) ? sort : [sort as SortColumn];
+}
+
+const EMPTY_SORT: readonly SortColumn[] = [];
+
+/**
+ * Element-by-element equality of two sort states. This guard is what makes `sort={sort}`
+ * through the React wrapper terminate — the echoed value compares equal and the setter
+ * returns early. Compare *values*, never identities: the host's array is rebuilt every render.
+ */
+export function sortEquals(
+    a: SortColumn | readonly SortColumn[] | undefined,
+    b: SortColumn | readonly SortColumn[] | undefined,
+): boolean {
+    const left = sortAsList(a);
+    const right = sortAsList(b);
+    return (
+        left.length === right.length &&
+        left.every(
+            (s, i) => s.key === right[i].key && s.direction === right[i].direction,
+        )
+    );
+}
+
 export function isPinnedLeft(column: {
     isStatusColumn?: boolean;
     pinned?: "left" | "right";

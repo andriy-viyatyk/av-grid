@@ -130,7 +130,10 @@ if you would rather hold them in React state. Full page: [`docs/react-api.md`](d
 - **Virtualized on both axes**, with a sticky header and sticky columns
 - **Pinned columns on either edge** (`pinned: "left" | "right"`) and **footer rows pinned to the
   bottom** (`footerRows`) — a grand total formatted by the same columns as the data
-- **Sorting** by header click, with `sortValue` or `rowCompare` for a custom order
+- **Column groups** — `group: "Q1"` on the columns that belong together and the header becomes
+  two rows, at zero scroll cost
+- **Sorting** by header click, with `sortValue` or `rowCompare` for a custom order — and
+  **multi-column sort** (`multiSort: true`, Ctrl+click appends a level)
 - **Filtering** — a searchable checklist per column, cascaded against the other filters, plus a bar
   of removable chips, `localStorage` persistence, and host-defined filter types
 - **Cell focus and full keyboard navigation**, Excel-style — with grid ARIA semantics and
@@ -184,6 +187,7 @@ the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of ea
 | [11-host-integration](https://andriy-viyatyk.github.io/av-grid/examples/11-host-integration.html) | `rowNoun`, `highlightString`, `extraElement`, menu ids | [source](examples/11-host-integration.html) |
 | [12-react](https://andriy-viyatyk.github.io/av-grid/examples/12-react.html) | the React wrapper, no build step | [source](examples/12-react.html) |
 | [13-report](https://andriy-viyatyk.github.io/av-grid/examples/13-report.html) | pinned columns and a footer band — a report shape | [source](examples/13-report.html) |
+| [14-groups](https://andriy-viyatyk.github.io/av-grid/examples/14-groups.html) | column groups and multi-column sort | [source](examples/14-groups.html) |
 | [persephone-board](https://andriy-viyatyk.github.io/av-grid/examples/persephone-board/) | the grid inside a Persephone board | [source](examples/persephone-board/) |
 
 ## Documentation

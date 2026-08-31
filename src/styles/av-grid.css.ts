@@ -84,6 +84,26 @@ export const css = `
     margin-right: 4px;
 }
 
+/* The column-group band — the top half of the two-row header. Overlay divs, not pooled
+   cells; see src/view/GroupHeader.ts. */
+.avg-grid .avg-group-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 0 var(--avg-cell-padding-x);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    background-color: var(--avg-header-bg);
+    color: var(--avg-header-text);
+    font-weight: 600;
+    border-bottom: solid 1px var(--avg-grid-line);
+    border-right: solid 1px var(--avg-grid-line);
+    user-select: none;
+    cursor: default;
+}
+
 .avg-grid .avg-flex-space {
     flex: 1 1 auto;
 }
@@ -98,6 +118,14 @@ export const css = `
 
 .avg-grid .avg-header-cell[data-sort] .avg-sort-icon {
     display: inline-flex;
+}
+
+/* The multi-sort position number, shown only when two or more columns sort. */
+.avg-grid .avg-sort-pos {
+    font-size: 9px;
+    line-height: 1;
+    align-self: flex-start;
+    margin-left: -1px;
 }
 
 /* The resize grip: three faint dashes, revealed on hover over the right edge. */

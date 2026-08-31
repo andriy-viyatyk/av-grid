@@ -9,7 +9,7 @@
  */
 
 import { range } from "../core/utils";
-import { isPinnedLeft, trailingPinnedRight } from "../gridUtils";
+import { gatherByGroup, isPinnedLeft, trailingPinnedRight } from "../gridUtils";
 import type { Column } from "../types";
 import { createSelectColumn } from "../view/SelectColumn";
 import type { AVGridModel } from "./AVGridModel";
@@ -61,6 +61,9 @@ export class ColumnsModel<R> {
 
     /** Replace the column set. The single funnel every column change goes through. */
     setColumns = (columns: Column<R>[]): void => {
+        // Same-group columns are gathered together, stably — the grouped order *is* the
+        // column order, so `getColumns()`, `onColumnsChange` and the render all agree on it.
+        columns = gatherByGroup(columns);
         this.model.options.columns = columns;
         this.updateColumnsData(columns);
         this.model.options.onColumnsChange?.(columns);
@@ -104,6 +107,7 @@ export class ColumnsModel<R> {
 
         this.model.data.lastIsStatusIndex = lastIsStatusIndex;
         this.model.data.stickyRightCount = trailingPinnedRight(visible);
+        this.model.data.hasGroups = visible.some((c) => c.group !== undefined);
         this.model.data.columns = visible;
         this.model.data.change();
     };

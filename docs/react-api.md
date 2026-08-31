@@ -87,7 +87,7 @@ each in React state and echo its callback straight back down:
 
 | Prop | Reported by | Also reachable as |
 |---|---|---|
-| `sort` | `onSortChange` | `getSort()` / `setSort()` |
+| `sort` | `onSortChange` | `getSort()` / `setSort()`. **Arity follows `multiSort`**: one `SortColumn` by default, a `SortColumn[]` (`[]` when unsorted) with `multiSort: true` — hold whichever your grid uses in state and echo it back, both round-trip |
 | `filters` | `onFiltersChange` | `getFilters()` / `setFilters()` |
 | `selected` (row keys) | `onSelectionChange` | `getSelected()` / `setSelected()` |
 | `focus` (the focused cell and its range) | `onFocusChange` | `getFocus()` / `setFocus()` / `focusCell()` |
@@ -111,9 +111,9 @@ Click a header and the round trip is: the grid sorts → `onSortChange` → `set
 wrapper sends `setOptions({ sort })` → **the core compares by value, finds no change, and returns.**
 One extra render, no second callback, no loop.
 
-That holds because each setter guards on value, not identity — `SortColumnModel` on key and
-direction, `FiltersModel` filter by filter, `SelectedModel` on set membership, `FocusModel` field
-by field. `src/react/AVGridReact.test.tsx` pins all four round trips and
+That holds because each setter guards on value, not identity — `SortColumnModel` element by
+element (which is what makes the `multiSort` array echo terminate too), `FiltersModel` filter by
+filter, `SelectedModel` on set membership, `FocusModel` field by field. `src/react/AVGridReact.test.tsx` pins all four round trips and
 `src/model/FocusModel.test.ts` pins the focus guard directly, because an echo loop is exactly what
 would appear if one of those guards were ever dropped.
 
@@ -164,7 +164,12 @@ It holds every option the grid calls to *report* or to *intercept*: `onSelection
 `onInvalidEdit`, `onAddRows`, `onDeleteRows`, `onAddColumns`, `onDeleteColumns`, `onSortChange`,
 `onFiltersChange`, `onColumnResize`, `onColumnsReorder`, `onColumnsChange`, `onVisibleRowsChange`,
 `onFocusChange`, `onCellClick`, `onCellDoubleClick`, `onCellContextMenu`, `getContextMenuItems`,
-`onCellClass`, `rowClass` and `footerRowClass`.
+`onCellClass`, `rowClass`, `footerRowClass`, `columnGroupRender` and `columnGroupClass`.
+
+One nuance for the two group hooks: the band rewrites its cells' *content* when the columns
+change, not on every render — so a `columnGroupRender` whose output depends on outside state
+shows the new output on the next columns change, not immediately. Derive group content from
+`{ group, columns }` and this never matters.
 
 **Five function options are not on it**, because their mere *presence* changes what the grid does,
 so a proxy standing in for an absent one would change behaviour:

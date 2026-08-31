@@ -201,11 +201,11 @@ function calcLength(length: RenderLength, from: number, count = 1) {
     return res;
 }
 
-function getLength(length: RenderLength, elementIndex: number) {
+export function getLength(length: RenderLength, elementIndex: number) {
     return typeof length === "number" ? length : length[elementIndex];
 }
 
-function getStarts(starts: RenderLength, elementIndex: number) {
+export function getStarts(starts: RenderLength, elementIndex: number) {
     if (typeof starts === "number") {
         return elementIndex * starts;
     }

@@ -31,6 +31,7 @@ need.
 | [`11-host-integration.html`](11-host-integration.html) | What a host supplies around the rows: `rowNoun`, `highlightString`, `extraElement`, `whiteSpaceY`, and a host menu drawn from the built-in item ids |
 | [`12-react.html`](12-react.html) | The React wrapper: `<AVGridReact>`, a detached `<AVGridFilterBar>`, the instance ref — React and ReactDOM from a CDN, no build step and no JSX |
 | [`13-report.html`](13-report.html) | A report shape: a label column `pinned: "left"`, a `pinned: "right"` Total column, and a grand-total row in `footerRows`, formatted by the same columns as the data |
+| [`14-groups.html`](14-groups.html) | Column groups (`group` on the column — the two-row header appears on its own) and `multiSort: true` — Ctrl+click adds a sort level |
 | [`persephone-board/`](persephone-board/) | The grid on a Persephone board, themed by `--p-*` with no theming code |
 
 ## Three things every example depends on

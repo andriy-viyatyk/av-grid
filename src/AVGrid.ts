@@ -34,7 +34,8 @@
  * added at most once per document.
  */
 
-import { isPinnedLeft } from "./gridUtils";
+import { isPinnedLeft, sortAsList } from "./gridUtils";
+import { GroupHeader } from "./view/GroupHeader";
 import { AVGridModel } from "./model/AVGridModel";
 import { RenderGrid } from "./render/RenderGrid";
 import { defaultRowHeight } from "./render/RenderGridModel";
@@ -66,7 +67,7 @@ import type {
     Column,
     DataType,
     Filter,
-    SortColumn,
+    SortState,
 } from "./types";
 import type { GridSelection } from "./model/FocusModel";
 import type { CopyMode } from "./model/CopyPasteModel";
@@ -175,7 +176,8 @@ export interface AVGridStateSnapshot<R = any> {
     /** Visible columns, including the checkbox column when there is one. */
     columnCount: number;
     columns: ColumnStateSnapshot[];
-    sort?: SortColumn;
+    /** Arity follows the `multiSort` option — see `SortState`. */
+    sort?: SortState;
     searchString?: string;
     /** The applied column filters, normalized. Empty when nothing is filtered. */
     filters: Filter[];
@@ -203,7 +205,11 @@ export class AVGrid<R = any> {
     readonly render: RenderGrid;
 
     private readonly interactions: GridInteractions<R>;
+    private readonly groupHeader: GroupHeader<R>;
     private readonly dataSubscription: { unsubscribe: () => void };
+    /** The cached per-row height function for the two-row header — see `engineRowHeight`. */
+    private groupRowHeightFn?: (row: number) => number;
+    private groupRowHeightBase?: number;
     private destroyed = false;
     /** Warn once per grid, not once per stale call — a dead timer can fire a lot. */
     private warnedAfterDestroy = false;
@@ -318,7 +324,7 @@ export class AVGrid<R = any> {
             rowCount: () => this.model.models.rows.rowCount,
             columnCount: () => this.model.models.columns.columnCount,
             columnWidth: this.model.models.columns.getColumnWidth,
-            rowHeight: resolved.rowHeight,
+            rowHeight: this.engineRowHeight(),
             renderCell,
             stickyTop: 1,
             stickyLeft: this.model.data.lastIsStatusIndex + 1,
@@ -376,6 +382,7 @@ export class AVGrid<R = any> {
 
         this.model.setRenderModel(this.render.model);
         this.interactions = new GridInteractions<R>(this.model, this.render);
+        this.groupHeader = new GroupHeader<R>(this.model, this.render);
 
         this.dataSubscription = this.model.data.onChange.subscribe(this.onDataChange);
         this.syncAffordances();
@@ -532,15 +539,23 @@ export class AVGrid<R = any> {
     // Sorting and filtering
     // -----------------------------------------------------------------------
 
-    getSort(): SortColumn | undefined {
-        return this.model.state.get().sort;
+    /**
+     * The sort. Arity follows the `multiSort` option: one `SortColumn | undefined` by default,
+     * a `readonly SortColumn[]` (`[]` when unsorted) with `multiSort: true`.
+     */
+    getSort(): SortState | undefined {
+        return this.model.models.sortColumn.reported;
     }
 
-    /** Set or clear the sort. Pass `undefined` for unsorted. */
-    setSort(sort: SortColumn | undefined): void {
+    /** Set or clear the sort. Pass `undefined` (or `[]` in `multiSort` mode) for unsorted. */
+    setSort(sort: SortState | undefined): void {
         if (!this.alive("grid.setSort()")) return;
         this.model.setSort(
-            validateSort(sort ?? undefined, this.model.data.columns),
+            validateSort(
+                sort ?? undefined,
+                this.model.data.columns,
+                this.model.options.multiSort,
+            ),
         );
     }
 
@@ -893,6 +908,12 @@ export class AVGrid<R = any> {
         if ("rows" in options && options.rows) this.setRows(options.rows);
         if ("searchString" in options) this.setSearchString(options.searchString);
         if ("filters" in options) this.setFilters(options.filters);
+        // `multiSort` before `sort`: the arity of the incoming sort is validated against the
+        // mode it arrives with, and flipping the mode re-normalizes whatever is already held.
+        if ("multiSort" in options) {
+            this.model.options.multiSort = Boolean(options.multiSort);
+            this.model.models.sortColumn.normalizeArity();
+        }
         if ("sort" in options) this.setSort(options.sort ?? undefined);
 
         // Everything else is a straight assignment plus, where the engine cares, a re-set.
@@ -902,6 +923,7 @@ export class AVGrid<R = any> {
         delete rest.searchString;
         delete rest.filters;
         delete rest.sort;
+        delete rest.multiSort;
         delete rest.selected;
         delete rest.focus;
 
@@ -946,6 +968,9 @@ export class AVGrid<R = any> {
         // with an `undefined` value is how a default is asked for back. The engine's own
         // defaults are restated where they differ from this layer's — `overscanRow` is 4 here
         // and 0 in `RenderGridModel`, which serves the bare engine.
+        if ("columnGroupRender" in rest || "columnGroupClass" in rest) {
+            this.groupHeader.markDirty();
+        }
         if ("cellBorders" in rest) {
             if (rest.cellBorders === false) {
                 this.render.root.setAttribute("data-cell-borders", "off");
@@ -959,7 +984,7 @@ export class AVGrid<R = any> {
             });
         }
         if ("rowHeight" in rest) {
-            this.render.setOptions({ rowHeight: rest.rowHeight ?? defaultRowHeight });
+            this.render.setOptions({ rowHeight: this.engineRowHeight() });
         }
         if ("fitToWidth" in rest) {
             this.render.setOptions({ fitToWidth: rest.fitToWidth ?? false });
@@ -1012,7 +1037,7 @@ export class AVGrid<R = any> {
      */
     getState(): AVGridStateSnapshot<R> {
         const edit = this.model.models.editing.edit;
-        const sort = this.model.state.get().sort;
+        const sortList = sortAsList(this.model.state.get().sort);
         const { getColumnWidth } = this.model.models.columns;
         const editable = Boolean(this.model.options.editable);
 
@@ -1031,7 +1056,7 @@ export class AVGrid<R = any> {
                     width: getColumnWidth(index),
                     dataType: column.dataType,
                     align: column.align,
-                    sorted: sort?.key === key ? sort.direction : undefined,
+                    sorted: sortList.find((s) => s.key === key)?.direction,
                     filtered: this.model.models.filters.isFiltered(key),
                     editable:
                         editable && !column.readonly && !isPinnedLeft(column),
@@ -1045,7 +1070,7 @@ export class AVGrid<R = any> {
                         : (column.filter?.name ?? column.filterType ?? "options"),
                 };
             }),
-            sort,
+            sort: this.model.models.sortColumn.reported,
             searchString: this.model.options.searchString,
             filters: this.model.models.filters.getFilters(),
             rowHeight: this.model.options.rowHeight,
@@ -1185,6 +1210,7 @@ export class AVGrid<R = any> {
         }
 
         this.dataSubscription.unsubscribe();
+        this.groupHeader.destroy();
         this.interactions.destroy();
         this.model.setRenderModel(null);
         this.render.destroy();
@@ -1367,6 +1393,23 @@ export class AVGrid<R = any> {
         );
     }
 
+    /**
+     * What the engine gets as `rowHeight`: the plain number, or — while column groups are
+     * shown — a per-row function that doubles row 0 so the group band (`GroupHeader`) has its
+     * upper half. Identity-cached: the engine detects a rowHeight change by identity, so the
+     * same (base, groups-on) pair must resolve to the same function across calls.
+     */
+    private engineRowHeight(): number | ((row: number) => number) {
+        const base = this.model.options.rowHeight;
+        if (!this.model.data.hasGroups) return base;
+        if (!this.groupRowHeightFn || this.groupRowHeightBase !== base) {
+            this.groupRowHeightBase = base;
+            this.groupRowHeightFn = (row: number) =>
+                row === 0 ? base * 2 : base;
+        }
+        return this.groupRowHeightFn;
+    }
+
     private onDataChange = (e: AVGridDataChangeEvent): void => {
         if (this.destroyed) return;
         if (e.rows || e.columns) this.syncAria();
@@ -1379,6 +1422,12 @@ export class AVGrid<R = any> {
             this.render.setOptions({
                 stickyRight: this.model.data.stickyRightCount,
             });
+        }
+        if (e.hasGroups) {
+            // Row 0 doubles (or halves back) with the group band; identity-cached, so a
+            // column change that does not toggle groups re-sets the same value and costs
+            // nothing.
+            this.render.setOptions({ rowHeight: this.engineRowHeight() });
         }
     };
 }

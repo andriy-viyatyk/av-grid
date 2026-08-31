@@ -154,6 +154,54 @@ last data row and the band; and the area publishes `--avg-sticky-bottom`, which 
 
 ---
 
+## Column groups
+
+**`Column.group` is the whole API.** Put one string on the columns that belong together and the
+header becomes two rows; ungrouped columns span both as one tall cell; the band leaves with the
+last visible grouped column. Interleaved group columns are gathered together stably rather than
+raised on, `getColumns()` returns the normalized order, drag-reorder is off while groups show (a
+grouped order is a prepared view), and a pinned column cannot carry a group — each rule chosen so
+the option cannot be half-applied.
+
+**The engine was not touched.** `stickyTop` stays 1: while groups are active, row 0 is doubled by
+a per-row `rowHeight` function, grouped headers shrink to its lower half with one style adjustment
+in the renderer, and the band itself is a **header overlay** (`addOverlay(el, "header")`) — one
+absolutely positioned div per group in content-x coordinates, invisible to the cell pool and to
+`syncRegion`, positioned from the engine's own `columnStarts` / `columnLength` so percentage
+widths and `fitToWidth` stay exact by construction. That is why every row-coordinate choke point —
+`gridRowToDataRow`, `update({rows:[0]})`, the aria indices, hit-testing, `scrollToRow` — is
+untouched, and why the band's paint cost is **once per group, not once per column**.
+
+Measured on 100,000 rows in 8 groups × 3 columns (`measureGroups` on AVGridBoard): first paint
+5.9 ms, **8 band cells for 8 groups at both scroll extremes**, alignment with the leaf headers at
+**0.0 px** for every checkable group, and 120 scroll frames queue **0 mutation records inside the
+band**. An ungrouped grid pays nothing — it still hands the engine a plain number.
+
+---
+
+## Multi-column sort
+
+**Arity follows `multiSort`.** Off (the default), `sort` / `getSort()` / `onSortChange` hold one
+`SortColumn`, and every original code path — RowsModel's sort-then-reverse for descending
+included — runs unchanged. On, they hold arrays (`[]` when unsorted), a plain header click still
+resets to the clicked column, and **Ctrl+click (Cmd+click on macOS) appends a level**: ascending,
+then descending, then removed, the rest of the list untouched. Two or more sorted columns show
+position numbers beside their arrows; one sorted column is pixel-identical to the single-sort
+look, and `aria-sort` stays on the primary only.
+
+The list resolves to **one decorate tuple plus one composite comparator** with each level's
+direction folded in as a sign — so `Column.sortValue` keeps its once-per-row contract per level,
+`Column.rowCompare` levels stay pairwise, and final ties keep source order. The value guard
+compares lists element by element, which is what keeps `sort={sort}` terminating through the
+React wrapper in either arity.
+
+Measured on 100,000 rows (`measureMultiSort` on AVGridBoard): a two-level sort costs **99.8 ms
+against 66.4 ms single-level (1.5×)**, the gesture verified end to end through the real header,
+and the 100k gate re-run on the same bundle is unmoved (first paint 2.3 ms, 0.84×, 60/60 fps,
+0-mutation full repaint).
+
+---
+
 ## Selection, focus and the pointer
 
 **DOM focus lands on the root from any press inside the grid.** It used to be done by the branch

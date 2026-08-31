@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<!--
+    av-grid — column groups and multi-column sort.
+
+    Twelve month columns under four quarter labels: put the same `group` string on the
+    columns that belong together and the two-row header appears — no other option to set.
+    Ungrouped columns (Member, Region) span both rows as one tall cell. While groups are
+    shown, drag-reorder is off (a grouped order is a prepared view); everything else —
+    sort, filter, resize, hide — works as always.
+
+    `multiSort: true` sorts by several columns: click a header to sort by it alone,
+    Ctrl+click (Cmd+click on macOS) to add another level — each sorted header shows its
+    position beside the arrow. The grid opens sorted by Region, then total Q1 spend.
+
+    Run: npm run build once, then serve this folder and open the file:
+        npx serve .          (or: python -m http.server)
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — column groups + multi-column sort</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0; color: #666; }
+        #host { flex: 1 1 auto; min-height: 0; }
+
+        /* Group cells take ordinary CSS; columnGroupClass adds per-group hooks. */
+        #host .avg-group-cell.q-current { color: #2f6f3e; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Column groups + multi-column sort</h1>
+        <p><code>group: "Q1"</code> on the columns that belong together — the two-row header
+        appears on its own. Click a header to sort; <b>Ctrl+click</b> (Cmd on macOS) another
+        to add a second level and watch the position numbers.</p>
+    </header>
+
+    <div id="host"></div>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun",
+                        "jul", "aug", "sep", "oct", "nov", "dec"];
+        const QUARTER = (i) => `Q${Math.floor(i / 3) + 1}`;
+        const REGIONS = ["North", "South", "East", "West", "Central"];
+
+        const rows = Array.from({ length: 500 }, (_, i) => {
+            const row = {
+                id: i + 1,
+                member: `Member ${String(i + 1).padStart(3, "0")}`,
+                region: REGIONS[i % REGIONS.length],
+            };
+            MONTHS.forEach((m, j) => {
+                row[m] = Math.round(((i * 7919 + j * 104729) % 100000)) / 100;
+            });
+            row.q1 = Math.round((row.jan + row.feb + row.mar) * 100) / 100;
+            return row;
+        });
+
+        AVGrid.create(document.getElementById("host"), {
+            rows,
+            columns: [
+                // No group: these span both header rows as one tall cell each.
+                { key: "member", name: "Member", width: 140 },
+                { key: "region", name: "Region", width: 100 },
+                // The quarter is the group — same string, same group cell.
+                ...MONTHS.map((m, i) => ({
+                    key: m,
+                    name: m[0].toUpperCase() + m.slice(1),
+                    width: 90,
+                    dataType: "number",
+                    group: QUARTER(i),
+                })),
+            ],
+            columnGroupClass: ({ group }) => (group === "Q3" ? "q-current" : undefined),
+
+            // Sort by several columns: arrays in, arrays out. Ctrl+click appends a level.
+            multiSort: true,
+            sort: [
+                { key: "region", direction: "asc" },
+                { key: "jan", direction: "desc" },
+            ],
+        });
+    </script>
+</body>
+</html>

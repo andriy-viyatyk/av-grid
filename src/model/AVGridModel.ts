@@ -19,7 +19,7 @@ import { markSearchWords } from "../highlight";
 import type { RenderGridModel } from "../render/RenderGridModel";
 import type { RerenderInfo } from "../render/types";
 import type { ResolvedOptions } from "../options";
-import type { CellContext, CellEdit, Column, Filter, SortColumn } from "../types";
+import type { CellContext, CellEdit, Column, Filter, SortState } from "../types";
 import { AVGridData } from "./AVGridData";
 import { AVGridEvents } from "./AVGridEvents";
 import { ColumnsModel } from "./ColumnsModel";
@@ -33,7 +33,12 @@ import { SortColumnModel } from "./SortColumnModel";
 import { StructureModel } from "./StructureModel";
 
 export interface AVGridState<R = any> {
-    sort?: SortColumn;
+    /**
+     * Arity follows `options.multiSort`: a single `SortColumn` when off (the original shape),
+     * a non-empty `readonly SortColumn[]` when on. Never an empty array — unsorted is
+     * `undefined` in either mode. `sortAsList()` unpacks it; nothing else branches on the union.
+     */
+    sort?: SortState;
     cellEdit?: CellEdit<R>;
 }
 
@@ -185,7 +190,7 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
         this.models.columns.setColumns(columns);
     };
 
-    setSort = (sort: SortColumn | undefined): void => {
+    setSort = (sort: SortState | undefined): void => {
         this.models.sortColumn.setSort(sort);
     };
 

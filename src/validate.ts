@@ -19,7 +19,7 @@
  */
 
 import { detectColumnWidth, widthForValues } from "./column-width";
-import { columnDisplayValue, isPinnedLeft } from "./gridUtils";
+import { columnDisplayValue, gatherByGroup, isPinnedLeft } from "./gridUtils";
 import type { AVGridOptions, ResolvedOptions } from "./options";
 import type {
     AnyFilter,
@@ -370,6 +370,20 @@ export function validateColumns<R>(
                     `by stretching the scrolling columns to fit, which a pinned band is outside of.`,
             );
         }
+        if (col.group !== undefined && typeof col.group !== "string") {
+            fail(
+                `Column "${key}" has group: ${describe(col.group)}. ` +
+                    `A group is its label — a string shared by the columns under one group cell.`,
+            );
+        }
+        if (col.group !== undefined && (col.pinned !== undefined || col.isStatusColumn)) {
+            fail(
+                `Column "${key}" is pinned and has group: "${col.group}". ` +
+                    `Group cells live in the scrolling band, so a pinned column cannot be ` +
+                    `grouped — unpin it, or drop the group.`,
+            );
+        }
+
         if (!col.hidden) {
             if (col.pinned === "right") {
                 lastPinnedRightKey = key;
@@ -500,25 +514,54 @@ function validateFilterDefinition(filter: unknown, columnKey: string): void {
 export function validateSort<R>(
     sort: unknown,
     columns: readonly Column<R>[],
-): SortColumn | undefined {
+    multiSort?: boolean,
+): SortColumn | readonly SortColumn[] | undefined {
     if (sort === undefined || sort === null) return undefined;
 
-    if (typeof sort !== "object") {
+    if (Array.isArray(sort)) {
+        if (!multiSort) {
+            fail(
+                `\`sort\` is an array, but \`multiSort\` is off. Pass a single ` +
+                    `{ key, direction } object, or set \`multiSort: true\` to sort by several columns.`,
+            );
+        }
+        const list = sort.map((s, i) => validateOneSort(s, columns, `sort[${i}]`));
+        const seen = new Set<string>();
+        for (const s of list) {
+            if (seen.has(s.key)) {
+                fail(
+                    `Column "${s.key}" appears twice in \`sort\` — each column may sort once.`,
+                );
+            }
+            seen.add(s.key);
+        }
+        return list;
+    }
+
+    return validateOneSort(sort, columns, "sort");
+}
+
+function validateOneSort<R>(
+    sort: unknown,
+    columns: readonly Column<R>[],
+    label: string,
+): SortColumn {
+    if (typeof sort !== "object" || sort === null) {
         fail(
-            `\`sort\` must be an object like { key: "name", direction: "asc" }, but was ${describe(sort)}.`,
+            `\`${label}\` must be an object like { key: "name", direction: "asc" }, but was ${describe(sort)}.`,
         );
     }
 
     const { key, direction } = sort as SortColumn;
     if (typeof key !== "string" || !key.length) {
-        fail(`\`sort.key\` must be a column key, but was ${describe(key)}.`);
+        fail(`\`${label}.key\` must be a column key, but was ${describe(key)}.`);
     }
     if (!columns.some((c) => String(c.key) === key)) {
-        fail(`Unknown column "${key}" in \`sort\`. ${available(columns.map((c) => String(c.key)))}`);
+        fail(`Unknown column "${key}" in \`${label}\`. ${available(columns.map((c) => String(c.key)))}`);
     }
     if (direction !== "asc" && direction !== "desc") {
         fail(
-            `\`sort.direction\` must be "asc" or "desc", but was ${JSON.stringify(direction)}.`,
+            `\`${label}.direction\` must be "asc" or "desc", but was ${JSON.stringify(direction)}.`,
         );
     }
 
@@ -690,10 +733,12 @@ export function resolveOptions<R>(options: unknown): ResolvedOptions<R> {
     const columns =
         o.columns === undefined
             ? inferColumns<R>(o.rows)
-            : validateColumns<R>(o.columns, o.rows);
+            : // Same-group columns are gathered together up front, so the model is built on
+              // the normalized order — `ColumnsModel.setColumns` does the same for later sets.
+              gatherByGroup(validateColumns<R>(o.columns, o.rows));
 
     // Validated for its own sake; the resolved value is read from the model, not from here.
-    validateSort(o.sort, columns);
+    validateSort(o.sort, columns, Boolean(o.multiSort));
 
     if (o.persistFilters !== undefined) {
         const p = o.persistFilters as PersistFiltersOptions;

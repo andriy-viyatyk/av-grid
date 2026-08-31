@@ -13,7 +13,7 @@
  */
 
 import { filterRows } from "../gridUtils";
-import type { SortDirection } from "../types";
+import type { SortColumn, SortDirection } from "../types";
 import type { AVGridDataChangeEvent } from "./AVGridData";
 import type { AVGridModel } from "./AVGridModel";
 
@@ -98,7 +98,12 @@ export class RowsModel<R> {
             return;
         }
 
-        const direction = this.model.state.get().sort?.direction;
+        // A multi-sort state is an array, which has no `.direction` — its directions are folded
+        // into the composite comparator (see SortColumnModel), so no reverse happens here.
+        const sortState = this.model.state.get().sort;
+        const direction = Array.isArray(sortState)
+            ? undefined
+            : (sortState as SortColumn | undefined)?.direction;
         let rows: readonly R[] = this.model.options.rows;
         rows = this.filter(rows);
         rows = this.sort(rows, direction);

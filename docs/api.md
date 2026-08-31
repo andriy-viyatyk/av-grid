@@ -370,7 +370,8 @@ once per row, so keep it a property read rather than a search.
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
-| `sort` | `SortColumn \| null` | `null` | Initial sort. Clicking a header cycles ascending → descending → none. A column sorts by `row[key]` unless it has a `sortValue` or a `rowCompare` — see [Sorting by something other than the value](#sorting-by-something-other-than-the-value). |
+| `sort` | `SortColumn \| SortColumn[] \| null` | `null` | The sort. Clicking a header cycles ascending → descending → none. **Arity follows `multiSort`**: a single object by default, an array with `multiSort: true`. A column sorts by `row[key]` unless it has a `sortValue` or a `rowCompare` — see [Sorting by something other than the value](#sorting-by-something-other-than-the-value). |
+| `multiSort` | `boolean` | `false` | Sort by several columns at once — see [Multi-column sort](#multi-column-sort--multisort). |
 | `searchString` | `string` | — | Free-text filter. Every whitespace-separated word must appear in some column's *displayed* value — so a computed column with `formatValue` is searchable too. |
 | `highlightSearch` | `boolean \| "text" \| "background" \| "both"` | `true` | Mark the matched words inside the cells. See [Search highlighting](#search-highlighting). |
 | `highlightString` | `string` | — | Extra words to mark, **filtering nothing**. For words that came from outside this grid. See [Search highlighting](#search-highlighting). |
@@ -380,6 +381,36 @@ once per row, so keep it a property read rather than a search.
 | `disableSorting` | `boolean` | `false` | |
 | `disableFiltering` | `boolean` | `false` | Take the funnel off every header. One column opts out with `filterType: null`. |
 | `filterBar` | `boolean` | `false` | A bar of removable filter chips directly above the grid. Read at `create()`. |
+
+### Multi-column sort — `multiSort`
+
+```js
+AVGrid.create(el, {
+    rows,
+    multiSort: true,
+    sort: [{ key: "region", direction: "asc" }, { key: "spend", direction: "desc" }],
+    onSortChange: (sort) => console.log(sort),   // always an array here — [] when unsorted
+});
+```
+
+**Arity follows the option.** With `multiSort: false` (the default) `sort`, `getSort()` and
+`onSortChange` hold one `SortColumn | undefined`, exactly as before the option existed. With
+`multiSort: true` they hold a `readonly SortColumn[]` — `[]` when unsorted, first element sorts
+first. No consumer handles a union at runtime; passing an array without `multiSort` is a
+validation error that names the fix.
+
+**The gesture.** A plain header click resets the sort to the clicked column (cycling
+ascending → descending → none when it is already the only sorted column, as always).
+**Ctrl+click — or Cmd+click on macOS, where Ctrl+click is the context-menu gesture — appends**:
+the first Ctrl+click adds the column ascending, the second flips it to descending, the third
+removes it from the list, and the other sorted columns stay put throughout. When two or more
+columns sort, each sorted header shows its position number beside the arrow (`.avg-sort-pos`);
+with one, the header is pixel-identical to the single-sort look. `aria-sort` stays on the
+primary column only, per the ARIA recommendation.
+
+`Column.sortValue` keeps its once-per-row contract in a multi-sort (the levels decorate into one
+tuple per row), and a level with a `rowCompare` compares rows pairwise as always. Ties at every
+level keep source order — the composite sort is stable.
 
 ### Context menu
 
@@ -443,6 +474,7 @@ interface Column<R = any> {
     readonly?: boolean;
     pinned?: "left" | "right";      // stick to an edge; "right" columns must be the trailing run
     isStatusColumn?: boolean;       // the older spelling of pinned: "left"
+    group?: string;                 // the label drawn over this column — the two-row header
 
     sortValue?: (row: R) => any;                 // the value this column sorts by, read once per row
     rowCompare?: (left: R, right: R) => number;  // ...or the comparison itself; wins over sortValue
@@ -707,6 +739,54 @@ One flag, and the column steps out of everything that treats a column as data:
 | **No header affordances** | No sort, no funnel, no resize grip, not draggable to reorder; the context menu drops its add/delete-column items. |
 | **No data behind it** | Exempt from the "unknown column" check, so the `key` need not exist on the row — give it a `render`. |
 
+### `group` — two-level headers
+
+```js
+columns: [
+    { key: "member", name: "Member" },                 // no group: one tall header cell
+    { key: "q1_spend", name: "Spend", group: "Q1" },
+    { key: "q1_pmpm",  name: "PMPM",  group: "Q1" },
+    { key: "q2_spend", name: "Spend", group: "Q2" },
+    { key: "q2_pmpm",  name: "PMPM",  group: "Q2" },
+]
+```
+
+Put the same `group` string on the columns that belong together and the header becomes two rows:
+a group cell spanning those columns on top, the column headers below. **There is no switch to
+remember** — the band appears as soon as any visible column carries a `group`, and goes away with
+the last one. A column without a `group` spans both rows as one tall cell, which is what a label
+column wants anyway.
+
+The rules, all chosen so the option cannot be half-applied:
+
+| | |
+|---|---|
+| **Order is normalized** | Columns of one group are gathered together if the array interleaves them — stable, each group anchored where it first appears. `getColumns()` returns the normalized order. |
+| **Reorder is off** | While groups are shown, no header is draggable: a grouped order is a prepared view. Sort, filter, resize and `hidden` all still work; a hidden column just shrinks its group, and hiding all of a group's columns removes its cell. |
+| **Pinned columns cannot be grouped** | `pinned` (either edge, either spelling) plus `group` is a validation error — the sticky corners keep their plain tall headers. |
+| **Groups do not nest** | Two levels, full stop. |
+| **Affordances stay on the leaf header** | A group cell has no sort, no funnel, no resize grip. It shows its `group` string, or what the hooks below return. |
+
+Two grid options shape the cells:
+
+```js
+AVGrid.create(el, {
+    rows, columns,
+    columnGroupRender: ({ group, columns }) => `${group} <small>(${columns.length})</small>`,
+    columnGroupClass:  ({ group }) => (group === "Q2" ? "period-current" : undefined),
+});
+```
+
+`columnGroupRender` returns a string (treated as HTML), an element, or `undefined` to keep the
+default label. `columnGroupClass` adds classes to `.avg-group-cell`. Both receive
+`{ group, columns }` — the label and the visible columns under the cell.
+
+Group cells are **not pooled cells**: they are a handful of overlay divs painted once per group
+(not once per column), positioned by the engine's own column geometry so they stay pixel-aligned
+under percentage widths and `fitToWidth`, and they cost a scroll frame nothing. They carry
+`data-type="group-cell"` and `data-group` for CSS and tests, and are `aria-hidden` — the header
+row's ARIA semantics are unchanged by the band.
+
 ### `width`
 
 A number of pixels, or a percentage string (`"25%"`). A user resize overrides it and is reported
@@ -902,8 +982,8 @@ it was put instead of sorting away or failing the filter. The next sort change r
 
 | Method | Returns |
 |---|---|
-| `getSort()` | `SortColumn \| undefined` |
-| `setSort(sort \| undefined)` | `void` |
+| `getSort()` | `SortColumn \| undefined` — or `SortColumn[]` (`[]` when unsorted) with `multiSort: true` |
+| `setSort(sort \| undefined)` | `void`. Takes the same arity the grid reports — see [Multi-column sort](#multi-column-sort--multisort) |
 | `getSearchString()` | `string \| undefined` |
 | `setSearchString(text \| undefined)` | `void` |
 
@@ -1277,7 +1357,7 @@ Which callbacks can **veto** by returning `false`, and which are notifications:
 | `onInvalidEdit` | After a rejection | — |
 | `onSelectionChange` | After | — |
 | `onFocusChange` | After | — |
-| `onSortChange` | After | — |
+| `onSortChange` | After — one `SortColumn`, or an array with `multiSort: true` | — |
 | `onFiltersChange` | After | — |
 | `onColumnResize` / `onColumnsReorder` / `onColumnsChange` | After | — |
 | `onVisibleRowsChange` | After | — |
@@ -1704,8 +1784,10 @@ library's own items from yours.
 `↓` on the last row, `Tab` off the last cell, and `Ctrl+→` off the last column each grow the grid
 by one, when the matching `can*` option is on.
 
-**Sorting has no keyboard binding.** A header click is the only built-in gesture; a keyboard-first
-consumer sorts through its own UI and `grid.setSort()`. Named as a known gap in
+**Sorting has no keyboard binding.** A header click is the only built-in gesture — with
+`multiSort: true`, Ctrl+click (Cmd+click on macOS) appends a sort level, but that is a pointer
+gesture too. A keyboard-first consumer sorts through its own UI and `grid.setSort()`. Named as a
+known gap in
 [capabilities.md](capabilities.md#accessibility--what-conformance-we-claim), not hidden.
 
 ### Editing
@@ -1843,7 +1925,8 @@ positioned, and their nesting can change.
 | `data-row` | Row index. A header cell carries `0`; a data cell carries its **data** row index, so data row 0 also reads `0` — `data-type` is what tells them apart. |
 | `data-col` | Column index — into the **visible** columns, i.e. `columns` with `hidden` ones dropped. `getColumns()` returns the full array, so the two disagree the moment a column is hidden: map a cell back to its column by `data-column-key`, not by indexing `getColumns()` with this. It is **not renumbered inside a pinned band**: a pinned cell's index is its real one. |
 | `data-column-key` | The column's `key` |
-| `data-sort="asc" \| "desc"` | The sorted header cell — which also carries `aria-sort="ascending" \| "descending"` |
+| `data-sort="asc" \| "desc"` | A sorted header cell. `aria-sort="ascending" \| "descending"` rides on the **primary** sorted column only; with `multiSort` and 2+ sorted columns, each sorted header holds its position number in an `avg-sort-pos` span |
+| `data-type="group-row"` / `data-type="group-cell"` | The column-group band and its cells (`Column.group`) — overlay divs above the header row, classed `avg-group-cell`, each carrying `data-group` with its label. `aria-hidden`, not pooled, and **no** `data-row` / `data-col`: a group cell stands for a span, not a coordinate |
 | `role` / `aria-*` | The root is `role="grid"` with live `aria-rowcount` / `aria-colcount` and `aria-multiselectable`; header cells `role="columnheader"` + `aria-colindex`; data and footer cells `role="gridcell"` + 1-based `aria-rowindex` / `aria-colindex` (the header is row 1). There are deliberately **no row elements**, so this is grid semantics with sort state exposed, not a fully conformant ARIA grid — see [capabilities.md](capabilities.md#accessibility--what-conformance-we-claim). |
 | `data-resizable` | A header cell |
 | `data-pinned="left" \| "right"` | A pinned column's header cell. On `"right"`, the resize grip moves to the cell's left edge. |

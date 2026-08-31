@@ -485,8 +485,9 @@ describe("state props, echoed back from React state", () => {
                     columns={columns}
                     sort={sort}
                     onSortChange={(s) => {
-                        changes.push(s);
-                        setSort(s);
+                        // Without multiSort the reported arity is always a single object.
+                        changes.push(s as SortColumn | undefined);
+                        setSort(s as SortColumn | undefined);
                     }}
                 />
             );
@@ -500,6 +501,49 @@ describe("state props, echoed back from React state", () => {
 
         expect(changes).toHaveLength(1);
         expect(grid.getSort()).toMatchObject({ key: "name", direction: "asc" });
+        expect(renders).toBe(before + 1);
+    });
+
+    it("a multiSort array settles in a single pass", () => {
+        // The host rebuilds the array every render, so identity always differs — only the
+        // element-by-element value guard in setSort makes this terminate.
+        const made = spyOnCreate();
+        const changes: (readonly SortColumn[])[] = [];
+        let renders = 0;
+
+        function Controlled() {
+            const [sort, setSort] = useState<readonly SortColumn[]>([]);
+            renders++;
+            return (
+                <AVGridReact<Row>
+                    rows={rows}
+                    columns={columns}
+                    multiSort
+                    sort={sort.map((s) => ({ ...s }))}
+                    onSortChange={(s) => {
+                        changes.push(s as readonly SortColumn[]);
+                        setSort(s as readonly SortColumn[]);
+                    }}
+                />
+            );
+        }
+
+        render(<Controlled />);
+        const grid = made.at(-1)!;
+        const before = renders;
+
+        act(() =>
+            grid.setSort([
+                { key: "name", direction: "asc" },
+                { key: "score", direction: "desc" },
+            ]),
+        );
+
+        expect(changes).toHaveLength(1);
+        expect(grid.getSort()).toEqual([
+            { key: "name", direction: "asc" },
+            { key: "score", direction: "desc" },
+        ]);
         expect(renders).toBe(before + 1);
     });
 

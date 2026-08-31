@@ -27,8 +27,9 @@ import type {
     InvalidEditEvent,
     MenuItem,
     PersistFiltersOptions,
+    ColumnGroupContext,
     RowContext,
-    SortColumn,
+    SortState,
 } from "./types";
 
 export interface AVGridOptions<R = any> {
@@ -370,11 +371,65 @@ export interface AVGridOptions<R = any> {
     footerRowClass?: (row: RowContext<R>) => ClassValue;
 
     // -----------------------------------------------------------------------
+    // Column groups
+    // -----------------------------------------------------------------------
+
+    /**
+     * Render a group cell's content yourself, in place of the plain `group` label.
+     *
+     * ```js
+     * columnGroupRender: ({ group, columns }) => `${group} <small>(${columns.length})</small>`
+     * ```
+     *
+     * Return a string (treated as HTML) or an element; return `undefined` to keep the default
+     * label for that group. The band itself appears whenever any visible column has a `group` —
+     * see `Column.group`; this hook only changes what a group cell shows.
+     */
+    columnGroupRender?: (
+        context: ColumnGroupContext<R>,
+    ) => string | HTMLElement | undefined | null;
+
+    /**
+     * Extra classes for a group cell, added to `.avg-group-cell`.
+     *
+     * ```js
+     * columnGroupClass: ({ group }) => (group === "Q2" ? "period-current" : undefined)
+     * ```
+     */
+    columnGroupClass?: (context: ColumnGroupContext<R>) => ClassValue;
+
+    // -----------------------------------------------------------------------
     // Sorting and filtering
     // -----------------------------------------------------------------------
 
-    /** Initial sort. Clicking a header cycles ascending → descending → none. */
-    sort?: SortColumn | null;
+    /**
+     * The sort. Clicking a header cycles ascending → descending → none. **Arity follows
+     * `multiSort`**: a single `SortColumn` by default, a `readonly SortColumn[]` (first
+     * element sorts first) with `multiSort: true` — never a union at runtime.
+     */
+    sort?: SortState | null;
+    /**
+     * Sort by several columns at once. Default `false`.
+     *
+     * ```js
+     * AVGrid.create(el, {
+     *     rows,
+     *     multiSort: true,
+     *     sort: [{ key: "region", direction: "asc" }, { key: "spend", direction: "desc" }],
+     *     onSortChange: (sort) => console.log(sort),   // always an array here — [] when unsorted
+     * });
+     * ```
+     *
+     * With this on, `sort`, `getSort()` and `onSortChange` all hold arrays, and
+     * **Ctrl+click** (Cmd+click on macOS) on a header *appends*: first Ctrl+click adds the
+     * column ascending, the second flips it to descending, the third removes it from the list —
+     * the other sorted columns stay put. A plain click still resets the sort to the clicked
+     * column alone. When two or more columns sort, each sorted header shows its position
+     * number beside the arrow.
+     *
+     * Off (the default), everything behaves and is typed exactly as before the option existed.
+     */
+    multiSort?: boolean;
     /** Free-text filter applied across every column's displayed value. */
     searchString?: string;
     /**
@@ -480,7 +535,13 @@ export interface AVGridOptions<R = any> {
     // Callbacks
     // -----------------------------------------------------------------------
 
-    onSortChange?: (sort: SortColumn | undefined) => void;
+    /**
+     * The sort changed — from a header click or `setSort()` alike. Arity follows `multiSort`:
+     * one `SortColumn | undefined` by default, a `readonly SortColumn[]` (`[]` when unsorted)
+     * with `multiSort: true`. Safe to hand straight back to `setSort()` — the value guard
+     * makes the echo terminate.
+     */
+    onSortChange?: (sort: SortState | undefined) => void;
     /**
      * The applied filters changed — from the API, the header funnel or a filter chip alike.
      *
@@ -651,6 +712,8 @@ export const CALLBACK_OPTION_KEYS = [
     "onCellClass",
     "rowClass",
     "footerRowClass",
+    "columnGroupRender",
+    "columnGroupClass",
 ] as const satisfies readonly FunctionOptionKeys[];
 
 /** A member of {@link CALLBACK_OPTION_KEYS}. */

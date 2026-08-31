@@ -14,7 +14,7 @@
  *    contract in `RenderCellParams`.
  */
 
-import { isPinnedLeft } from "../gridUtils";
+import { isPinnedLeft, sortAsList } from "../gridUtils";
 import type { RenderCellParams, RenderedCell } from "../render/types";
 import type { AVGridModel } from "../model/AVGridModel";
 import { filterIcon, sortAscIcon, sortDescIcon } from "./icons";
@@ -113,19 +113,34 @@ export function renderHeaderCell<R>(
     el.setAttribute("data-resizable", resizable ? "true" : "false");
     // Left-pinned columns are chrome, fixed in place; everything else can be dragged to
     // reorder — a right-pinned column only within its own band (`GridInteractions` refuses
-    // a drop that would cross the boundary).
-    el.draggable = !pinnedLeft;
+    // a drop that would cross the boundary). While column groups are shown, reordering is
+    // off for every column: a grouped order is a prepared view (see `Column.group`).
+    el.draggable = !pinnedLeft && !model.data.hasGroups;
 
     // --- sort indicator
-    const sort = model.state.get().sort;
-    if (sort && sort.key === String(column.key)) {
-        el.setAttribute("data-sort", sort.direction);
-        el.setAttribute(
-            "aria-sort",
-            sort.direction === "asc" ? "ascending" : "descending",
-        );
+    const sortList = sortAsList(model.state.get().sort);
+    const sortIndex = sortList.findIndex((s) => s.key === key);
+    if (sortIndex >= 0) {
+        const direction = sortList[sortIndex].direction;
+        el.setAttribute("data-sort", direction);
+        // On the primary column only — ARIA recommends a single `aria-sort` per grid even
+        // when the data is sorted by several columns.
+        if (sortIndex === 0) {
+            el.setAttribute(
+                "aria-sort",
+                direction === "asc" ? "ascending" : "descending",
+            );
+        } else {
+            el.removeAttribute("aria-sort");
+        }
+        // The position number appears only when two or more columns sort — with one, the
+        // header is pixel-identical to the single-sort look.
+        const position =
+            sortList.length > 1
+                ? `<span class="avg-sort-pos">${sortIndex + 1}</span>`
+                : "";
         structure.sort.innerHTML =
-            sort.direction === "asc" ? sortAscIcon : sortDescIcon;
+            (direction === "asc" ? sortAscIcon : sortDescIcon) + position;
     } else {
         el.removeAttribute("data-sort");
         el.removeAttribute("aria-sort");
@@ -167,6 +182,15 @@ export function renderHeaderCell<R>(
         model.flags.filterPopover?.columnKey === key,
     );
 
-    applyCellStyle(el, p.style);
+    // Two-row header: with groups active, row 0 is doubled and a *grouped* column's header
+    // occupies its lower half — the group band (`GroupHeader.ts`) draws the upper. An
+    // ungrouped column keeps the whole slot as one tall cell, which is what a label column
+    // wants anyway.
+    let style = p.style;
+    if (model.data.hasGroups && column.group !== undefined) {
+        const band = model.options.rowHeight;
+        style = { ...style, top: style.top + band, height: style.height - band };
+    }
+    applyCellStyle(el, style);
     return el;
 }
