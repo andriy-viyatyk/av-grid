@@ -132,6 +132,18 @@ export const css = `
     background-repeat: no-repeat;
 }
 
+/* A right-pinned header resizes from its LEFT edge — its right edge is anchored to the
+   viewport — so the grip and the padding that clears it both flip sides. */
+.avg-grid .avg-header-cell[data-resizable="true"][data-pinned="right"] {
+    padding-right: var(--avg-cell-padding-x);
+    padding-left: 10px;
+}
+
+.avg-grid .avg-header-cell[data-resizable="true"][data-pinned="right"]::after {
+    inset-inline-end: auto;
+    inset-inline-start: 0;
+}
+
 .avg-grid .avg-header-cell.avg-drag-source {
     opacity: 0.4;
 }
@@ -492,7 +504,7 @@ export const css = `
  */
 .avg-grid .avg-add-row {
     position: absolute;
-    bottom: 1px;
+    bottom: calc(1px + var(--avg-sticky-bottom, 0px));
     left: 4px;
     display: inline-flex;
     align-items: center;
@@ -527,7 +539,8 @@ export const css = `
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 0;
+    /* Above the footer band when there is one — the band overlays the area's bottom edge. */
+    bottom: var(--avg-sticky-bottom, 0px);
 }
 
 .avg-grid .avg-add-column {

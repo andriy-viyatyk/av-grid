@@ -28,6 +28,7 @@
  * stay selected and still need repainting because the border moved off it.
  */
 
+import { isPinnedLeft } from "../gridUtils";
 import type { RenderCell, RerenderInfo } from "../render/types";
 import type { CellFocus, Column } from "../types";
 import type { AVGridDataChangeEvent } from "./AVGridData";
@@ -364,7 +365,7 @@ export class FocusModel<R> {
     ): void => {
         const fallback =
             this.model.models.columns.firstEditable?.index ??
-            this.model.data.columns.findIndex((c) => !c.isStatusColumn);
+            this.model.data.columns.findIndex((c) => !isPinnedLeft(c));
         this.selectRange(
             startIndex,
             oldFocus?.selection?.colStart ?? Math.max(0, fallback),
@@ -768,11 +769,19 @@ export class FocusModel<R> {
         let rowIndex = this.ranges.focusRow;
         let columnIndex = this.ranges.focusCol;
 
-        // Nothing focused yet — the first navigation key lands on the first cell. The
+        // The first column the focus can live in: pinned-left chrome (the checkbox, a row
+        // number) is not focusable by pointer — `onCellPointerDown` returns early for it — so
+        // the keyboard must not be the one way in either.
+        const firstColumn = Math.min(
+            columns.length - 1,
+            this.model.data.lastIsStatusIndex + 1,
+        );
+
+        // Nothing focused yet — the first navigation key lands on the first data cell. The
         // reference did nothing at all here, which makes a freshly tabbed-into grid feel
         // broken.
         if (rowIndex < 0 || columnIndex < 0) {
-            this.updateFocus(0, 0, "click", { withScroll: true });
+            this.updateFocus(0, firstColumn, "click", { withScroll: true });
             return;
         }
 
@@ -818,10 +827,12 @@ export class FocusModel<R> {
                 break;
             case "Home":
                 rowIndex = 0;
-                if (e.ctrlKey) columnIndex = 0;
+                if (e.ctrlKey) columnIndex = firstColumn;
                 break;
             case "ArrowLeft":
-                columnIndex = e.ctrlKey ? 0 : Math.max(0, columnIndex - 1);
+                columnIndex = e.ctrlKey
+                    ? firstColumn
+                    : Math.max(firstColumn, columnIndex - 1);
                 break;
             case "ArrowRight":
                 // ctrl+→ on the last column adds one, rather than doing nothing twice.
@@ -839,18 +850,19 @@ export class FocusModel<R> {
                 break;
             case "Tab":
                 if (e.shiftKey) {
-                    if (columnIndex > 0) {
+                    if (columnIndex > firstColumn) {
                         columnIndex--;
                     } else {
                         columnIndex = lastColumn;
                         rowIndex = Math.max(0, rowIndex - 1);
                     }
                 } else {
-                    columnIndex = columnIndex < lastColumn ? columnIndex + 1 : 0;
+                    columnIndex =
+                        columnIndex < lastColumn ? columnIndex + 1 : firstColumn;
                     // Tabbing off the last cell of the last row wraps onto a new one, which is
                     // how a row gets filled in without touching the mouse.
-                    if (columnIndex === 0 && rowIndex === lastRow) growRow();
-                    if (columnIndex === 0 && rowIndex < lastRow) rowIndex++;
+                    if (columnIndex === firstColumn && rowIndex === lastRow) growRow();
+                    if (columnIndex === firstColumn && rowIndex < lastRow) rowIndex++;
                 }
                 break;
             default:

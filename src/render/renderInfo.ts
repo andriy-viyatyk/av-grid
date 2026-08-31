@@ -251,9 +251,13 @@ export const calcInnerSize = (
     width:
         calcLength(columnLength, 0, columnCount) +
         (stickyRight || columnsFitted ? 0 : (whiteSpaceX ?? whiteSpace)),
+    // With a bottom band the band itself is what the last scrolling row clears, so the
+    // *default* slack is dropped — but an explicit `whiteSpaceY` keeps its meaning: room
+    // between the last scrolling row and whatever comes after it (an `extraElement` needs
+    // exactly that strip, above the band).
     height:
         calcLength(rowLength, 0, rowCount) +
-        (stickyBottom ? 0 : (whiteSpaceY ?? whiteSpace)),
+        (stickyBottom ? (whiteSpaceY ?? 0) : (whiteSpaceY ?? whiteSpace)),
     stickyTopHeight: calcLength(rowLength, 0, stickyTop),
     stickyRightWidth: calcLength(
         columnLength,

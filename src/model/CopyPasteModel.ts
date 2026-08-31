@@ -23,7 +23,7 @@
  */
 
 import { csvToRecords, recordsToCsv } from "../core/csv";
-import { columnDisplayValue } from "../gridUtils";
+import { columnDisplayValue, isPinnedLeft } from "../gridUtils";
 import type { CellContext, Column } from "../types";
 import type { AVGridModel } from "./AVGridModel";
 import type { GridSelection } from "./FocusModel";
@@ -98,7 +98,7 @@ export class CopyPasteModel<R> {
         const first = selection.colRange[0];
         return selection.columns
             .map((column, i) => ({ column, index: first + i }))
-            .filter((c) => !c.column.isStatusColumn);
+            .filter((c) => !isPinnedLeft(c.column));
     }
 
     /**

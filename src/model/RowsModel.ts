@@ -27,9 +27,13 @@ export class RowsModel<R> {
         this.model.events.onRowsDeleted.subscribe(this.onRowsDeleted);
     }
 
-    /** +1 for the header, which the engine renders as grid row 0. */
+    /** +1 for the header (grid row 0), + the footer rows pinned after the data. */
     get rowCount(): number {
-        return this.model.data.rows.length + 1;
+        return (
+            this.model.data.rows.length +
+            1 +
+            (this.model.options.footerRows?.length ?? 0)
+        );
     }
 
     /**

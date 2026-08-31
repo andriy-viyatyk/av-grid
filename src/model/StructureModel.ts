@@ -35,6 +35,7 @@
  *    `getSelectedRows().length`.
  */
 
+import { isPinnedLeft, trailingPinnedRight } from "../gridUtils";
 import type { Column } from "../types";
 import { inferRowKeyProperty } from "../validate";
 import type { AVGridModel } from "./AVGridModel";
@@ -271,10 +272,14 @@ export class StructureModel<R> {
         if (!columns.length) return [];
 
         const existing = this.model.options.columns;
+        // Unpinned columns cannot land inside the trailing `pinned: "right"` run — "append"
+        // means "after the last scrolling column", or the tail would silently stop being
+        // trailing. Columns that are themselves pinned right may go all the way to the end.
+        const limit = columns.every((c) => c.pinned === "right")
+            ? existing.length
+            : existing.length - trailingPinnedRight(existing);
         const at =
-            index === undefined
-                ? existing.length
-                : Math.max(0, Math.min(index, existing.length));
+            index === undefined ? limit : Math.max(0, Math.min(index, limit));
 
         if (this.model.options.onAddColumns?.({ columns, index: at }) === false) {
             return [];
@@ -326,7 +331,7 @@ export class StructureModel<R> {
         if (!selection?.columns.length) return false;
         // The checkbox column is the grid's, not the host's, and ctrl+A selects it too.
         const keys = selection.columns
-            .filter((c) => !c.isStatusColumn)
+            .filter((c) => !isPinnedLeft(c))
             .map((c) => String(c.key));
         return this.deleteColumns(keys);
     };

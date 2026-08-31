@@ -273,6 +273,32 @@ describe("columns", () => {
         ]);
     });
 
+    it("appends before the pinned-right tail, so the tail stays trailing", () => {
+        const g = grid(2, {
+            columns: [
+                { key: "name", name: "Name", width: 120 },
+                { key: "score", name: "Score", width: 80, dataType: "number" },
+                { key: "id", name: "ID", width: 60, pinned: "right" },
+            ],
+        });
+        g.addColumns([{ key: "extra", name: "Extra", width: 60 }]);
+        expect(g.getColumns().map((c) => c.key)).toEqual([
+            "name",
+            "score",
+            "extra",
+            "id",
+        ]);
+        // An explicit index inside the tail is clamped to just before it.
+        g.addColumns([{ key: "extra2", name: "Extra 2", width: 60 }], 4);
+        expect(g.getColumns().map((c) => c.key)).toEqual([
+            "name",
+            "score",
+            "extra",
+            "extra2",
+            "id",
+        ]);
+    });
+
     it("inserts at an index into getColumns()", () => {
         const g = grid(2);
         g.addColumns([{ key: "extra", name: "Extra", width: 60 }], 1);

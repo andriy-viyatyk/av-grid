@@ -30,6 +30,7 @@ need.
 | [`10-customization.html`](10-customization.html) | All seven host hooks at once: `cellClass`, `headerClass`, `rowClass`, `editor`, `column.filter`, `copyValue`, `sortValue` |
 | [`11-host-integration.html`](11-host-integration.html) | What a host supplies around the rows: `rowNoun`, `highlightString`, `extraElement`, `whiteSpaceY`, and a host menu drawn from the built-in item ids |
 | [`12-react.html`](12-react.html) | The React wrapper: `<AVGridReact>`, a detached `<AVGridFilterBar>`, the instance ref — React and ReactDOM from a CDN, no build step and no JSX |
+| [`13-report.html`](13-report.html) | A report shape: a label column `pinned: "left"`, a `pinned: "right"` Total column, and a grand-total row in `footerRows`, formatted by the same columns as the data |
 | [`persephone-board/`](persephone-board/) | The grid on a Persephone board, themed by `--p-*` with no theming code |
 
 ## Three things every example depends on

@@ -34,12 +34,13 @@
  * added at most once per document.
  */
 
+import { isPinnedLeft } from "./gridUtils";
 import { AVGridModel } from "./model/AVGridModel";
 import { RenderGrid } from "./render/RenderGrid";
 import { defaultRowHeight } from "./render/RenderGridModel";
 import type { RenderCellFunc } from "./render/types";
 import { injectStyles } from "./styles/av-grid.css";
-import { renderDataCell } from "./view/DataCell";
+import { renderDataCell, renderFooterCell } from "./view/DataCell";
 import { renderHeaderCell } from "./view/HeaderCell";
 import { GridInteractions } from "./view/GridInteractions";
 import { createDefaultEditor } from "./view/DefaultEditFormatter";
@@ -115,6 +116,8 @@ export interface ColumnStateSnapshot {
     editable: boolean;
     /** A non-data column — the checkbox column is the one the library adds. */
     isStatusColumn?: boolean;
+    /** Which edge the column is pinned to, whichever spelling declared it. */
+    pinned?: "left" | "right";
     /** A custom cell renderer is installed. Worth knowing when a cell shows the unexpected. */
     hasRender: boolean;
     /** The column has `options`, so it edits through the dropdown rather than a text box. */
@@ -303,7 +306,9 @@ export class AVGrid<R = any> {
         const renderCell: RenderCellFunc = (p) =>
             p.row === 0
                 ? renderHeaderCell(this.model, p)
-                : renderDataCell(this.model, p);
+                : p.row > this.model.data.rows.length
+                  ? renderFooterCell(this.model, p)
+                  : renderDataCell(this.model, p);
 
         this.render = new RenderGrid(this.wrapper ?? host, {
             name: resolved.name,
@@ -317,6 +322,8 @@ export class AVGrid<R = any> {
             renderCell,
             stickyTop: 1,
             stickyLeft: this.model.data.lastIsStatusIndex + 1,
+            stickyRight: this.model.data.stickyRightCount,
+            stickyBottom: resolved.footerRows?.length ?? 0,
             overscanRow: resolved.overscanRow ?? DEFAULT_OVERSCAN_ROW,
             overscanColumn: resolved.overscanColumn ?? DEFAULT_OVERSCAN_COLUMN,
             fitToWidth: resolved.fitToWidth,
@@ -333,6 +340,14 @@ export class AVGrid<R = any> {
         if (resolved.cellBorders === false) {
             this.render.root.setAttribute("data-cell-borders", "off");
         }
+
+        // Grid semantics on the root, cell roles in the renderers. There are deliberately no
+        // row elements — that absence is what keeps a one-row scroll to a handful of node
+        // touches — so this is grid semantics with sort state exposed, not a fully conformant
+        // ARIA grid. docs/capabilities.md states the claim; do not soften it here either.
+        this.render.root.setAttribute("role", "grid");
+        this.render.root.setAttribute("aria-multiselectable", "true");
+        this.syncAria();
 
         this.syncSearchHighlight();
 
@@ -962,6 +977,14 @@ export class AVGrid<R = any> {
         if ("whiteSpaceY" in rest) {
             this.render.setOptions({ whiteSpaceY: rest.whiteSpaceY });
         }
+        // The band's size is the row count; the rows themselves repaint through the
+        // `refresh()` below like any other option.
+        if ("footerRows" in rest) {
+            this.render.setOptions({
+                stickyBottom: this.model.options.footerRows?.length ?? 0,
+            });
+            this.syncAria();
+        }
 
         this.syncAffordances();
         this.refresh();
@@ -1011,8 +1034,9 @@ export class AVGrid<R = any> {
                     sorted: sort?.key === key ? sort.direction : undefined,
                     filtered: this.model.models.filters.isFiltered(key),
                     editable:
-                        editable && !column.readonly && !column.isStatusColumn,
+                        editable && !column.readonly && !isPinnedLeft(column),
                     isStatusColumn: column.isStatusColumn,
+                    pinned: column.pinned ?? (isPinnedLeft(column) ? "left" : undefined),
                     hasRender: Boolean(column.render),
                     hasOptions: Boolean(column.options),
                     hasEditor: Boolean(column.editor),
@@ -1330,11 +1354,30 @@ export class AVGrid<R = any> {
         }
     }
 
+    /** The root's row and column counts — the header row and any footer rows included. */
+    private syncAria(): void {
+        const footer = this.model.options.footerRows?.length ?? 0;
+        this.render.root.setAttribute(
+            "aria-rowcount",
+            String(this.model.data.rows.length + 1 + footer),
+        );
+        this.render.root.setAttribute(
+            "aria-colcount",
+            String(this.model.data.columns.length),
+        );
+    }
+
     private onDataChange = (e: AVGridDataChangeEvent): void => {
         if (this.destroyed) return;
+        if (e.rows || e.columns) this.syncAria();
         if (e.lastIsStatusIndex) {
             this.render.setOptions({
                 stickyLeft: this.model.data.lastIsStatusIndex + 1,
+            });
+        }
+        if (e.stickyRightCount) {
+            this.render.setOptions({
+                stickyRight: this.model.data.stickyRightCount,
             });
         }
     };

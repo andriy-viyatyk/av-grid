@@ -511,15 +511,36 @@ export class RenderGrid {
 
         this.applyLayout(info, scrollBarWidth, scrollBarHeight);
 
-        this.syncRegion("cells", info.cells);
-        this.syncRegion("stickyTop", info.stickyTop);
-        this.syncRegion("stickyBottom", info.stickyBottom);
-        this.syncRegion("stickyLeft", info.stickyLeft);
-        this.syncRegion("stickyRight", info.stickyRight);
-        this.syncRegion("stickyTopLeft", info.stickyTopLeft);
-        this.syncRegion("stickyTopRight", info.stickyTopRight);
-        this.syncRegion("stickyBottomLeft", info.stickyBottomLeft);
-        this.syncRegion("stickyBottomRight", info.stickyBottomRight);
+        // Every cell any region will hold after this paint. A cell can *migrate* between
+        // regions in one paint — a column pinned or unpinned moves its live element from one
+        // band's set to another's — and the region losing it must not evict it: in one sync
+        // order that is a `removeChild` against the wrong parent, in the other it releases an
+        // element that is still on screen into the pool, which then hands it to the next
+        // renderer as a recycle. The union is what "still on screen" means.
+        const active = new Set<HTMLElement>();
+        for (const region of [
+            info.cells,
+            info.stickyTop,
+            info.stickyBottom,
+            info.stickyLeft,
+            info.stickyRight,
+            info.stickyTopLeft,
+            info.stickyTopRight,
+            info.stickyBottomLeft,
+            info.stickyBottomRight,
+        ]) {
+            for (const cell of region) if (cell) active.add(cell);
+        }
+
+        this.syncRegion("cells", info.cells, active);
+        this.syncRegion("stickyTop", info.stickyTop, active);
+        this.syncRegion("stickyBottom", info.stickyBottom, active);
+        this.syncRegion("stickyLeft", info.stickyLeft, active);
+        this.syncRegion("stickyRight", info.stickyRight, active);
+        this.syncRegion("stickyTopLeft", info.stickyTopLeft, active);
+        this.syncRegion("stickyTopRight", info.stickyTopRight, active);
+        this.syncRegion("stickyBottomLeft", info.stickyBottomLeft, active);
+        this.syncRegion("stickyBottomRight", info.stickyBottomRight, active);
 
         // Hiding the container resets its scrollTop to 0 while the model keeps the real
         // offset; put it back once the content is there to scroll. Only then — a container
@@ -560,7 +581,11 @@ export class RenderGrid {
      * Set arithmetic, not diffing: absolute positioning means order carries no meaning, so
      * an element that stays on screen is never touched even if its neighbours change.
      */
-    private syncRegion(key: RegionKey, cells: Array<RenderedCell>): void {
+    private syncRegion(
+        key: RegionKey,
+        cells: Array<RenderedCell>,
+        active: ReadonlySet<HTMLElement>,
+    ): void {
         const parent = this.regions[key];
         const prev = this.attached[key];
 
@@ -570,7 +595,9 @@ export class RenderGrid {
         }
 
         for (const el of prev) {
-            if (!next.has(el)) this.evictCell(parent, el);
+            // Still in `active` means the cell migrated to another region this paint; that
+            // region's admit re-parents it, and evicting it here would double-own the element.
+            if (!next.has(el) && !active.has(el)) this.evictCell(parent, el);
         }
 
         for (const el of next) {
@@ -730,6 +757,10 @@ export class RenderGrid {
 
         setStyle(this.area, "width", px(innerSize.width));
         setStyle(this.area, "height", px(innerSize.height));
+        // Published for the bottom-anchored overlays (`avg-extra`, the add-row button): with a
+        // bottom band, "the bottom of the content" a host or the stylesheet anchors to is the
+        // top of that band, not the area's edge the band overlays.
+        setStyle(this.area, "--avg-sticky-bottom", px(innerSize.stickyBottomHeight));
 
         // The right-hand bands sit at the viewport's right edge, inside the scrollbar.
         const rightLeft = px(width - innerSize.stickyRightWidth - scrollBarWidth);

@@ -114,9 +114,9 @@ function setCellText(el: HTMLElement, text: string, cleared: boolean): void {
 }
 
 /** Reset an element's children when the content shape changes under it. */
-function setMode(el: HTMLElement, next: ContentMode): boolean {
+function setMode(el: HTMLElement, next: ContentMode, dataType = "data-cell"): boolean {
     const current = mode.get(el);
-    if (current === next && el.getAttribute("data-type") === "data-cell") {
+    if (current === next && el.getAttribute("data-type") === dataType) {
         return false;
     }
     el.textContent = "";
@@ -223,6 +223,11 @@ export function renderDataCell<R>(
     el.setAttribute("data-row", String(dataRow));
     el.setAttribute("data-col", String(p.col));
     el.setAttribute("data-column-key", String(column.key));
+    // The grid has no row elements (see docs/capabilities.md, "what conformance we claim"),
+    // so the indices ride on the cells: 1-based, with the header as row 1.
+    el.setAttribute("role", "gridcell");
+    el.setAttribute("aria-rowindex", String(dataRow + 2));
+    el.setAttribute("aria-colindex", String(p.col + 1));
 
     // --- content -----------------------------------------------------------
     if (isEditing) {
@@ -325,4 +330,113 @@ function displayText<R>(column: Column<R>, row: R, value: unknown): string {
     if (typeof value === "number") return String(value);
     if (value instanceof Date) return formatDisplayValue(value);
     return String(value);
+}
+
+/**
+ * The footer cell — a data cell with the interaction surface removed.
+ *
+ * Footer rows are the host's own row objects, so the *display* half is the data cell's:
+ * `render`, `formatValue`, `displayFormat`, `align` and `cellClass` all apply through the same
+ * code. What is deliberately absent is everything that makes a data cell interactive — no
+ * `data-row`, so the hit-testing in `GridInteractions` (which resolves everything off
+ * `data-type="data-cell"`) never sees one: no focus, no selection drag, no editing, no hover.
+ * A boolean shows a tick and never a checkbox, and the search never marks here — a footer is
+ * not a match, it is a summary.
+ *
+ * It shares this file so it shares the pooled-content discipline: `setMode` keyed to
+ * `"footer-cell"`, the same text wrapper, the same written-markup map — so a repaint of an
+ * unchanged footer cell touches nothing, exactly like a data cell.
+ */
+export function renderFooterCell<R>(
+    model: AVGridModel<R>,
+    p: RenderCellParams,
+): RenderedCell {
+    const column = model.data.columns[p.col];
+    const footerIndex =
+        model.gridRowToDataRow(p.row) - model.data.rows.length;
+    const row = model.options.footerRows?.[footerIndex];
+    if (!column || row === undefined) return undefined;
+
+    const el = p.previous ?? p.recycle?.() ?? document.createElement("div");
+
+    // A recycled element may have held the open editor when it was evicted; the edit is
+    // committed rather than left around a detached element — the same guard the data cell has.
+    const editing = model.models.editing;
+    if (editing.ownsCell(el)) editing.releaseCell();
+
+    const value = (row as any)[column.key];
+    const rowKey = "avg-footer-" + footerIndex;
+
+    let className = "avg-data-cell avg-footer-cell" + alignClass(column, value);
+
+    const cellClass = column.cellClass;
+    let context: CellContext<R> | undefined;
+    if (column.render || typeof cellClass === "function") {
+        context = {
+            value,
+            row,
+            column,
+            rowIndex: footerIndex,
+            colIndex: p.col,
+            rowKey,
+            highlight: model.highlightText,
+        };
+    }
+    if (typeof cellClass === "string") className += ` ${cellClass}`;
+    else if (cellClass && context) {
+        className = appendClass(className, cellClass(context));
+    }
+    const footerRowClass = model.options.footerRowClass;
+    if (footerRowClass) {
+        className = appendClass(
+            className,
+            footerRowClass({ row, rowIndex: footerIndex, rowKey }),
+        );
+    }
+    if (el.className !== className) el.className = className;
+
+    el.setAttribute("data-type", "footer-cell");
+    el.setAttribute("data-col", String(p.col));
+    el.setAttribute("data-column-key", String(column.key));
+    el.setAttribute("data-footer-row", String(footerIndex));
+    el.setAttribute("role", "gridcell");
+    el.setAttribute("aria-readonly", "true");
+    el.setAttribute(
+        "aria-rowindex",
+        String(model.data.rows.length + footerIndex + 2),
+    );
+    el.setAttribute("aria-colindex", String(p.col + 1));
+    // A pooled element may arrive carrying a data cell's row — a footer cell stands for no
+    // data coordinate, and a stale `data-row` would make it one to every selector.
+    el.removeAttribute("data-row");
+
+    if (column.render && context) {
+        const rendered = column.render(context);
+        if (rendered === null || rendered === undefined) {
+            setCellText(el, "", setMode(el, "text", "footer-cell"));
+        } else if (typeof rendered === "string") {
+            if (setMode(el, "html", "footer-cell")) written.delete(el);
+            if (written.get(el) !== rendered) {
+                el.innerHTML = rendered;
+                written.set(el, rendered);
+            }
+        } else {
+            setMode(el, "node", "footer-cell");
+            el.textContent = "";
+            el.appendChild(rendered);
+        }
+    } else if (column.dataType === "boolean") {
+        setMode(el, "bool", "footer-cell");
+        const wanted = gridBoolean(value) ? TICK : "";
+        if (el.innerHTML !== wanted) el.innerHTML = wanted;
+    } else {
+        setCellText(
+            el,
+            displayText(column, row, value),
+            setMode(el, "text", "footer-cell"),
+        );
+    }
+
+    applyCellStyle(el, p.style);
+    return el;
 }

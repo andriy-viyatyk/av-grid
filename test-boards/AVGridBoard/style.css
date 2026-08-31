@@ -166,3 +166,12 @@ button.secondary {
     letter-spacing: 1px;
     color: #d9a13b;
 }
+
+/* Task 46 — the footer band: the grand-total row the board's footerRowClass marks. */
+.grid-host .avg-footer-cell {
+    font-weight: 500;
+    background: color-mix(in srgb, var(--p-text, #ccc) 10%, var(--p-bg, #222));
+}
+.grid-host .avg-footer-cell.grand-total {
+    font-weight: 700;
+}

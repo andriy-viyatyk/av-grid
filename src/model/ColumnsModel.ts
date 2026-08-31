@@ -9,6 +9,7 @@
  */
 
 import { range } from "../core/utils";
+import { isPinnedLeft, trailingPinnedRight } from "../gridUtils";
 import type { Column } from "../types";
 import { createSelectColumn } from "../view/SelectColumn";
 import type { AVGridModel } from "./AVGridModel";
@@ -43,7 +44,7 @@ export class ColumnsModel<R> {
     /** The first column an edit can land in — skips read-only and status columns. */
     get firstEditable(): { col: Column<R>; index: number } | undefined {
         const index = this.model.data.columns.findIndex(
-            (c) => !c.readonly && !c.isStatusColumn,
+            (c) => !c.readonly && !isPinnedLeft(c),
         );
         return index === -1
             ? undefined
@@ -91,13 +92,19 @@ export class ColumnsModel<R> {
             ? [this.selectColumn, ...columns]
             : columns;
 
+        // Pin runs are computed over the *visible* columns, because the counts become the
+        // engine's sticky band sizes and those index into what is rendered. A hidden pinned
+        // column simply shortens its run.
+        const visible = all.filter((c) => !c.hidden);
+
         let lastIsStatusIndex = -1;
-        all.forEach((c, idx) => {
-            if (c.isStatusColumn) lastIsStatusIndex = idx;
+        visible.forEach((c, idx) => {
+            if (isPinnedLeft(c)) lastIsStatusIndex = idx;
         });
 
         this.model.data.lastIsStatusIndex = lastIsStatusIndex;
-        this.model.data.columns = all.filter((c) => !c.hidden);
+        this.model.data.stickyRightCount = trailingPinnedRight(visible);
+        this.model.data.columns = visible;
         this.model.data.change();
     };
 

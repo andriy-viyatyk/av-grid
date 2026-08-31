@@ -144,6 +144,48 @@ describe("structure", () => {
         }
     });
 
+    it("moves a cell between regions without evicting it, when a band count changes", async () => {
+        // A column pinned or unpinned migrates its live element from one region's set to
+        // another's in a single paint. The losing region must treat that as a migration, not
+        // an eviction: evicting detaches the element in one sync order and — worse — releases
+        // an on-screen element into the pool in the other, where the next renderer would be
+        // handed it as a recycle.
+        const { grid, host } = track(createGrid({ columnCount: 4, columnWidth: 100 }));
+        await nextFrame();
+
+        const rightRegion = host.querySelector(
+            '[data-type="render-grid-sticky-right"]',
+        ) as HTMLElement;
+        const cellsRegion = host.querySelector(
+            '[data-type="render-grid-area"]',
+        ) as HTMLElement;
+        const cellAt = (row: number, col: number) =>
+            host.querySelector(`[data-row="${row}"][data-col="${col}"]`) as HTMLElement;
+
+        // Pin the last column: its cells migrate cells -> stickyRight.
+        const before = cellAt(0, 3);
+        expect(before.parentElement).toBe(cellsRegion);
+        grid.setOptions({ stickyRight: 1 });
+        await nextFrame();
+        const pinned = cellAt(0, 3);
+        expect(pinned.parentElement).toBe(rightRegion);
+        expect(pinned.isConnected).toBe(true);
+
+        // Unpin it again: stickyRight -> cells, the direction that used to throw.
+        grid.setOptions({ stickyRight: 0 });
+        await nextFrame();
+        const unpinned = cellAt(0, 3);
+        expect(unpinned.parentElement).toBe(cellsRegion);
+        expect(unpinned.isConnected).toBe(true);
+
+        // The pool must not be holding an attached element: drain it and check.
+        for (;;) {
+            const el = grid.pool.acquire();
+            if (!el) break;
+            expect(el.isConnected).toBe(false);
+        }
+    });
+
     it("puts a stable class on every shell element, so host CSS can reach them", () => {
         const { grid } = track(createGrid({ stickyTop: 1, stickyLeft: 1 }));
 

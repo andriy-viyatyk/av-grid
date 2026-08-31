@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<!--
+    av-grid — a report shape: pinned columns and a footer band.
+
+    A label column pinned left, twelve scrolling period columns, a total column pinned right,
+    and a grand-total row pinned to the bottom. Everything here is three column fields and two
+    options; the totals row is formatted by the same columns as the data, so the number
+    formatting is written once.
+
+    Run: npm run build once, then serve this folder and open the file:
+        npx serve .          (or: python -m http.server)
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — report: pinned columns + footer</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0; color: #666; }
+        #host { flex: 1 1 auto; min-height: 0; }
+
+        /* The footer band, through the two hooks made for it. */
+        #host .avg-footer-cell { font-weight: 600; background: #f4f2ea; }
+        #host .avg-footer-cell.grand-total { border-top: 2px solid #8a8264; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Report: pinned columns + footer</h1>
+        <p><code>pinned: "left"</code> on the label column, <code>pinned: "right"</code> on the
+        trailing Total column, <code>footerRows</code> for the grand total. Scroll sideways —
+        the ends stay put — and sort or filter: the footer never moves.</p>
+    </header>
+
+    <div id="host"></div>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun",
+                        "jul", "aug", "sep", "oct", "nov", "dec"];
+        const REGIONS = ["North", "South", "East", "West", "Central"];
+
+        // 500 member rows, each with a spend per month and a derived total.
+        const rows = Array.from({ length: 500 }, (_, i) => {
+            const row = {
+                id: i + 1,
+                member: `Member ${String(i + 1).padStart(3, "0")}`,
+                region: REGIONS[i % REGIONS.length],
+            };
+            let total = 0;
+            MONTHS.forEach((m, j) => {
+                const v = Math.round(((i * 7919 + j * 104729) % 100000)) / 100;
+                row[m] = v;
+                total += v;
+            });
+            row.total = Math.round(total * 100) / 100;
+            return row;
+        });
+
+        // One grand-total row — the same shape as the data, so the same columns format it.
+        const grand = { member: "Grand total", region: "" };
+        for (const m of MONTHS) {
+            grand[m] = Math.round(rows.reduce((a, r) => a + r[m], 0) * 100) / 100;
+        }
+        grand.total = Math.round(rows.reduce((a, r) => a + r.total, 0) * 100) / 100;
+
+        const monthColumns = MONTHS.map((m) => ({
+            key: m,
+            name: m[0].toUpperCase() + m.slice(1),
+            width: 90,
+            dataType: "number",
+        }));
+
+        AVGrid.create(document.getElementById("host"), {
+            rows,
+            columns: [
+                // The pinned-left label: chrome, like the checkbox column — not focusable,
+                // not copied, no funnel. `isStatusColumn: true` spells the same thing.
+                { key: "member", name: "Member", width: 140, pinned: "left" },
+                { key: "region", name: "Region", width: 100 },
+                ...monthColumns,
+                // Pinned right: a data column that happens to be sticky. It sorts, filters,
+                // copies and resizes (grip on its LEFT edge); its width must be fixed.
+                { key: "total", name: "Total", width: 110, dataType: "number", pinned: "right" },
+            ],
+            footerRows: [grand],
+            footerRowClass: () => "grand-total",
+            sort: { key: "total", direction: "desc" },
+        });
+    </script>
+</body>
+</html>

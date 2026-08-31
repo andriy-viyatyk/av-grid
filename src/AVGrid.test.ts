@@ -508,6 +508,392 @@ describe("headers", () => {
     });
 });
 
+describe("pinned columns", () => {
+    const wide = Array.from({ length: 3 }, (_, i) => ({
+        id: i + 1,
+        a: i,
+        b: i,
+        total: i * 10,
+    }));
+
+    it("wires the trailing pinned-right run to the engine and its band", async () => {
+        const grid = create({
+            rows: wide,
+            columns: [
+                { key: "id", width: 60 },
+                { key: "a", width: 60 },
+                { key: "b", width: 60 },
+                { key: "total", width: 60, pinned: "right" },
+            ],
+        });
+        await settle();
+
+        // The engine received the count…
+        expect((grid.render.model as any).options.stickyRight).toBe(1);
+        // …and the pinned column's cells landed in the sticky-right band, not the canvas.
+        const band = grid.element.querySelector(".avg-sticky-right")!;
+        const cell = band.querySelector('[data-column-key="total"]');
+        expect(cell).not.toBeNull();
+        // data-col is the real index into the visible columns — never renumbered in the band.
+        expect(cell!.getAttribute("data-col")).toBe("3");
+    });
+
+    it("marks the pinned headers, keeps their affordances, and pins left chrome", async () => {
+        const grid = create({
+            rows: wide,
+            columns: [
+                { key: "id", width: 60, pinned: "left" },
+                { key: "a", width: 60 },
+                { key: "total", width: 60, pinned: "right" },
+            ],
+        });
+        await settle();
+
+        const header = (key: string) =>
+            grid.element.querySelector(
+                `[data-type="header-cell"][data-column-key="${key}"]`,
+            ) as HTMLElement;
+
+        // pinned: "left" is isStatusColumn by another name: chrome — fixed, not resizable.
+        expect(header("id").getAttribute("data-pinned")).toBe("left");
+        expect(header("id").getAttribute("data-resizable")).toBe("false");
+        expect(header("id").draggable).toBe(false);
+
+        // A right-pinned column is data that happens to be sticky: everything stays.
+        expect(header("total").getAttribute("data-pinned")).toBe("right");
+        expect(header("total").getAttribute("data-resizable")).toBe("true");
+        expect(header("total").draggable).toBe(true);
+        expect(header("a").getAttribute("data-pinned")).toBeNull();
+    });
+
+    it("keeps a right-pinned column in copy, edit and focus paths", async () => {
+        const grid = create({
+            rows: wide,
+            columns: [
+                { key: "id", width: 60, pinned: "left" },
+                { key: "a", width: 60 },
+                { key: "total", width: 60, pinned: "right" },
+            ],
+            editable: true,
+        });
+        await settle();
+
+        // Focus skips the left chrome but reaches the pinned-right data column.
+        grid.focusCell(0, 1);
+        grid.selectRange(0, 1, 0, 2);
+        expect(grid.getSelectionText()).toBe("0\t0\n");
+
+        // The pinned-right cell edits like any data cell.
+        grid.startEdit(0, 2);
+        expect(grid.getState().editing?.columnKey).toBe("total");
+        grid.cancelEdit();
+    });
+
+    it("unpinning via setColumns collapses the band", async () => {
+        const grid = create({
+            rows: wide,
+            columns: [
+                { key: "id", width: 60 },
+                { key: "total", width: 60, pinned: "right" },
+            ],
+        });
+        await settle();
+        expect((grid.render.model as any).options.stickyRight).toBe(1);
+
+        grid.setColumns([
+            { key: "id", width: 60 },
+            { key: "total", width: 60 },
+        ]);
+        await settle();
+        expect((grid.render.model as any).options.stickyRight).toBe(0);
+    });
+});
+
+describe("footerRows", () => {
+    interface FRow {
+        id?: number;
+        name?: string;
+        score?: number;
+        active?: boolean;
+        label?: string;
+    }
+    const dataRows: FRow[] = [
+        { id: 1, name: "Ada", score: 30, active: true },
+        { id: 2, name: "Alan", score: 10, active: false },
+        { id: 3, name: "Grace", score: 20, active: true },
+    ];
+    const total: FRow = { label: "Total", score: 60, active: true };
+
+    function footerGrid(extra?: Partial<AVGridOptions<FRow>>) {
+        return create<FRow>({
+            rows: [...dataRows],
+            columns: [
+                { key: "name", name: "Name", width: 120, formatValue: (_c, r) => r.name ?? r.label ?? "" },
+                { key: "score", name: "Score", width: 80, dataType: "number" },
+                { key: "active", name: "Active", width: 60, dataType: "boolean" },
+            ],
+            footerRows: [total],
+            footerRowClass: () => "grand-total",
+            ...extra,
+        });
+    }
+
+    const footerCell = (grid: AVGrid<any>, key: string) =>
+        grid.element.querySelector(
+            `[data-type="footer-cell"][data-column-key="${key}"]`,
+        ) as HTMLElement | null;
+
+    it("renders the footer in the sticky-bottom band, through the same columns", async () => {
+        const grid = footerGrid();
+        await settle();
+        const cell = footerCell(grid, "name")!;
+        expect(cell).not.toBeNull();
+        expect(cell.closest(".avg-sticky-bottom")).not.toBeNull();
+        // The column's formatValue applied — formatting is never written twice.
+        expect(cell.textContent).toBe("Total");
+        // Styled through avg-footer-cell and footerRowClass, aligned like the column.
+        expect(cell.classList.contains("avg-footer-cell")).toBe(true);
+        expect(cell.classList.contains("grand-total")).toBe(true);
+        expect(footerCell(grid, "score")!.classList.contains("avg-align-right")).toBe(true);
+        // A boolean footer cell is a tick, never a checkbox.
+        expect(footerCell(grid, "active")!.querySelector(".avg-check-icon")).not.toBeNull();
+        expect(footerCell(grid, "active")!.querySelector("[data-type='bool-toggle']")).toBeNull();
+    });
+
+    it("is not a data cell: no data-row, so no focus, drag or edit can resolve to it", async () => {
+        const grid = footerGrid({ editable: true });
+        await settle();
+        const cell = footerCell(grid, "score")!;
+        expect(cell.getAttribute("data-row")).toBeNull();
+        expect(cell.getAttribute("data-footer-row")).toBe("0");
+        // data-col is the real column index, not renumbered inside the band.
+        expect(cell.getAttribute("data-col")).toBe("1");
+    });
+
+    it("sorting never moves it", async () => {
+        const grid = footerGrid();
+        await settle();
+        grid.setSort({ key: "score", direction: "asc" });
+        await settle();
+        expect(columnText(grid, "score")).toEqual(["10", "20", "30"]);
+        const cell = footerCell(grid, "score")!;
+        expect(cell.textContent).toBe("60");
+        expect(cell.closest(".avg-sticky-bottom")).not.toBeNull();
+    });
+
+    it("filtering and a search never remove it — and it is not a search match", async () => {
+        const grid = footerGrid();
+        await settle();
+        grid.setSearchString("Ada");
+        await settle();
+        expect(grid.getVisibleRows()).toHaveLength(1);
+        expect(footerCell(grid, "name")!.textContent).toBe("Total");
+        grid.setSearchString("Total");
+        await settle();
+        // No data row shows "Total", and the footer is not a match: zero rows survive.
+        expect(grid.getVisibleRows()).toHaveLength(0);
+        expect(footerCell(grid, "name")!.textContent).toBe("Total");
+        expect(footerCell(grid, "name")!.querySelector(".avg-search-match")).toBeNull();
+        grid.setSearchString(undefined);
+        await settle();
+    });
+
+    it("row selection cannot reach it: no checkbox, and select-all never names it", async () => {
+        const grid = footerGrid({ selectColumn: true });
+        await settle();
+        const checkboxCol = grid.element.querySelector(
+            '[data-type="footer-cell"][data-col="0"]',
+        )!;
+        expect(checkboxCol.querySelector("input, .avg-bool-box")).toBeNull();
+        grid.selectAll();
+        expect(grid.getSelected()).toHaveLength(3);
+        expect(grid.getSelected().every((k) => !k.startsWith("avg-footer"))).toBe(true);
+    });
+
+    it("getVisibleRows and onVisibleRowsChange keep meaning data rows", async () => {
+        const seen: number[] = [];
+        const grid = footerGrid({
+            onVisibleRowsChange: (rows) => seen.push(rows.length),
+        });
+        await settle();
+        expect(grid.getVisibleRows()).toHaveLength(3);
+        expect(grid.getState().rowCount).toBe(3);
+        expect(seen.every((n) => n <= 3)).toBe(true);
+    });
+
+    it("editing cannot open in it, whatever editable says", async () => {
+        const grid = footerGrid({ editable: true });
+        await settle();
+        // The footer row sits past the data rows; startEdit is data-row-indexed.
+        grid.startEdit(3, 1);
+        expect(grid.getState().editing).toBeUndefined();
+    });
+
+    it("a range selection and its copy stop at the last data row", async () => {
+        const grid = footerGrid();
+        await settle();
+        grid.focusCell(0, 1);
+        // A range that would reach into the footer is refused outright — the footer row is
+        // not a selectable coordinate, programmatically or by drag (its cells carry no
+        // data-row for the drag to resolve).
+        grid.selectRange(0, 1, 3, 1);
+        expect(grid.getSelectionText().trim()).toBe("30");
+        // The full data range copies the data and never the total.
+        grid.selectRange(0, 1, 2, 1);
+        const lines = grid.getSelectionText().trim().split("\n");
+        expect(lines).toEqual(["30", "10", "20"]);
+    });
+
+    it("never asks getRowKey for a footer row", async () => {
+        const getRowKey = vi.fn((r: FRow) => String(r.id));
+        const grid = footerGrid({ getRowKey });
+        await settle();
+        grid.selectAll();
+        grid.setSort({ key: "score", direction: "asc" });
+        await settle();
+        expect(getRowKey).toHaveBeenCalled();
+        expect(getRowKey.mock.calls.every(([r]) => r !== total)).toBe(true);
+    });
+
+    it("setOptions grows and collapses the band", async () => {
+        const grid = footerGrid();
+        await settle();
+        expect((grid.render.model as any).options.stickyBottom).toBe(1);
+        grid.setOptions({ footerRows: [total, { label: "Subtotal", score: 40 }] });
+        await settle();
+        expect((grid.render.model as any).options.stickyBottom).toBe(2);
+        expect(
+            grid.element.querySelectorAll('[data-type="footer-cell"][data-column-key="name"]').length,
+        ).toBe(2);
+        grid.setOptions({ footerRows: undefined });
+        await settle();
+        expect((grid.render.model as any).options.stickyBottom).toBe(0);
+        expect(footerCell(grid, "name")).toBeNull();
+    });
+
+    it("publishes the band height, so extraElement and the add-row button sit above it", async () => {
+        const grid = footerGrid();
+        await settle();
+        const area = grid.element.querySelector('[data-type="render-grid-area"]') as HTMLElement;
+        expect(area.style.getPropertyValue("--avg-sticky-bottom")).not.toBe("");
+        expect(area.style.getPropertyValue("--avg-sticky-bottom")).not.toBe("0px");
+    });
+});
+
+describe("accessibility", () => {
+    it("carries grid semantics on the root, with live row and column counts", async () => {
+        const grid = create({ rows: people });
+        await settle();
+        const root = grid.element;
+        expect(root.getAttribute("role")).toBe("grid");
+        expect(root.getAttribute("aria-multiselectable")).toBe("true");
+        expect(root.getAttribute("aria-colcount")).toBe("3");
+        expect(root.getAttribute("aria-rowcount")).toBe("4"); // 3 data rows + the header
+
+        grid.setSearchString("Ada");
+        await settle();
+        expect(root.getAttribute("aria-rowcount")).toBe("2");
+        grid.setSearchString(undefined);
+        await settle();
+
+        grid.setOptions({ footerRows: [{ id: 0, name: "Total", active: true }] });
+        await settle();
+        expect(root.getAttribute("aria-rowcount")).toBe("5");
+    });
+
+    it("exposes the sort on the header, and takes it off with the sort", async () => {
+        const grid = create({ rows: people, sort: { key: "name", direction: "asc" } });
+        await settle();
+        const header = () =>
+            grid.element.querySelector('[data-type="header-cell"][data-column-key="name"]')!;
+        expect(header().getAttribute("role")).toBe("columnheader");
+        expect(header().getAttribute("aria-sort")).toBe("ascending");
+        grid.setSort({ key: "name", direction: "desc" });
+        await settle();
+        expect(header().getAttribute("aria-sort")).toBe("descending");
+        grid.setSort(undefined);
+        await settle();
+        // Off, not stale — a pooled element keeps what is not removed.
+        expect(header().getAttribute("aria-sort")).toBeNull();
+    });
+
+    it("gives every cell a role and 1-based indices, the header counted as row 1", async () => {
+        const grid = create({
+            rows: people,
+            footerRows: [{ id: 0, name: "Total", active: true }],
+        });
+        await settle();
+        const cell = grid.element.querySelector(
+            '[data-type="data-cell"][data-row="1"][data-column-key="name"]',
+        )!;
+        expect(cell.getAttribute("role")).toBe("gridcell");
+        expect(cell.getAttribute("aria-rowindex")).toBe("3"); // header 1, data row 0 is 2
+        expect(cell.getAttribute("aria-colindex")).toBe("2");
+        const footer = grid.element.querySelector(
+            '[data-type="footer-cell"][data-column-key="name"]',
+        )!;
+        expect(footer.getAttribute("role")).toBe("gridcell");
+        expect(footer.getAttribute("aria-readonly")).toBe("true");
+        expect(footer.getAttribute("aria-rowindex")).toBe("5"); // after the 3 data rows
+    });
+
+    it("keeps the root in the tab order, so the keyboard can reach it", () => {
+        const grid = create({ rows: people });
+        expect(grid.element.tabIndex).toBe(0);
+    });
+});
+
+describe("keyboard reach", () => {
+    it("Alt+ArrowDown opens the focused column's filter popover", async () => {
+        const grid = create({ rows: people });
+        await settle();
+        grid.focusCell(0, 1); // the name column
+        grid.element.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true }),
+        );
+        await settle();
+        const popover = document.querySelector(".avg-popover");
+        expect(popover).not.toBeNull();
+        expect(grid.model.flags.filterPopover?.columnKey).toBe("name");
+        grid.model.flags.filterPopover?.close();
+    });
+
+    it("keyboard focus never lands on pinned-left chrome", async () => {
+        const grid = create({ rows: people, selectColumn: true });
+        await settle();
+        const root = grid.element;
+        const key = (k: string, init: KeyboardEventInit = {}) =>
+            root.dispatchEvent(
+                new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }),
+            );
+        // The first navigation key lands on the first *data* column, past the checkbox.
+        key("ArrowDown");
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+        // ArrowLeft, Ctrl+Home and a Shift+Tab wrap all stop there too.
+        key("ArrowLeft");
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+        key("Home", { ctrlKey: true });
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+    });
+
+    it("the Menu key opens the context menu at the focused cell", async () => {
+        const grid = create({ rows: people });
+        await settle();
+        grid.focusCell(1, 1);
+        // The keyboard gesture: a contextmenu event dispatched at the focused element (the
+        // root), with no cell under any pointer.
+        grid.element.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+        );
+        await settle();
+        const menu = document.querySelector(".avg-menu");
+        expect(menu).not.toBeNull();
+        // Cell-level items are present, which proves the hit resolved to the focused cell
+        // rather than to the bare grid.
+        expect(menu!.querySelector('[data-id="avg-copy"]')).not.toBeNull();
+    });
+});
+
 describe("updates", () => {
     it("repaints in place when the rows change", async () => {
         const grid = create({ rows: people, columns: [{ key: "name" }] });

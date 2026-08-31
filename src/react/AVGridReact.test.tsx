@@ -21,7 +21,7 @@ import {
 } from "vitest";
 import { AVGrid } from "../AVGrid";
 import type { AVGridOptions, CallbackOptionKey } from "../options";
-import { CALLBACK_OPTION_KEYS } from "../options";
+import { CALLBACK_OPTION_KEYS, PAINT_PATH_CALLBACK_KEYS } from "../options";
 import type { CellFocus, Column, Filter, SortColumn } from "../types";
 import { AVGridFilterBar } from "./AVGridFilterBar";
 import { AVGrid as AVGridAlias, AVGridReact } from "./index";
@@ -231,6 +231,34 @@ describe("the option diff lane", () => {
         expect(made).toHaveLength(1);
     });
 
+    it("carries the phase-10 options — footerRows and pinned columns — with no wrapper change", () => {
+        // The claim task 50 makes: every new core option reaches the wrapper through lane 3
+        // by construction. Verified by test, not by reading.
+        const made = spyOnCreate();
+        const pinnedColumns = [
+            { key: "id", name: "ID", width: 60, pinned: "left" as const },
+            { key: "name", name: "Name", width: 120 },
+            { key: "score", name: "Score", width: 80, pinned: "right" as const },
+        ];
+        const footer = [{ id: 0, name: "Total", score: 60 }];
+        const view = render(
+            <AVGridReact<Row> rows={rows} columns={pinnedColumns} footerRows={footer} />,
+        );
+        const grid = made.at(-1)!;
+        expect((grid.render.model as any).options.stickyRight).toBe(1);
+        expect((grid.render.model as any).options.stickyBottom).toBe(1);
+
+        // A changed footer array goes through one diffed setOptions, like any option.
+        const setOptions = vi.spyOn(grid, "setOptions");
+        const footer2 = [{ id: 0, name: "Total", score: 61 }];
+        view.rerender(
+            <AVGridReact<Row> rows={rows} columns={pinnedColumns} footerRows={footer2} />,
+        );
+        expect(setOptions).toHaveBeenCalledTimes(1);
+        expect(setOptions).toHaveBeenCalledWith({ footerRows: footer2 });
+        expect(made).toHaveLength(1);
+    });
+
     it("sends undefined for a prop that disappeared, and the option goes back to its default", () => {
         const made = spyOnCreate();
         const view = render(
@@ -324,7 +352,7 @@ describe("the callback lane", () => {
             .options as Record<string, unknown>;
 
         for (const key of CALLBACK_OPTION_KEYS) {
-            const paintPath = key === "onCellClass" || key === "rowClass";
+            const paintPath = (PAINT_PATH_CALLBACK_KEYS as readonly string[]).includes(key);
             expect([key, typeof options[key]]).toEqual([
                 key,
                 paintPath ? "undefined" : "function",

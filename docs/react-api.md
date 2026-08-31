@@ -164,7 +164,7 @@ It holds every option the grid calls to *report* or to *intercept*: `onSelection
 `onInvalidEdit`, `onAddRows`, `onDeleteRows`, `onAddColumns`, `onDeleteColumns`, `onSortChange`,
 `onFiltersChange`, `onColumnResize`, `onColumnsReorder`, `onColumnsChange`, `onVisibleRowsChange`,
 `onFocusChange`, `onCellClick`, `onCellDoubleClick`, `onCellContextMenu`, `getContextMenuItems`,
-`onCellClass` and `rowClass`.
+`onCellClass`, `rowClass` and `footerRowClass`.
 
 **Five function options are not on it**, because their mere *presence* changes what the grid does,
 so a proxy standing in for an absent one would change behaviour:
@@ -177,13 +177,15 @@ so a proxy standing in for an absent one would change behaviour:
 | `onGridContextMenu` | The grid draws its own context menu |
 
 Give those five a **stable identity** — a module-level function, or `useCallback` — or lane 3 will
-send a `setOptions` on every render. The same applies to `columns`: define it outside the component
-or memoize it, exactly as you would for any array prop.
+send a `setOptions` on every render. The same applies to `columns` **and to `footerRows`**: define
+them outside the component or memoize them, exactly as you would for any array prop — a footer
+array rebuilt during render sends a `setOptions` per commit.
 
-Two callbacks are on the paint path: `onCellClass` and `rowClass` are consulted per *cell*, and
-their presence alone makes the cell renderer build a context object it otherwise skips. The
-wrapper therefore proxies them **only when they are passed on the first render**. Pass them from
-the start if you pass them at all; one that appears later still works, but goes through lane 3.
+Three callbacks are on the paint path: `onCellClass`, `rowClass` and `footerRowClass` are consulted
+per *cell*, and their presence alone makes the cell renderer build a context object it otherwise
+skips. The wrapper therefore proxies them **only when they are passed on the first render**. Pass
+them from the start if you pass them at all; one that appears later still works, but goes through
+lane 3.
 
 ---
 

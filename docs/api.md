@@ -297,7 +297,7 @@ clears, on an `editable` grid. A paste writes through the same path as typing, s
 | `growToWidth` | `string` | — | The same, horizontally. |
 | `overscanRow` | `number` | `4` | Extra rows rendered outside the viewport. |
 | `overscanColumn` | `number` | `1` | Extra columns. |
-| `whiteSpaceY` | `number` | `20` | Height of the slack below the last row, so the final row can scroll clear of the edge. `0` removes it; raise it to make room for an `extraElement`. There is deliberately no `whiteSpaceX` — see the note below. |
+| `whiteSpaceY` | `number` | `20` | Height of the slack below the last row, so the final row can scroll clear of the edge. `0` removes it; raise it to make room for an `extraElement`. With [`footerRows`](#rows-pinned-to-the-bottom--footerrows) the default becomes `0` — the band is what the last row clears — but an explicit value is still honored, as room between the last data row and the band. There is deliberately no `whiteSpaceX` — see the note below. |
 
 **No `whiteSpaceX`.** The horizontal slack interacts with `fitToWidth` and percentage column widths
 through the column-fitting arithmetic, which has already produced one spurious horizontal
@@ -312,8 +312,10 @@ you need it.
 | `name` | `string` | — | Debug label, emitted as `data-name` on the root and reported by `getState().name`. Never used for styling. |
 | `injectStyles` | `boolean` | `true` | Inject the stylesheet on first use. `false` if you link `av-grid.css` yourself. |
 | `extraElement` | `HTMLElement \| null` | — | One host element placed after the last row, scrolling with the content. See [An element after the last row](#an-element-after-the-last-row). |
-| `onCellClass` | `(cell: CellContext<R>) => ClassValue` | — | Extra class names for a cell, on top of the built-in state classes. The grid-wide arm of `Column.cellClass`. |
-| `rowClass` | `(row: RowContext<R>) => ClassValue` | — | Extra class names for every cell of a row — how a whole row is highlighted. |
+| `footerRows` | `readonly R[]` | — | Rows pinned to the bottom — a grand total, a subtotal band. See [Rows pinned to the bottom](#rows-pinned-to-the-bottom--footerrows). |
+| `footerRowClass` | `(row: RowContext<R>) => ClassValue` | — | Extra class names for footer-row cells, alongside `avg-footer-cell`. `rowIndex` is the index into `footerRows`. |
+| `onCellClass` | `(cell: CellContext<R>) => ClassValue` | — | Extra class names for a cell, on top of the built-in state classes. The grid-wide arm of `Column.cellClass`. Data cells only — never a footer cell. |
+| `rowClass` | `(row: RowContext<R>) => ClassValue` | — | Extra class names for every cell of a row — how a whole row is highlighted. Data rows only; footer rows have `footerRowClass`. |
 
 ```js
 AVGrid.create(el, {
@@ -439,7 +441,8 @@ interface Column<R = any> {
 
     resizable?: boolean;
     readonly?: boolean;
-    isStatusColumn?: boolean;       // a non-data column, pinned left
+    pinned?: "left" | "right";      // stick to an edge; "right" columns must be the trailing run
+    isStatusColumn?: boolean;       // the older spelling of pinned: "left"
 
     sortValue?: (row: R) => any;                 // the value this column sorts by, read once per row
     rowCompare?: (left: R, right: R) => number;  // ...or the comparison itself; wins over sortValue
@@ -647,9 +650,45 @@ type DisplayFormat = "text" | "date" | "dateTime" | "phone" | `date:${string}` |
 | `"dateTime"` | `toLocaleString()`. |
 | `"phone"` | A 10-character string as `(123) 456-7890`; anything else unchanged. |
 
+### `pinned`
+
+Pin a column to an edge, so it stays put while the rest scrolls horizontally.
+
+```js
+columns: [
+    { key: "member", name: "Member", pinned: "left" },
+    { key: "jan" }, { key: "feb" }, /* … many more … */
+    { key: "total", name: "Total", pinned: "right", align: "right" },
+    { key: "actions", name: "", pinned: "right", width: 40, filterType: null },
+]
+```
+
+Pinning is **positional**, both sides. Left: every column up to and including the last
+left-pinned one is sticky — put them first. Right: the pinned columns must be the **trailing**
+run of the array — a `pinned: "right"` column followed by an unpinned one is a validation
+error naming both keys. A `hidden` pinned column just shortens its run.
+
+The two edges mean different things:
+
+- **`pinned: "left"` marks chrome** — it is the newer spelling of `isStatusColumn: true`
+  (below), with every consequence in that table: not focusable, not editable, not copied, no
+  header affordances.
+- **`pinned: "right"` is a data column that happens to be sticky** — a total, an actions
+  cell. It sorts, filters, edits, copies (in visible order, with no coordinate seam at the
+  band boundary) and resizes like any other column. Its resize grip sits on its **left** edge,
+  because its right edge is anchored to the viewport, and it can be drag-reordered **within
+  the pinned band only** — a drop that would cross the boundary shows no indicator and is
+  refused.
+
+A pinned column needs a **fixed** `width`: a percentage is resolved by stretching the
+scrolling columns to fit, which the pinned bands are excluded from, so a percentage width on a
+pinned column is a validation error. `data-col` is the column's real index into the visible
+columns — it is **not** renumbered inside a band.
+
 ### `isStatusColumn`
 
 Marks a column as **chrome rather than data** — a row number, a checkbox, a drag handle. The
+older spelling of `pinned: "left"`; both work, and they mean exactly the same thing. The
 selection column `selectColumn: true` adds is one, and a host writes its own the same way:
 
 ```js
@@ -1659,9 +1698,15 @@ library's own items from yours.
 | `Tab` / `Shift+Tab` | Next / previous cell, wrapping across rows |
 | `Shift+` any of the above (not `Tab`) | Extend the range selection |
 | `Ctrl+A` | Select every cell |
+| `Alt+↓` | Open the focused column's filter popover, anchored at its header — the Excel gesture |
+| Menu key (`≣`) | Open the context menu at the focused cell — the browser fires `contextmenu` on the focused element, and the grid resolves that to the focus |
 
 `↓` on the last row, `Tab` off the last cell, and `Ctrl+→` off the last column each grow the grid
 by one, when the matching `can*` option is on.
+
+**Sorting has no keyboard binding.** A header click is the only built-in gesture; a keyboard-first
+consumer sorts through its own UI and `grid.setSort()`. Named as a known gap in
+[capabilities.md](capabilities.md#accessibility--what-conformance-we-claim), not hidden.
 
 ### Editing
 
@@ -1794,11 +1839,14 @@ positioned, and their nesting can change.
 | `data-name` | The root, from the `name` option |
 | `data-type="header-cell"` | A header cell |
 | `data-type="data-cell"` | A data cell |
+| `data-type="footer-cell"` | A footer-row cell (`footerRows`), carrying `avg-footer-cell`. It has **no `data-row`** — a footer cell stands for no data coordinate, which is what keeps every interaction away from it — and `data-footer-row` is its index into `footerRows`. |
 | `data-row` | Row index. A header cell carries `0`; a data cell carries its **data** row index, so data row 0 also reads `0` — `data-type` is what tells them apart. |
-| `data-col` | Column index — into the **visible** columns, i.e. `columns` with `hidden` ones dropped. `getColumns()` returns the full array, so the two disagree the moment a column is hidden: map a cell back to its column by `data-column-key`, not by indexing `getColumns()` with this. |
+| `data-col` | Column index — into the **visible** columns, i.e. `columns` with `hidden` ones dropped. `getColumns()` returns the full array, so the two disagree the moment a column is hidden: map a cell back to its column by `data-column-key`, not by indexing `getColumns()` with this. It is **not renumbered inside a pinned band**: a pinned cell's index is its real one. |
 | `data-column-key` | The column's `key` |
-| `data-sort="asc" \| "desc"` | The sorted header cell |
+| `data-sort="asc" \| "desc"` | The sorted header cell — which also carries `aria-sort="ascending" \| "descending"` |
+| `role` / `aria-*` | The root is `role="grid"` with live `aria-rowcount` / `aria-colcount` and `aria-multiselectable`; header cells `role="columnheader"` + `aria-colindex`; data and footer cells `role="gridcell"` + 1-based `aria-rowindex` / `aria-colindex` (the header is row 1). There are deliberately **no row elements**, so this is grid semantics with sort state exposed, not a fully conformant ARIA grid — see [capabilities.md](capabilities.md#accessibility--what-conformance-we-claim). |
 | `data-resizable` | A header cell |
+| `data-pinned="left" \| "right"` | A pinned column's header cell. On `"right"`, the resize grip moves to the cell's left edge. |
 | `data-type="filter-button"` | The funnel inside a header cell |
 | `data-type="cell-editor"` | The open editor |
 | `data-avg-action="add-row" \| "add-column"` | The two `+` buttons |
@@ -1834,7 +1882,7 @@ The shell inside the root is classed too, for the styling the `--avg-*` tokens d
 | `avg-viewport` | The scrolling element. **The place for scrollbar styling** — `.avg-grid .avg-viewport::-webkit-scrollbar { … }` — and for `scrollbar-width` / `scrollbar-color`. |
 | `avg-cells-area` | The sized canvas the pooled cells position themselves in. |
 | `avg-sticky-top` | The band the header row lives in — a background or `box-shadow` here styles the whole header, not cell by cell. |
-| `avg-sticky-bottom` / `-left` / `-right`, `avg-sticky-top-left` / `-top-right` / `-bottom-left` / `-bottom-right` | The other sticky bands and corners. Empty unless something is frozen on that edge (the checkbox column sits in `avg-sticky-left`). |
+| `avg-sticky-bottom` / `-left` / `-right`, `avg-sticky-top-left` / `-top-right` / `-bottom-left` / `-bottom-right` | The other sticky bands and corners. Empty unless something is frozen on that edge: the checkbox column and `pinned: "left"` cells sit in `avg-sticky-left`, `pinned: "right"` cells in `avg-sticky-right` — and pinned columns' **header** cells in the matching top corner. |
 
 These are containers, not cells: put backgrounds, borders and scrollbar styling on them, but leave
 `position`, `overflow` and `transform` alone — the virtualization owns those. Inside a filter popover: `avg-filter-content` (either body),
@@ -1845,6 +1893,46 @@ These are containers, not cells: put backgrounds, borders and scrollbar styling 
 **If you write your own cell renderer returning an element, the stylesheet must position it
 absolutely.** The engine writes `top` and `left`; nothing writes `position`. A cell that lays out
 in flow looks correct at the top of a list and shows an empty band everywhere below.
+
+### Rows pinned to the bottom — `footerRows`
+
+```js
+AVGrid.create(el, {
+    rows,
+    columns,
+    footerRows: [{ label: "Total", spend: 4_812_500, members: 71_475 }],
+    footerRowClass: () => "grand-total",
+});
+grid.setOptions({ footerRows: undefined });   // and the band goes away
+```
+
+Footer rows **are rows**: the same shape as `rows`, rendered through the same columns —
+`formatValue`, `displayFormat`, `align`, `render` and `cellClass` all apply unchanged, so your
+number formatting is written once. They live in the `avg-sticky-bottom` band, pinned below the
+scrolling rows at every scroll position, each cell carrying `avg-footer-cell` plus whatever
+`footerRowClass` returns.
+
+And they are **only rendered** — invisible to everything that treats a row as data:
+
+- **Sorting, filtering, `searchString`** — a footer row never moves, never disappears, and is
+  not a search match.
+- **Row selection** — no checkbox under `selectColumn`, select-all skips it, `getSelected()`
+  never names it.
+- **`getVisibleRows()` / `onVisibleRowsChange` / `getState().rowCount`** — those keep meaning
+  *data* rows.
+- **Editing** — readonly regardless of `editable`; `startEdit` past the data rows refuses.
+- **Focus, range selection and copy** — a footer cell is not a coordinate: it carries no
+  `data-row`, a drag downwards stops at the last data row, and a `selectRange` reaching past
+  the data is refused.
+- **Add/delete-row affordances** — the footer is not "the last row" for ArrowDown off the end,
+  Ctrl+Insert, or a tall paste.
+- **`getRowKey`** — never called for one. Footer rows are keyed `avg-footer-<n>` internally, so
+  a key reading a field your totals row does not have cannot throw.
+
+`rowHeight` applies to footer rows and the grid's height accounts for them. With a footer the
+trailing slack defaults to `0` — the band itself is what the last data row scrolls clear of —
+but an explicit `whiteSpaceY` still buys room *between* the last data row and the band, which is
+where an `extraElement` sits: content, slack (with the `extraElement` in it), band.
 
 ### An element after the last row
 

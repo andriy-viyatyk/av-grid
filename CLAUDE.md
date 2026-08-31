@@ -19,6 +19,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-03.md`](tasks/plan-done-03.md) | The finished plan for phase 7, the Persephone adoption gaps, tasks 27–32. **Its decision log applies too** |
 | [`tasks/plan-done-04.md`](tasks/plan-done-04.md) | The finished plan for phase 8, the Persephone consolidation, tasks 33–37. **Its decision log applies too** |
 | [`tasks/plan-done-05.md`](tasks/plan-done-05.md) | The finished plan for phase 9, the React wrapper, tasks 38–43. **Its decision log applies too** |
+| [`tasks/plan-done-06.md`](tasks/plan-done-06.md) | The finished plan for phase 10, tasks 44–46 and 49–50: the wide-grid gate, pinned columns, `footerRows`, accessibility. **Its decision log applies too** — and it holds the full designs for the deferred tasks 47–48 |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 11, tasks 47–48 carried from phase 10: `columnGroups` (two-level headers) and multi-column sort (blocked until asked for). Read the archived decision logs first |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -28,9 +30,11 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**There is no active `plan.md`.** All five phases are archived, and phase 10 has not been opened.
-A plan is archived as `plan-done-<nn>.md` once all its tasks are ✅; the next `plan.md` starts at
-the new phase, carrying forward the standing rules and a pointer back to the logs. **Every archived
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 11, tasks 47–48, **not started**:
+`columnGroups` (two-level headers, the one feature with no engine support yet) and multi-column
+sort (blocked until a consumer's screen asks). A plan is archived as `plan-done-<nn>.md` once
+all its tasks are ✅; the next `plan.md` starts at the new phase, carrying forward the standing rules
+and a pointer back to the logs. **Every archived
 decision log still applies** — they are read before starting a task, not filed away.
 
 The React implementation being ported is `C:\projects\persephone\src\renderer\uikit\AVGrid\` (grid
@@ -70,6 +74,22 @@ two hooks where a React root is safe (singleton, gesture-opened, explicit destro
 stays DOM, that is the pooling invariant). The component is exported as **`AVGrid`**
 (with `AVGridReact` as the alias that cannot collide with the class). See
 [`docs/react-api.md`](docs/react-api.md).
+
+**Phase 10, the reporting-consumer features, is done** (tasks 44–46 and 49–50, shipping as
+**2.5.0** — see [`tasks/plan-done-06.md`](tasks/plan-done-06.md); tasks 47–48 were deferred to
+phase 11 by the author). The wide-grid gate proved the thesis holds sideways — **300 columns
+scroll horizontally at a 0.99× flat ratio**, `hidden` costs nothing per hidden column, the filter
+pass is row-bound. **`pinned: "left" | "right"`** pins columns positionally (`pinned: "left"` is
+the newer spelling of `isStatusColumn`, exactly equivalent; right-pinned columns are data —
+sorting, filtering, editing and copying like any column, resize grip on their left edge, reorder
+confined to the band). **`footerRows`** pins rows to the bottom through the same columns as the
+data and is invisible to everything that treats a row as data — the exclusion list is one test
+per line. And the **accessibility claim** is now explicit: keyboard-operable (17/17 board checks,
+Alt+↓ opens the filter popover, the Menu key opens the context menu at the focused cell) with
+`role="grid"`/`gridcell`/`columnheader`, live `aria-rowcount`/`colcount` and `aria-sort` — but
+**not a fully conformant ARIA grid**, because there are deliberately no row elements; sorting has
+no keyboard binding and says so. Shipping it fixed one engine defect: a cell migrating between
+sticky regions in one paint is no longer evicted by the region losing it.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

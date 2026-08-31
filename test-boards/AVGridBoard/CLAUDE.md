@@ -61,6 +61,11 @@ await window.avg.measureContextMenu()     // right-click over 100k rows: 0 dirty
 await window.avg.measureTeardown(100)     // the task-18 gate: 100 create/destroy cycles, leak check
 await window.avg.measureSortValue(6)      // the task-26 check: a projection against the same comparator
 await window.avg.measureHighlight("a")    // search marking: cost against no search, and all four shapes
+await window.avg.measureWideGrid()        // the task-44 gate: 70k rows × 300 columns, four cases in one call
+await window.avg.measureWideAllVisible()  // …case 1 alone: horizontal paint cost/fps at both edges
+await window.avg.measureWideProjection()  // …case 2: 12-of-300 `hidden` against a 12-column baseline
+await window.avg.measureWideChooser()     // …case 3: setColumns() 12 → 40 — one paint, same root
+await window.avg.measureWideFilter()      // …case 4: one filter, 300 visible against 12 — row-bound
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`

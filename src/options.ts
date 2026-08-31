@@ -335,6 +335,40 @@ export interface AVGridOptions<R = any> {
      */
     extraElement?: HTMLElement | null;
 
+    /**
+     * Rows pinned to the bottom of the grid — a grand total, a subtotal band.
+     *
+     * ```js
+     * AVGrid.create(el, {
+     *     rows,
+     *     columns,
+     *     footerRows: [{ label: "Total", spend: 4_812_500, members: 71_475 }],
+     *     footerRowClass: () => "grand-total",
+     * });
+     * ```
+     *
+     * Footer rows **are rows**: the same shape as `rows`, rendered through the same columns —
+     * `formatValue`, `displayFormat`, `align`, `render` and `cellClass` all apply unchanged, so
+     * number formatting is never written twice. And they are **only** rendered: invisible to
+     * sorting, filtering and `searchString` (they never move and never disappear), to row
+     * selection and select-all, to `getVisibleRows()` / `onVisibleRowsChange` (those keep
+     * meaning data rows), to editing (readonly regardless of `editable`), to the add/delete-row
+     * affordances, and to a range selection and its copy — a drag downwards stops at the last
+     * data row. `getRowKey` is never called for one; each is keyed `avg-footer-<n>` internally.
+     *
+     * Cells carry `avg-footer-cell` (plus the column's own `cellClass`), and the whole band is
+     * `avg-sticky-bottom`. With `footerRows` present the trailing slack (`whiteSpaceY`) is not
+     * added — the band itself is what the last data row scrolls clear of — and `extraElement`
+     * sits **above** the band, still scrolling with the content.
+     */
+    footerRows?: readonly R[];
+    /**
+     * Extra classes for footer-row cells, alongside `avg-footer-cell`. Same contract as
+     * `rowClass`: additive, re-evaluated on every repaint, and a class that stops being
+     * returned goes away. `rowIndex` is the index into `footerRows`.
+     */
+    footerRowClass?: (row: RowContext<R>) => ClassValue;
+
     // -----------------------------------------------------------------------
     // Sorting and filtering
     // -----------------------------------------------------------------------
@@ -616,6 +650,7 @@ export const CALLBACK_OPTION_KEYS = [
     "getContextMenuItems",
     "onCellClass",
     "rowClass",
+    "footerRowClass",
 ] as const satisfies readonly FunctionOptionKeys[];
 
 /** A member of {@link CALLBACK_OPTION_KEYS}. */
@@ -628,6 +663,7 @@ export type CallbackOptionKey = (typeof CALLBACK_OPTION_KEYS)[number];
 export const PAINT_PATH_CALLBACK_KEYS = [
     "onCellClass",
     "rowClass",
+    "footerRowClass",
 ] as const satisfies readonly CallbackOptionKey[];
 
 /** The function options deliberately left out of {@link CALLBACK_OPTION_KEYS} — see its table. */

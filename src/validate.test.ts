@@ -176,6 +176,84 @@ describe("validateColumns", () => {
     });
 });
 
+describe("validateColumns: pinned", () => {
+    const pinnable = [{ a: 1, b: 2, total: 3, actions: 4 }];
+
+    it("accepts a trailing pinned-right run", () => {
+        expect(() =>
+            validateColumns(
+                [
+                    { key: "a" },
+                    { key: "b" },
+                    { key: "total", pinned: "right" },
+                    { key: "actions", pinned: "right" },
+                ],
+                pinnable,
+            ),
+        ).not.toThrow();
+    });
+
+    it("raises on a pinned-right column followed by an unpinned one, naming both", () => {
+        expect(() =>
+            validateColumns(
+                [{ key: "a" }, { key: "total", pinned: "right" }, { key: "b" }],
+                pinnable,
+            ),
+        ).toThrow(/Column "b" follows the pinned: "right" column "total"/);
+    });
+
+    it("ignores hidden columns when checking the trailing run", () => {
+        // A hidden column after the run is not rendered, so it cannot break the band.
+        expect(() =>
+            validateColumns(
+                [
+                    { key: "a" },
+                    { key: "total", pinned: "right" },
+                    { key: "b", hidden: true },
+                ],
+                pinnable,
+            ),
+        ).not.toThrow();
+    });
+
+    it("raises on a percentage width for a pinned column", () => {
+        expect(() =>
+            validateColumns(
+                [{ key: "a" }, { key: "total", pinned: "right", width: "30%" }],
+                pinnable,
+            ),
+        ).toThrow(/pinned but has width: "30%"/);
+        // Both spellings of left, too — the fit arithmetic is the same trap on either edge.
+        expect(() =>
+            validateColumns(
+                [{ key: "a", isStatusColumn: true, width: "30%" }, { key: "b" }],
+                pinnable,
+            ),
+        ).toThrow(/pinned but has width/);
+    });
+
+    it("raises when one column claims both edges", () => {
+        expect(() =>
+            validateColumns(
+                [{ key: "a", isStatusColumn: true, pinned: "right" }, { key: "b" }],
+                pinnable,
+            ),
+        ).toThrow(/cannot be pinned to both edges/);
+    });
+
+    it("raises on a pinned value that is neither edge", () => {
+        expect(() =>
+            validateColumns([{ key: "a", pinned: "top" as any }], pinnable),
+        ).toThrow(/The only values are "left" and "right"/);
+    });
+
+    it("exempts a pinned-left column from the unknown-key check, like isStatusColumn", () => {
+        expect(() =>
+            validateColumns([{ key: "rowNo", pinned: "left" }, { key: "a" }], pinnable),
+        ).not.toThrow();
+    });
+});
+
 describe("validateSort", () => {
     const columns = [{ key: "id" }, { key: "name" }];
 

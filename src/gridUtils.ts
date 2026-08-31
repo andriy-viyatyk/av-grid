@@ -283,6 +283,30 @@ export function gridBoolean(v: any): boolean {
     return Boolean(v && !falseString(v));
 }
 
+/**
+ * The two spellings of left pinning are one fact — `pinned: "left"` is the newer name for
+ * `isStatusColumn: true`, and every behavior the grid keys off "is this a status column"
+ * (not focusable, not editable, not copied, not draggable, sticky left) asks this instead of
+ * either field, so the two can never drift apart.
+ */
+export function isPinnedLeft(column: {
+    isStatusColumn?: boolean;
+    pinned?: "left" | "right";
+}): boolean {
+    return column.isStatusColumn === true || column.pinned === "left";
+}
+
+/** Length of the trailing `pinned: "right"` run — the engine's `stickyRight` count. */
+export function trailingPinnedRight(
+    columns: readonly { pinned?: "left" | "right" }[],
+): number {
+    let count = 0;
+    for (let i = columns.length - 1; i >= 0 && columns[i].pinned === "right"; i--) {
+        count++;
+    }
+    return count;
+}
+
 /** The value a cell shows: the column's own formatter, then `displayFormat`, then raw. */
 export function columnDisplayValue<R>(column: Column<R>, row: R): any {
     if (column.formatValue) return column.formatValue(column, row);

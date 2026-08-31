@@ -2114,6 +2114,579 @@ async function measureSort() {
     return { modelMs };
 }
 
+// ---------------------------------------------------------------------------
+// Task 44 — the wide-grid gate: 300 columns, and a 12-of-300 projection
+// ---------------------------------------------------------------------------
+
+const WIDE_COL_WIDTH = 90;
+
+/**
+ * `rowCount` rows × `colCount` numeric columns, plus `id` and a five-value `team` — the
+ * low-cardinality column the filter case needs. Property keys are precomputed once; a 70,000 ×
+ * 300 build is ~21M property writes and that is the data, not overhead.
+ */
+function buildWideRows(rowCount, colCount) {
+    const startedAt = performance.now();
+    const keys = [];
+    for (let c = 0; c < colCount; c++) keys.push("c" + c);
+    const out = new Array(rowCount);
+    for (let i = 0; i < rowCount; i++) {
+        const r = { id: i + 1, team: TEAMS[i % TEAMS.length] };
+        for (let c = 0; c < colCount; c++) r[keys[c]] = ((i * 31 + c * 7) % 1000) / 10;
+        out[i] = r;
+    }
+    return { rows: out, ms: performance.now() - startedAt };
+}
+
+/**
+ * `id` + `team` + `colCount` numeric columns. `visibleCount` hides every numeric column from
+ * that index on — `wideColumns(300, 12)` is the 12-of-300 projection a column chooser produces.
+ */
+function wideColumns(colCount, visibleCount) {
+    const cols = [
+        { key: "id", name: "#", width: 70, align: "right", readonly: true },
+        { key: "team", name: "Team", width: 100 },
+    ];
+    for (let c = 0; c < colCount; c++) {
+        cols.push({
+            key: "c" + c,
+            name: "C" + c,
+            width: WIDE_COL_WIDTH,
+            dataType: "number",
+            hidden: visibleCount !== undefined && c >= visibleCount,
+        });
+    }
+    return cols;
+}
+
+/** A bare grid — no filter bar, no checkbox column — so the numbers are the columns'. */
+function createWideGrid(wideRows, colCount, visibleCount) {
+    grid?.destroy();
+    const host = el("grid-host");
+    host.textContent = "";
+    const startedAt = performance.now();
+    grid = AVGrid.create(host, {
+        rows: wideRows,
+        columns: wideColumns(colCount, visibleCount),
+    });
+    const firstPaintMs = performance.now() - startedAt;
+    window.avg.grid = grid;
+    return firstPaintMs;
+}
+
+/** `measurePaintCost`, turned sideways: one-column scrolls along `scrollLeft`. */
+async function measureHPaintCost(x, steps = 150) {
+    const sc = scrollEl();
+    sc.scrollLeft = x;
+    await settle();
+    grid.render.resetStats();
+    for (let i = 0; i < steps; i++) {
+        sc.scrollLeft = x + i * WIDE_COL_WIDTH;
+        await nextFrame();
+    }
+    const { paints, totalPaintMs } = grid.render.stats;
+    return { paints, avgMs: paints ? totalPaintMs / paints : 0 };
+}
+
+/** `measureScrollFps`, turned sideways. */
+async function measureHScrollFps(startX, ms = 2000, pxPerFrame = 40) {
+    const sc = scrollEl();
+    sc.scrollLeft = startX;
+    await settle();
+    const frames = [];
+    let last = performance.now();
+    const until = last + ms;
+    while (performance.now() < until) {
+        sc.scrollLeft += pxPerFrame;
+        await nextFrame();
+        const now = performance.now();
+        frames.push(now - last);
+        last = now;
+    }
+    frames.sort((a, b) => a - b);
+    const at = (p) => frames[Math.min(frames.length - 1, Math.floor(frames.length * p))];
+    const mean = frames.reduce((a, b) => a + b, 0) / frames.length;
+    return { fps: 1000 / mean, medianMs: at(0.5), p95Ms: at(0.95) };
+}
+
+/**
+ * Case 1: every column visible — the horizontal analogue of the 100k gate. Paint cost and fps
+ * scrolling **horizontally** at the left edge and out at column ~290, and the flat-cost ratio
+ * between them. The trap the plan names: column overscan is 1 (rows get 4), and no published
+ * gate has ever exercised the column direction of "overscan in the direction of travel only".
+ */
+async function measureWideAllVisible(rowCount = 70000, colCount = 300, data) {
+    const built = data ?? buildWideRows(rowCount, colCount);
+    status(`wide gate 1/4: ${colCount} columns, all visible…`);
+    const firstPaintMs = createWideGrid(built.rows, colCount);
+    await settle(5);
+
+    const sc = scrollEl();
+    const maxX = sc.scrollWidth - sc.clientWidth;
+    const steps = 150;
+    const hLeft = await measureHPaintCost(0, steps);
+    const hRight = await measureHPaintCost(maxX - steps * WIDE_COL_WIDTH, steps);
+    const hFpsLeft = await measureHScrollFps(0);
+    const hFpsRight = await measureHScrollFps(Math.max(0, maxX - 5200));
+    sc.scrollLeft = 0;
+
+    const vTop = await measurePaintCost(2000, 150);
+    const fullRepaint = await measureFullRepaint();
+
+    return {
+        rowCount,
+        colCount,
+        generateMs: built.ms,
+        firstPaintMs,
+        hPaintLeftMs: hLeft.avgMs,
+        hPaintRightMs: hRight.avgMs,
+        hFlatRatio: hLeft.avgMs ? hRight.avgMs / hLeft.avgMs : 0,
+        hFpsLeft,
+        hFpsRight,
+        vPaintTopMs: vTop.avgMs,
+        fullRepaint,
+        hidden: document.hidden,
+    };
+}
+
+/**
+ * Case 2: the real shape — a wide table with a small default projection. The claim under test
+ * is that `hidden` costs *nothing per hidden column* on the paint path: it is filtered once
+ * into the visible list, never consulted per cell. So the projection is measured against a
+ * baseline grid whose hidden columns simply do not exist, and every number must match.
+ */
+async function measureWideProjection(rowCount = 70000, colCount = 300, visibleCount = 12, data) {
+    const built = data ?? buildWideRows(rowCount, colCount);
+    status(`wide gate 2/4: ${visibleCount} of ${colCount} columns visible…`);
+
+    const projection = { firstPaintMs: createWideGrid(built.rows, colCount, visibleCount) };
+    await settle(5);
+    projection.fullRepaint = await measureFullRepaint();
+    projection.vPaintTopMs = (await measurePaintCost(2000, 150)).avgMs;
+    projection.fps = await measureScrollFps(0);
+
+    const baseline = { firstPaintMs: createWideGrid(built.rows, visibleCount) };
+    await settle(5);
+    baseline.fullRepaint = await measureFullRepaint();
+    baseline.vPaintTopMs = (await measurePaintCost(2000, 150)).avgMs;
+
+    return {
+        rowCount,
+        colCount,
+        visibleCount,
+        projection,
+        baseline,
+        paintRatio: baseline.vPaintTopMs ? projection.vPaintTopMs / baseline.vPaintTopMs : 0,
+        hidden: document.hidden,
+    };
+}
+
+/**
+ * Case 3: what a column chooser does — `setColumns()` widening 12 visible to 40. Must be one
+ * repaint against the same root, never a tear-down; the appended cells are the 28 new columns'
+ * and nothing else's.
+ */
+async function measureWideChooser(rowCount = 70000, colCount = 300, data) {
+    const built = data ?? buildWideRows(rowCount, colCount);
+    status("wide gate 3/4: setColumns() 12 → 40 visible…");
+    createWideGrid(built.rows, colCount, 12);
+    await settle(5);
+
+    const rootBefore = grid.element;
+    const scrollBefore = scrollEl();
+    const cellsBefore = grid.element.querySelectorAll('[data-type="data-cell"]').length;
+
+    grid.render.resetStats();
+    const startedAt = performance.now();
+    grid.setColumns(wideColumns(colCount, 40));
+    const modelMs = performance.now() - startedAt;
+    await settle(6);
+    const widen = { ...grid.render.stats };
+    const cellsAfter = grid.element.querySelectorAll('[data-type="data-cell"]').length;
+
+    grid.render.resetStats();
+    grid.setColumns(wideColumns(colCount, 12));
+    await settle(6);
+    const narrow = { ...grid.render.stats };
+
+    return {
+        modelMs,
+        widen: { paints: widen.paints, appended: widen.cellsAppended, removed: widen.cellsRemoved },
+        narrow: { paints: narrow.paints, appended: narrow.cellsAppended, removed: narrow.cellsRemoved },
+        visibleCellsBefore: cellsBefore,
+        visibleCellsAfter: cellsAfter,
+        sameRoot: grid.element === rootBefore && scrollEl() === scrollBefore,
+        hidden: document.hidden,
+    };
+}
+
+/**
+ * Case 4: one filter applied, wide against narrow. The filter pass must be row-bound, not
+ * row × column-bound: the same filter over the same 70,000 rows must cost the same with 300
+ * visible columns as with 12.
+ */
+async function measureWideFilter(rowCount = 70000, colCount = 300, data) {
+    const built = data ?? buildWideRows(rowCount, colCount);
+    status(`wide gate 4/4: one filter, ${colCount} visible against 12…`);
+    const filter = { columnKey: "team", value: ["platform", "infra"] };
+
+    const timeFilter = async () => {
+        await settle(5);
+        let t = performance.now();
+        grid.setFilters([filter]);
+        const filterMs = performance.now() - t;
+        await settle(3);
+        const rowsKept = grid.getState().rowCount;
+        t = performance.now();
+        grid.setFilters(undefined);
+        const clearMs = performance.now() - t;
+        await settle(3);
+        return { filterMs, clearMs, rowsKept };
+    };
+
+    createWideGrid(built.rows, colCount);
+    const wide = await timeFilter();
+    createWideGrid(built.rows, colCount, 12);
+    const narrow = await timeFilter();
+
+    return {
+        wide,
+        narrow,
+        ratio: narrow.filterMs ? wide.filterMs / narrow.filterMs : 0,
+        hidden: document.hidden,
+    };
+}
+
+/**
+ * Task 45 — pinned columns. `id` pinned left by the new spelling, the last two numeric
+ * columns pinned right. Reports the horizontal paint costs against task 44's unpinned
+ * baseline, whether the bands hold their columns at both scroll extremes, and that a range
+ * selection crosses the band boundary with no coordinate discontinuity.
+ */
+async function measurePinned(rowCount = 70000, colCount = 300) {
+    const built = buildWideRows(rowCount, colCount);
+    status(`pinned gate: ${colCount} columns, 1 left + 2 right pinned…`);
+
+    const cols = wideColumns(colCount);
+    cols[0] = { ...cols[0], pinned: "left" };
+    cols[cols.length - 2] = { ...cols[cols.length - 2], pinned: "right" };
+    cols[cols.length - 1] = { ...cols[cols.length - 1], pinned: "right" };
+
+    grid?.destroy();
+    const host = el("grid-host");
+    host.textContent = "";
+    const startedAt = performance.now();
+    grid = AVGrid.create(host, { rows: built.rows, columns: cols });
+    const firstPaintMs = performance.now() - startedAt;
+    window.avg.grid = grid;
+    await settle(5);
+
+    // Headers of pinned columns land in the sticky *corners* (top-right / top-left); the
+    // side bands hold their data cells.
+    const bandKeys = () =>
+        [...grid.element.querySelectorAll('[data-type="render-grid-sticky-top-right"] [data-type="header-cell"]')]
+            .map((c) => c.getAttribute("data-column-key"))
+            .sort();
+    const leftBandKeys = () =>
+        [...grid.element.querySelectorAll('[data-type="render-grid-sticky-top-left"] [data-type="header-cell"]')]
+            .map((c) => c.getAttribute("data-column-key"));
+
+    const sc = scrollEl();
+    const atLeft = { right: bandKeys(), left: leftBandKeys() };
+    const maxX = sc.scrollWidth - sc.clientWidth;
+    sc.scrollLeft = maxX;
+    await settle(3);
+    const atRight = { right: bandKeys(), left: leftBandKeys() };
+    sc.scrollLeft = 0;
+    await settle(3);
+
+    // Sticky-band cells must never be evicted by a horizontal scroll: count mutations.
+    grid.render.resetStats();
+    for (let i = 0; i < 60; i++) {
+        sc.scrollLeft = i * WIDE_COL_WIDTH;
+        await nextFrame();
+    }
+    const scrollStats = { ...grid.render.stats };
+    const bandCellCount = grid.element.querySelectorAll(
+        '[data-type="render-grid-sticky-right"] [data-type="data-cell"]',
+    ).length;
+
+    const steps = 100;
+    const hLeft = await measureHPaintCost(0, steps);
+    const hRight = await measureHPaintCost(maxX - steps * WIDE_COL_WIDTH, steps);
+
+    // A selection dragged across the boundary: columns come back in visible order.
+    sc.scrollLeft = maxX;
+    await settle(3);
+    grid.focusCell(0, colCount - 1); // c297 — the last scrolling column
+    grid.selectRange(0, colCount - 1, 0, colCount + 1); // through both pinned columns
+    const selectionText = grid.getSelectionText().trim();
+
+    const resizableRight = grid.element.querySelector(
+        `[data-type="header-cell"][data-column-key="c${colCount - 1}"]`,
+    );
+
+    return {
+        rowCount,
+        colCount,
+        firstPaintMs,
+        stickyRight: grid.getState().columns.filter((c) => c.pinned === "right").length,
+        atLeft,
+        atRight,
+        bandsHold:
+            JSON.stringify(atLeft.right) === JSON.stringify(atRight.right) &&
+            JSON.stringify(atLeft.left) === JSON.stringify(atRight.left),
+        hScroll: {
+            paints: scrollStats.paints,
+            appended: scrollStats.cellsAppended,
+            removed: scrollStats.cellsRemoved,
+            bandCellCount,
+        },
+        hPaintLeftMs: hLeft.avgMs,
+        hPaintRightMs: hRight.avgMs,
+        selectionText,
+        selectionCells: selectionText.split("\t").length,
+        pinnedHeader: {
+            dataPinned: resizableRight?.getAttribute("data-pinned"),
+            resizable: resizableRight?.getAttribute("data-resizable"),
+            draggable: resizableRight?.draggable,
+        },
+        hidden: document.hidden,
+    };
+}
+
+/**
+ * Task 46 — `footerRows`. A 100k grid with a two-row footer band and an `extraElement`, so the
+ * three claims a unit test cannot make are measured for real: the band costs **zero** DOM
+ * mutations on a scroll frame (its cells are never evicted), it stays pinned at both scroll
+ * extremes, and the `extraElement` sits *above* the band rather than under it.
+ */
+async function measureFooter(count = 100000) {
+    status("footer gate: 100k rows + a two-row footer band…");
+    const built = buildRows(count);
+
+    const extra = document.createElement("div");
+    extra.textContent = "extraElement — scrolls with the content, above the band";
+    extra.style.background = "rgba(120, 120, 250, 0.25)";
+
+    grid?.destroy();
+    const host = el("grid-host");
+    host.textContent = "";
+    grid = AVGrid.create(host, {
+        rows: built.rows,
+        columns: columns(),
+        footerRows: [
+            { firstName: "Subtotal", lastName: "", score: 123456.7, active: true },
+            { firstName: "Total", lastName: "", score: 4812500, active: false },
+        ],
+        footerRowClass: (r) => (r.rowIndex === 1 ? "grand-total" : undefined),
+        extraElement: extra,
+        whiteSpaceY: 40,
+    });
+    window.avg.grid = grid;
+    await settle(5);
+
+    const footerCells = () =>
+        grid.element.querySelectorAll('[data-type="footer-cell"]');
+    const footerText = () =>
+        grid.element.querySelector(
+            '[data-type="footer-cell"][data-column-key="firstName"][data-footer-row="1"]',
+        )?.textContent;
+
+    const sc = scrollEl();
+    const atTop = { cells: footerCells().length, total: footerText() };
+    const sample = footerCells()[0];
+
+    // The band on a scroll frame: its cells must never be admitted or evicted.
+    grid.render.resetStats();
+    for (let i = 0; i < 60; i++) {
+        sc.scrollTop += grid.getState().rowHeight;
+        await nextFrame();
+    }
+    const scrollStats = { ...grid.render.stats };
+    const sameElement = footerCells()[0] === sample;
+
+    sc.scrollTop = sc.scrollHeight;
+    await settle(3);
+    const atBottom = { cells: footerCells().length, total: footerText() };
+    const bandRect = grid.element
+        .querySelector('[data-type="render-grid-sticky-bottom"]')
+        .getBoundingClientRect();
+    const extraRect = extra.getBoundingClientRect();
+
+    // Sorting, filtering and a search leave it untouched and in place.
+    grid.setSort({ key: "score", direction: "asc" });
+    await settle(3);
+    const afterSort = footerText();
+    grid.setSearchString("Ada");
+    await settle(3);
+    const afterSearch = { total: footerText(), rows: grid.getState().rowCount };
+    grid.setSearchString(undefined);
+    grid.setSort(undefined);
+    await settle(3);
+
+    return {
+        rows: count,
+        atTop,
+        atBottom,
+        bandHolds: atTop.cells === atBottom.cells && atTop.total === atBottom.total,
+        scrollFrames: {
+            paints: scrollStats.paints,
+            appended: scrollStats.cellsAppended,
+            removed: scrollStats.cellsRemoved,
+            footerUntouched: sameElement,
+        },
+        extraAboveBand: extraRect.bottom <= bandRect.top + 1,
+        extraRect: { top: extraRect.top, bottom: extraRect.bottom },
+        bandRect: { top: bandRect.top, bottom: bandRect.bottom },
+        afterSort,
+        afterSearch,
+        hidden: document.hidden,
+    };
+}
+
+/**
+ * Task 49 — the grid driven start-to-finish from the keyboard, plus the ARIA wiring, in a
+ * real browser. Every step is a pass/fail claim; `allPass` is the one to quote.
+ */
+async function measureKeyboard() {
+    status("keyboard gate: driving the grid without a pointer…");
+    createGrid(50);
+    await settle(4);
+    const root = grid.element;
+    const key = (k, opts = {}) =>
+        root.dispatchEvent(
+            new KeyboardEvent("keydown", {
+                key: k,
+                code: opts.code ?? k,
+                bubbles: true,
+                cancelable: true,
+                ...opts,
+            }),
+        );
+    const focusAt = () => {
+        const f = grid.getFocus();
+        return f ? `${f.rowKey}:${String(f.columnKey)}` : null;
+    };
+
+    const checks = {};
+
+    // Tab reaches it; the first navigation key lands on the first cell.
+    root.focus();
+    checks.tabbable = root.tabIndex === 0 && document.activeElement === root;
+    key("ArrowDown");
+    await settle(2);
+    checks.firstKeyLands = focusAt() === "1:id";
+
+    // Navigation.
+    key("ArrowRight");
+    key("ArrowDown");
+    await settle(2);
+    checks.arrowsMove = focusAt() === "2:firstName";
+
+    // Editing — on the single focused cell, because the editor deliberately opens only for a
+    // single-cell selection: F2 opens, Escape cancels, typing opens with the character and
+    // Enter commits.
+    key("F2");
+    await settle(2);
+    checks.f2Opens = Boolean(grid.getState().editing);
+    key("Escape");
+    await settle(2);
+    checks.escapeCancels = !grid.getState().editing;
+    key("Z", { code: "KeyZ" });
+    await settle(2);
+    // The default editor IS the input, carrying data-type="cell-editor".
+    const editorInput = root.querySelector('[data-type="cell-editor"]');
+    checks.typingOpens = editorInput?.value === "Z";
+    editorInput?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await settle(2);
+    checks.enterCommits =
+        !grid.getState().editing &&
+        grid.getVisibleRows().some((r) => r.firstName === "Z");
+
+    // Range extension from the keyboard.
+    key("ArrowDown", { shiftKey: true });
+    await settle(2);
+    checks.shiftExtends = Boolean(grid.getFocus()?.selection);
+
+    // Select-all and copy, through the real clipboard event.
+    key("a", { code: "KeyA", ctrlKey: true });
+    await settle(2);
+    const dt = new DataTransfer();
+    const copy = new ClipboardEvent("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copy, "clipboardData", { value: dt });
+    root.dispatchEvent(copy);
+    checks.ctrlACopy = (dt.getData("text/plain").match(/\n/g) || []).length >= 50;
+
+    // Alt+↓ opens the focused column's filter popover, anchored at its header.
+    grid.focusCell(0, 4); // team (col 0 is the checkbox)
+    key("ArrowDown", { altKey: true });
+    await settle(3);
+    const popover = document.querySelector(".avg-popover");
+    checks.altDownFilter =
+        Boolean(popover) && grid.model.flags.filterPopover?.columnKey === "team";
+    const headerRect = root
+        .querySelector('[data-type="header-cell"][data-column-key="team"]')
+        ?.getBoundingClientRect();
+    const popRect = popover?.getBoundingClientRect();
+    checks.popoverAnchored =
+        Boolean(headerRect && popRect) &&
+        Math.abs(popRect.left - headerRect.left) < headerRect.width + 40;
+    grid.model.flags.filterPopover?.close();
+    await settle(2);
+
+    // The Menu key: a contextmenu event at the root opens the menu at the focused cell.
+    grid.focusCell(5, 2);
+    root.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await settle(2);
+    const menu = document.querySelector(".avg-menu");
+    checks.menuKeyOpens = Boolean(menu?.querySelector('[data-id="avg-copy"]'));
+    const cellRect = root
+        .querySelector('[data-type="data-cell"][data-row="5"][data-col="2"]')
+        ?.getBoundingClientRect();
+    const menuRect = menu?.getBoundingClientRect();
+    checks.menuAtFocusedCell =
+        Boolean(cellRect && menuRect) &&
+        Math.abs(menuRect.left - cellRect.left) < 60 &&
+        Math.abs(menuRect.top - cellRect.bottom) < 60;
+    document.body.click();
+    await settle(2);
+
+    // The ARIA wiring.
+    checks.roleGrid = root.getAttribute("role") === "grid";
+    checks.ariaCounts =
+        Number(root.getAttribute("aria-rowcount")) === grid.getState().rowCount + 1 &&
+        Number(root.getAttribute("aria-colcount")) === grid.getState().columnCount;
+    grid.setSort({ key: "score", direction: "desc" });
+    await settle(2);
+    checks.ariaSort =
+        root.querySelector('[data-column-key="score"][aria-sort="descending"]') !== null;
+    grid.setSort(undefined);
+    await settle(2);
+    checks.ariaSortCleared =
+        root.querySelector("[aria-sort]") === null;
+
+    const allPass = Object.values(checks).every(Boolean);
+    status(allPass ? "keyboard gate: all pass" : "keyboard gate: FAILURES — see the result");
+    return { ...checks, allPass };
+}
+
+/** All four wide-grid cases on one data build, then the board put back the way it was. */
+async function measureWideGrid(rowCount = 70000, colCount = 300) {
+    const data = buildWideRows(rowCount, colCount);
+    const allVisible = await measureWideAllVisible(rowCount, colCount, data);
+    const projection = await measureWideProjection(rowCount, colCount, 12, data);
+    const chooser = await measureWideChooser(rowCount, colCount, data);
+    const filter = await measureWideFilter(rowCount, colCount, data);
+    createGrid(1000);
+    status("wide-grid gate complete");
+    const results = { rowCount, colCount, generateMs: data.ms, allVisible, projection, chooser, filter };
+    window.avg.lastWideResults = results;
+    return results;
+}
+
 /**
  * The task-5 gate, re-run through the whole grid rather than through the engine alone. The
  * numbers must land within noise of `tasks/benchmark-results.md`.
@@ -2486,6 +3059,14 @@ window.avg = {
     measureSort,
     measureSortValue,
     measureHighlight,
+    measureWideGrid,
+    measureWideAllVisible,
+    measureWideProjection,
+    measureWideChooser,
+    measureWideFilter,
+    measurePinned,
+    measureFooter,
+    measureKeyboard,
     scrollTo,
     settle,
     get grid() {

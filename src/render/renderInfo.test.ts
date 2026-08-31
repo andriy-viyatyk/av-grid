@@ -418,6 +418,38 @@ describe("calcRenderInfo — sticky bands", () => {
 
 // ---------------------------------------------------------------------------
 
+describe("calcRenderInfo — trailing slack with a bottom band", () => {
+    it("drops the default slack, but honors an explicit whiteSpaceY", () => {
+        const input = makeInput({
+            rowCount: 20,
+            columnCount: 4,
+            rowHeight: 20,
+            columnWidth: 100,
+            size: { width: 400, height: 200 },
+            stickyBottom: 1,
+        });
+        // The band itself is what the last scrolling row clears, so no slack by default…
+        const bare = calcRenderInfo(renderInfoInitialState, input);
+        expect(bare.innerSize.height).toBe(20 * 20);
+        // …but an explicit whiteSpaceY keeps its meaning: room between the last scrolling
+        // row and the band — the strip an extraElement lives in.
+        const roomy = calcRenderInfo(renderInfoInitialState, input, 40);
+        expect(roomy.innerSize.height).toBe(20 * 20 + 40);
+        // Without a band, an omitted whiteSpaceY is still the 20px default.
+        const noBand = calcRenderInfo(
+            renderInfoInitialState,
+            makeInput({
+                rowCount: 20,
+                columnCount: 4,
+                rowHeight: 20,
+                columnWidth: 100,
+                size: { width: 400, height: 200 },
+            }),
+        );
+        expect(noBand.innerSize.height).toBe(20 * 20 + 20);
+    });
+});
+
 describe("calcRenderInfo — reuse", () => {
     it("returns the identical object for a scroll inside the rendered band", () => {
         const first = calcRenderInfo(renderInfoInitialState, makeInput());

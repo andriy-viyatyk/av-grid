@@ -436,6 +436,38 @@ describe("AVGridModel", () => {
             expect(model.data.lastIsStatusIndex).toBe(0);
         });
 
+        it("treats pinned: \"left\" exactly as isStatusColumn — one fact, two spellings", () => {
+            model.setColumns([
+                { key: "id", pinned: "left" },
+                { key: "name" },
+            ]);
+            expect(model.data.lastIsStatusIndex).toBe(0);
+        });
+
+        it("computes the sticky-left boundary over the visible columns", () => {
+            // A hidden column must not shift the boundary: the index feeds the engine's
+            // stickyLeft, which indexes into what is rendered.
+            model.setColumns([
+                { key: "name", hidden: true },
+                { key: "id", isStatusColumn: true },
+                { key: "score" },
+            ]);
+            expect(model.data.columns.map((c) => c.key)).toEqual(["id", "score"]);
+            expect(model.data.lastIsStatusIndex).toBe(0);
+        });
+
+        it("counts the trailing pinned-right run, hidden columns dropped first", () => {
+            model.setColumns([
+                { key: "id" },
+                { key: "name", pinned: "right", hidden: true },
+                { key: "score", pinned: "right" },
+            ]);
+            expect(model.data.stickyRightCount).toBe(1);
+
+            model.setColumns([{ key: "id" }, { key: "name" }, { key: "score" }]);
+            expect(model.data.stickyRightCount).toBe(0);
+        });
+
         it("resizes a column and reports it", () => {
             const onColumnResize = vi.fn();
             const { model: m } = makeModel({ onColumnResize });

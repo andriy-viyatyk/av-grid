@@ -17,6 +17,15 @@ paint 6.7 ms, 60 fps at both the top and row 99,000, a flat-cost ratio of 1.08×
 of every visible cell in 0.2 ms doing **zero DOM mutations**, and a theme change costing **zero
 paints**.
 
+The same holds sideways. 70,000 rows × **300 columns**: horizontal paint cost **0.218 ms at the
+left edge against 0.215 ms out at column ~290 — a horizontal flat-cost ratio of 0.99×**, 60 fps at
+both, first paint 13.8 ms. A 12-of-300 projection (`hidden` on 288 columns) paints within noise of
+a grid whose other 288 columns do not exist — `hidden` is filtered once into the visible list,
+never consulted per cell; `setColumns()` widening 12 → 40 visible is **one paint against the same
+root**; and one filter over 70k rows costs the same with 300 visible columns as with 12, because
+the filter pass is row-bound. All measured in the 2026-08-31 task-44 row of
+[`benchmark-results.md`](../tasks/benchmark-results.md).
+
 Each subsystem has its own gate, and each is about the shape of the cost rather than its size:
 
 | What | The gate it passed |
@@ -95,6 +104,53 @@ clear of the edge, and dropped it only under `fitToWidth` — so a percentage co
 fit **and** the slack on top, which is a horizontal scrollbar by construction. `hasPercentLength()`
 now decides `columnsFitted`, which the geometry and the dirty-set check read in place of the
 option.
+
+---
+
+## Pinned columns
+
+**Both edges, positionally.** `pinned: "left"` is the newer spelling of `isStatusColumn` and means
+exactly the same chrome column; `pinned: "right"` pins the *trailing* run of the visible columns —
+data columns that happen to be sticky, keeping sort, filter, edit, copy and resize. The engine
+already maintained all eight sticky regions; the grid layer's wiring is one count each way
+(`stickyLeft` = the last left-pinned index + 1, `stickyRight` = the trailing run length), both
+computed over the **visible** columns so a hidden pinned column just shortens its run.
+
+Measured on 70,000 rows × 300 columns with one left + two right pinned (`measurePinned` on
+AVGridBoard): the bands hold their columns at both scroll extremes, **72 band cells are never
+evicted across a 60-column scroll**, horizontal paint costs 0.50 / 0.73 ms at 60 fps (the unpinned
+grid reads 0.24 — the difference is repositioning three bands per frame, ~3% of a frame budget),
+and a selection dragged across the band boundary copies its cells **in visible order** with no
+coordinate seam. Drag-reorder refuses a drop that would cross the boundary — no indicator, order
+kept — and works inside the band; the right-pinned resize grip sits on the column's *left* edge and
+dragging it left widens (90 → 130 px, measured).
+
+Shipping it found and fixed an engine defect: a column pinned or unpinned **migrates** its live
+cell between regions in one paint, and `syncRegion` evicted it — a `removeChild` against the wrong
+parent in one sync order, an on-screen element released into the pool in the other. `paint()` now
+builds the union of every region's next set and evicts only what is in none. The gate did not move
+(0.79 / 0.92× warm, 0-mutation full repaint).
+
+---
+
+## Footer rows
+
+**`footerRows` are rows, and only rendered.** The same row shape through the same columns — the
+consumer's formatting is written once — pinned in `avg-sticky-bottom`, and excluded from
+everything that treats a row as data: sorting, filtering, search (and its marks), row selection
+and select-all, `getVisibleRows` / `onVisibleRowsChange`, editing, focus/range/copy, the
+add-row affordances, and `getRowKey` (keys are minted `avg-footer-<n>`). The exclusions are
+structural — a footer cell carries no `data-row`, so the interaction layer cannot resolve one —
+and each is pinned by its own test.
+
+Measured on 100,000 rows with a two-row footer (`measureFooter` on AVGridBoard): the band holds
+at both scroll extremes, and **60 one-row scroll frames leave the footer elements untouched by
+identity** — the band costs zero extra DOM mutations per frame, because its cells are never in
+the scrolling window. Two geometry rules make it compose: with a band, the default trailing
+slack is 0 (the band is the slack) but an explicit `whiteSpaceY` still buys room between the
+last data row and the band; and the area publishes `--avg-sticky-bottom`, which anchors
+`extraElement` and the add-row button *above* the band — measured as `extra.bottom` 890 =
+`band.top` 890, and verified by screenshot.
 
 ---
 
@@ -355,6 +411,56 @@ be), and the cell lines moved to a token of their own, `--avg-grid-line` = `--p-
 with them. The two `+` buttons brighten to `--p-text-strong` on hover instead of turning blue, and
 a menu row takes the full `--p-selection-bg` / `--p-selection-text` pair rather than the 18% tint a
 checklist wants. Every fallback is the old value, so a bare HTML page is unchanged.
+
+### Contrast of the shipped defaults
+
+Measured as WCAG 2.1 ratios over the default light tokens (computed from the stylesheet's own
+values; `color-mix` resolved in sRGB):
+
+| Pair | Ratio | Rule it meets |
+|---|---|---|
+| Cell text `#202020` on `#ffffff` | **16.29 : 1** | AA text (4.5:1), AAA |
+| Muted text `#767676` on `#ffffff` (disabled, sort icon) | **4.54 : 1** | AA text |
+| Header text on the header band | **14.17 : 1** | AA text, AAA |
+| Focus / selection outline (accent `#0078d4`) against the cell background | **4.53 : 1** | Non-text 3:1 |
+| Cell text on the 18% selection tint | **12.79 : 1** | AA text |
+| The blurred-grid selection outline (`--avg-text-muted`) | **4.54 : 1** | Non-text 3:1 |
+
+The focus indicator is the accent outline, present in both themes (on a board it takes `--p-accent`
+against `--p-bg`, which Persephone's own palette keeps above 3:1). **A consumer overriding tokens
+owns its own palette** — these numbers describe the defaults, not every theme.
+
+---
+
+## Accessibility — what conformance we claim
+
+**Keyboard-operable, with grid semantics and sort state exposed; not a fully conformant ARIA grid,
+because there are no row elements.** ARIA's grid pattern wants `role="row"` owners, and this
+library deliberately has none — that absence is what keeps a one-row scroll to a handful of node
+touches (invariant 2's corollary). A consumer whose audit requires row elements should know that
+before adopting, not discover it in the audit.
+
+What is there, all pinned by tests:
+
+- The root is `role="grid"` with live `aria-rowcount` / `aria-colcount` (header and footer rows
+  counted, filtering reflected) and `aria-multiselectable="true"`, and sits in the tab order
+  (`tabIndex 0`).
+- Header cells are `role="columnheader"` with `aria-colindex`, and the sorted one carries
+  **`aria-sort`** — set with the sort, removed with it, never stale on a pooled element.
+- Data and footer cells are `role="gridcell"` with 1-based `aria-rowindex` / `aria-colindex`
+  (the header is row 1); footer cells add `aria-readonly="true"`.
+- The whole grid drives from the keyboard: Tab reaches it, the first navigation key lands on the
+  first cell, and navigation, range selection, editing, clipboard, the filter popover (**Alt+↓**,
+  the Excel gesture, added by this audit) and the context menu (the Menu key, now resolved to the
+  *focused* cell and anchored there, also from this audit) are all reachable without a pointer —
+  the keyboard reference in `docs/api.md` is the audit list, and the board's `measureKeyboard()`
+  drives it end to end.
+- **The named gap: sorting has no keyboard binding.** A header click is the only built-in
+  gesture; a keyboard-first consumer sorts through its own UI and `setSort()`. Header cells are
+  not focusable — a header focus mode is a phase-11 question, not a quiet omission.
+
+Screenshots beat accessibility snapshots for *layout* testing here for the same reason: sticky-band
+bugs are invisible to the accessibility tree.
 
 ---
 

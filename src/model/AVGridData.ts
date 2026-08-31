@@ -16,6 +16,7 @@ const defaultChangeEvent = {
     rows: false,
     columns: false,
     lastIsStatusIndex: false,
+    stickyRightCount: false,
     rowCompare: false,
     allSelected: false,
     hovered: false,
@@ -33,6 +34,7 @@ export class AVGridData<R> {
     private _rows: readonly R[];
     private _columns: Column<R>[];
     private _lastIsStatusIndex = -1;
+    private _stickyRightCount = 0;
     private _rowCompare: RowCompare<R> | undefined;
     private _sortValue: ((row: R) => any) | undefined;
     private _allSelected = false;
@@ -102,6 +104,17 @@ export class AVGridData<R> {
         if (this._lastIsStatusIndex === value) return;
         this._lastIsStatusIndex = value;
         this._changeEvent.lastIsStatusIndex = true;
+    }
+
+    /** Length of the trailing `pinned: "right"` run in the visible columns — `stickyRight`. */
+    get stickyRightCount(): number {
+        return this._stickyRightCount;
+    }
+
+    set stickyRightCount(value: number) {
+        if (this._stickyRightCount === value) return;
+        this._stickyRightCount = value;
+        this._changeEvent.stickyRightCount = true;
     }
 
     get rowCompare(): RowCompare<R> | undefined {

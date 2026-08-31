@@ -19,7 +19,7 @@
  */
 
 import { detectColumnWidth, widthForValues } from "./column-width";
-import { columnDisplayValue } from "./gridUtils";
+import { columnDisplayValue, isPinnedLeft } from "./gridUtils";
 import type { AVGridOptions, ResolvedOptions } from "./options";
 import type {
     AnyFilter,
@@ -315,6 +315,11 @@ export function validateColumns<R>(
     const sampled = new Set(sampledKeys);
     const hasSample = sampledKeys.length > 0;
 
+    // Right pinning is positional: the pinned columns must be the *trailing* run of the
+    // visible columns. Tracked across the loop below, over non-hidden columns only — a hidden
+    // pinned column just shortens the run.
+    let lastPinnedRightKey: string | undefined;
+
     columns.forEach((column, index) => {
         if (!column || typeof column !== "object") {
             fail(
@@ -339,10 +344,48 @@ export function validateColumns<R>(
         const col = column as Column<R>;
         if (col.filter !== undefined) validateFilterDefinition(col.filter, key);
 
+        if (
+            col.pinned !== undefined &&
+            col.pinned !== "left" &&
+            col.pinned !== "right"
+        ) {
+            fail(
+                `Column "${key}" has pinned: ${describe(col.pinned)}. ` +
+                    `The only values are "left" and "right".`,
+            );
+        }
+        if (col.pinned === "right" && col.isStatusColumn) {
+            fail(
+                `Column "${key}" has both isStatusColumn: true and pinned: "right". ` +
+                    `isStatusColumn means pinned left — a column cannot be pinned to both edges.`,
+            );
+        }
+        if (
+            (col.pinned !== undefined || col.isStatusColumn) &&
+            typeof col.width === "string"
+        ) {
+            fail(
+                `Column "${key}" is pinned but has width: "${col.width}". ` +
+                    `A pinned column needs a fixed width in pixels — a percentage is resolved ` +
+                    `by stretching the scrolling columns to fit, which a pinned band is outside of.`,
+            );
+        }
+        if (!col.hidden) {
+            if (col.pinned === "right") {
+                lastPinnedRightKey = key;
+            } else if (lastPinnedRightKey !== undefined) {
+                fail(
+                    `Column "${key}" follows the pinned: "right" column "${lastPinnedRightKey}" ` +
+                        `but is not pinned itself. Right-pinned columns must be the trailing ` +
+                        `columns — move "${key}" before them, or pin it too.`,
+                );
+            }
+        }
+
         // A key that matches nothing in the data renders an empty column and looks like a
         // rendering bug. Two exemptions: computed columns never read the row property, and a
         // column being *added* is empty by definition — the data arrives when it is typed in.
-        const computed = Boolean(col.render || col.formatValue || col.isStatusColumn);
+        const computed = Boolean(col.render || col.formatValue || isPinnedLeft(col));
         if (
             !computed &&
             !exemptKeys?.has(key) &&
@@ -599,6 +642,14 @@ export function resolveOptions<R>(options: unknown): ResolvedOptions<R> {
         fail(
             `\`rows\` must be an array, but was ${describe(o.rows)}. ` +
                 `Pass an empty array to render an empty grid: AVGrid.create(el, { rows: [] }).`,
+        );
+    }
+
+    if (o.footerRows !== undefined && !Array.isArray(o.footerRows)) {
+        fail(
+            `\`footerRows\` must be an array of rows, but was ${describe(o.footerRows)}. ` +
+                `For example: footerRows: [{ label: "Total", spend: 4812500 }]. ` +
+                `Omit it for no footer.`,
         );
     }
 

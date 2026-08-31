@@ -14,6 +14,7 @@
  * model does.
  */
 
+import { isPinnedLeft } from "../gridUtils";
 import type { AVGridModel } from "../model/AVGridModel";
 import type { RenderGrid } from "../render/RenderGrid";
 import { SELECT_COLUMN_KEY } from "./SelectColumn";
@@ -67,6 +68,12 @@ export class GridInteractions<R> {
         /** Distance from the pointer to the column's right edge when the drag started. */
         offset: number;
         left: number;
+        /**
+         * A right-pinned column resizes from its *left* edge — its right edge is anchored to
+         * the viewport, so a right-edge drag would chase a moving target. The width is then
+         * the starting width plus how far left the pointer moved.
+         */
+        fromLeftEdge?: { startX: number; startWidth: number };
     };
 
     /** The cell the last selection drag move resolved to, so a move inside one cell is free. */
@@ -205,7 +212,8 @@ export class GridInteractions<R> {
         if (header.el.getAttribute("data-resizable") !== "true") return;
 
         const rect = header.el.getBoundingClientRect();
-        const offset = rect.right - e.clientX;
+        const pinnedRight = header.el.getAttribute("data-pinned") === "right";
+        const offset = pinnedRight ? e.clientX - rect.left : rect.right - e.clientX;
         if (offset > RESIZE_GRIP_PX) return;
 
         e.stopPropagation();
@@ -218,6 +226,9 @@ export class GridInteractions<R> {
             pointerId: e.pointerId,
             offset,
             left: rect.left,
+            fromLeftEdge: pinnedRight
+                ? { startX: e.clientX, startWidth: rect.width }
+                : undefined,
         };
 
         this.root.setPointerCapture(e.pointerId);
@@ -231,7 +242,11 @@ export class GridInteractions<R> {
         if (!state) return;
         e.preventDefault();
 
-        const width = Math.round(e.clientX + state.offset - state.left);
+        const width = state.fromLeftEdge
+            ? Math.round(
+                  state.fromLeftEdge.startWidth + state.fromLeftEdge.startX - e.clientX,
+              )
+            : Math.round(e.clientX + state.offset - state.left);
         if (width > 0) {
             this.model.events.onColumnResize.send({
                 columnKey: state.columnKey,
@@ -279,7 +294,7 @@ export class GridInteractions<R> {
         // must not move the cell focus or start a range drag, which is also how the reference
         // behaved, there by simply not binding those handlers to those cells. The click that
         // follows is still delivered, and is what toggles the checkbox.
-        if (context.column.isStatusColumn) return;
+        if (isPinnedLeft(context.column)) return;
 
         // Read before sending: `FocusModel` listens too, and moves the focus onto this cell.
         const focus = this.model.models.focus.focus;
@@ -550,6 +565,26 @@ export class GridInteractions<R> {
      */
     private onKeyDown = (e: KeyboardEvent): void => {
         if (this.fromEditableControl(e.target)) return;
+        // Alt+↓ opens the focused column's filter popover — the Excel gesture, and the one
+        // way the funnel is reachable without a pointer. Anchored to the column's header
+        // when it is on screen, so it lands where a click would have put it.
+        if (e.altKey && e.key === "ArrowDown" && !this.model.options.disableFiltering) {
+            const focus = this.model.models.focus.focus;
+            const columnKey = focus ? String(focus.columnKey) : undefined;
+            const column = columnKey
+                ? this.model.data.columns.find((c) => String(c.key) === columnKey)
+                : undefined;
+            if (column && column.filterType !== null && !isPinnedLeft(column)) {
+                e.preventDefault();
+                e.stopPropagation();
+                const anchor =
+                    this.root.querySelector<HTMLElement>(
+                        `[data-type="header-cell"][data-column-key="${CSS.escape(String(column.key))}"]`,
+                    ) ?? this.root;
+                void showFilterPopover(this.model, String(column.key), { anchor });
+                return;
+            }
+        }
         this.model.events.content.onKeyDown.send(e);
     };
 
@@ -706,7 +741,24 @@ export class GridInteractions<R> {
      * right-clicks should hear all of them, not only the ones the grid drew a menu for.
      */
     private onContextMenu = (e: MouseEvent): void => {
-        const cell = this.dataCellAt(e.target);
+        let cell = this.dataCellAt(e.target);
+        // A keyboard-invoked menu (the Menu key; Shift+F10 where the platform maps it) fires
+        // on the focused element — the root — not on a cell. Resolve it to the focused cell
+        // when one is rendered, so the keyboard opens the same menu the pointer would there —
+        // anchored at that cell, not at whatever coordinates the synthetic event carries.
+        let keyboardAnchor: DOMRect | undefined;
+        if (!cell && e.target === this.root) {
+            const focused = this.model.models.focus.getGridFocus();
+            const el = focused
+                ? this.root.querySelector<HTMLElement>(
+                      `[data-type="data-cell"][data-row="${focused.rowIndex}"][data-col="${focused.colIndex}"]`,
+                  )
+                : null;
+            if (focused && el) {
+                cell = { el, row: focused.rowIndex, col: focused.colIndex };
+                keyboardAnchor = el.getBoundingClientRect();
+            }
+        }
         if (cell) {
             const context = this.model.cellContext(cell.row, cell.col);
             if (context) {
@@ -744,6 +796,10 @@ export class GridInteractions<R> {
               : ({ target: "grid" } as const);
 
         const event = gridContextMenuEvent(this.model, e, hit);
+        if (keyboardAnchor) {
+            event.x = keyboardAnchor.left + 4;
+            event.y = keyboardAnchor.bottom - 2;
+        }
         // Only when something was actually shown — an empty menu over an empty grid should leave
         // the browser's own alone rather than swallow the gesture.
         if (showGridContextMenu(this.model, event)) e.preventDefault();
@@ -845,16 +901,42 @@ export class GridInteractions<R> {
         this.repaintHeader();
     };
 
+    /**
+     * Which sticky band a column lives in. A reorder may not cross bands: a drop that would
+     * move an unpinned column into the pinned tail — or a pinned one out of it — is refused
+     * *during* the drag (no drop indicator, no drop), never fixed up after the event.
+     */
+    private columnBand(key: string): "left" | "scroll" | "right" | undefined {
+        const idx = this.model.models.columns.indexOfKey(key);
+        if (idx < 0) return undefined;
+        const data = this.model.data;
+        if (idx <= data.lastIsStatusIndex) return "left";
+        if (idx >= data.columns.length - data.stickyRightCount) return "right";
+        return "scroll";
+    }
+
+    private reorderAllowed(sourceKey: string, targetKey: string | undefined): boolean {
+        if (targetKey === undefined) return false;
+        return this.columnBand(sourceKey) === this.columnBand(targetKey);
+    }
+
     private onDragOver = (e: DragEvent): void => {
-        if (!this.model.flags.dragColumnKey) return;
+        const sourceKey = this.model.flags.dragColumnKey;
+        if (!sourceKey) return;
         const header = this.headerAt(e.target);
         const key = header?.el.getAttribute("data-column-key") ?? undefined;
+        const allowed = key === undefined || this.reorderAllowed(sourceKey, key);
 
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        // No `preventDefault()` over a refused target: the browser then shows the no-drop
+        // cursor and will not deliver a drop there.
+        if (allowed) {
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        }
 
-        if (this.model.flags.dragOverColumnKey !== key) {
-            this.model.flags.dragOverColumnKey = key;
+        const over = allowed ? key : undefined;
+        if (this.model.flags.dragOverColumnKey !== over) {
+            this.model.flags.dragOverColumnKey = over;
             this.repaintHeader();
         }
     };
@@ -868,7 +950,12 @@ export class GridInteractions<R> {
 
         this.clearDragState();
 
-        if (sourceKey && targetKey && sourceKey !== targetKey) {
+        if (
+            sourceKey &&
+            targetKey &&
+            sourceKey !== targetKey &&
+            this.reorderAllowed(sourceKey, targetKey)
+        ) {
             this.model.events.onColumnsReorder.send({ sourceKey, targetKey });
         }
     };

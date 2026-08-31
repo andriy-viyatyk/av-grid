@@ -14,6 +14,7 @@
  *    contract in `RenderCellParams`.
  */
 
+import { isPinnedLeft } from "../gridUtils";
 import type { RenderCellParams, RenderedCell } from "../render/types";
 import type { AVGridModel } from "../model/AVGridModel";
 import { filterIcon, sortAscIcon, sortDescIcon } from "./icons";
@@ -94,20 +95,40 @@ export function renderHeaderCell<R>(
     el.setAttribute("data-row", "0");
     el.setAttribute("data-col", String(p.col));
     el.setAttribute("data-column-key", key);
+    el.setAttribute("role", "columnheader");
+    el.setAttribute("aria-colindex", String(p.col + 1));
 
-    const resizable = column.resizable !== false && !column.isStatusColumn;
+    const pinnedLeft = isPinnedLeft(column);
+    // The trailing right-pinned run. A right-pinned header keeps every affordance — it is a
+    // data column that happens to be sticky — but its resize grip moves to its *left* edge,
+    // because its right edge is anchored to the viewport. `data-pinned` carries that to the
+    // stylesheet and to the hit-test in `GridInteractions`.
+    const pinnedRight =
+        p.col >= model.data.columns.length - model.data.stickyRightCount;
+    if (pinnedRight) el.setAttribute("data-pinned", "right");
+    else if (pinnedLeft) el.setAttribute("data-pinned", "left");
+    else el.removeAttribute("data-pinned");
+
+    const resizable = column.resizable !== false && !pinnedLeft;
     el.setAttribute("data-resizable", resizable ? "true" : "false");
-    // Status columns are pinned in place; everything else can be dragged to reorder.
-    el.draggable = !column.isStatusColumn;
+    // Left-pinned columns are chrome, fixed in place; everything else can be dragged to
+    // reorder — a right-pinned column only within its own band (`GridInteractions` refuses
+    // a drop that would cross the boundary).
+    el.draggable = !pinnedLeft;
 
     // --- sort indicator
     const sort = model.state.get().sort;
     if (sort && sort.key === String(column.key)) {
         el.setAttribute("data-sort", sort.direction);
+        el.setAttribute(
+            "aria-sort",
+            sort.direction === "asc" ? "ascending" : "descending",
+        );
         structure.sort.innerHTML =
             sort.direction === "asc" ? sortAscIcon : sortDescIcon;
     } else {
         el.removeAttribute("data-sort");
+        el.removeAttribute("aria-sort");
         if (structure.sort.firstChild) structure.sort.textContent = "";
     }
 
@@ -131,7 +152,7 @@ export function renderHeaderCell<R>(
     // filter by.
     const filterable =
         column.filterType !== null &&
-        !column.isStatusColumn &&
+        !pinnedLeft &&
         !model.options.disableFiltering;
     structure.filter.style.display = filterable ? "" : "none";
     const filtered = model.options.filters?.some(

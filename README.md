@@ -128,10 +128,13 @@ if you would rather hold them in React state. Full page: [`docs/react-api.md`](d
 ## What it does
 
 - **Virtualized on both axes**, with a sticky header and sticky columns
+- **Pinned columns on either edge** (`pinned: "left" | "right"`) and **footer rows pinned to the
+  bottom** (`footerRows`) — a grand total formatted by the same columns as the data
 - **Sorting** by header click, with `sortValue` or `rowCompare` for a custom order
 - **Filtering** — a searchable checklist per column, cascaded against the other filters, plus a bar
   of removable chips, `localStorage` persistence, and host-defined filter types
-- **Cell focus and full keyboard navigation**, Excel-style
+- **Cell focus and full keyboard navigation**, Excel-style — with grid ARIA semantics and
+  `aria-sort` (see [what conformance we claim](docs/capabilities.md#accessibility--what-conformance-we-claim))
 - **Range selection** by drag or by shift, and row selection through a checkbox column
 - **In-cell editing** with validation, a virtualized dropdown for columns with `options`, and
   host-supplied editors
@@ -180,6 +183,7 @@ the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of ea
 | [10-customization](https://andriy-viyatyk.github.io/av-grid/examples/10-customization.html) | all seven hooks in one file | [source](examples/10-customization.html) |
 | [11-host-integration](https://andriy-viyatyk.github.io/av-grid/examples/11-host-integration.html) | `rowNoun`, `highlightString`, `extraElement`, menu ids | [source](examples/11-host-integration.html) |
 | [12-react](https://andriy-viyatyk.github.io/av-grid/examples/12-react.html) | the React wrapper, no build step | [source](examples/12-react.html) |
+| [13-report](https://andriy-viyatyk.github.io/av-grid/examples/13-report.html) | pinned columns and a footer band — a report shape | [source](examples/13-report.html) |
 | [persephone-board](https://andriy-viyatyk.github.io/av-grid/examples/persephone-board/) | the grid inside a Persephone board | [source](examples/persephone-board/) |
 
 ## Documentation

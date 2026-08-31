@@ -238,6 +238,28 @@ export interface Column<R = any> {
     isStatusColumn?: boolean;
 
     /**
+     * Pin this column to an edge, so it stays put while the rest scrolls horizontally.
+     *
+     * Pinning is **positional**. `"right"` columns must be the *trailing* run of the column
+     * array — a `pinned: "right"` column followed by an unpinned one is a validation error.
+     * `"left"` is the newer spelling of `isStatusColumn: true` and means exactly the same
+     * thing: everything up to and including the last left-pinned column is sticky, non-data
+     * chrome — not focusable, not editable, not copied, not reorderable.
+     *
+     * A pinned column needs a **fixed** `width`; a percentage would have to be stretched by
+     * the same fit arithmetic the pinned band is excluded from, so it is a validation error.
+     *
+     * ```js
+     * columns: [
+     *     { key: "member", name: "Member", pinned: "left" },
+     *     { key: "jan" }, { key: "feb" }, // …
+     *     { key: "total", name: "Total", pinned: "right", align: "right" },
+     * ]
+     * ```
+     */
+    pinned?: "left" | "right";
+
+    /**
      * The value this column sorts by, in place of `row[key]`. The short form of a custom sort,
      * and the one to reach for first — an order the value does not have on its own:
      *
