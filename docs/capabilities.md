@@ -555,6 +555,17 @@ miss and not one reuse is of the wrong kind** — with no key, each mismatch wou
 rebuild. A pool that is never given a key is a single bucket and behaves exactly as it did before
 keys existed, hit and miss counts included.
 
+**Every cell the pool hands out is accounted for by the next paint.** `renderCell` runs during the
+model's *recompute*, and a frame can hold more than one — two scroll events, or two state writes
+landing in separate microtasks. Only the last render info is painted; the passes before it are
+dropped, but the cells they recycled came out of the pool, and with `keepCellsAttached` a pooled
+cell is still an (un-hidden, repositioned) child of its region that no `syncRegion` will ever
+evict — stale rows on screen for the life of the grid. So `recycle` is wrapped in a **loan
+ledger**: everything the pool hands out since the last paint is recorded, and at the end of
+`paint()` anything the painted info did not claim is re-parked. The same ledger reclaims a cell a
+renderer takes with `recycle()` and then drops. Cost: one `Set` insert per recycled cell per
+recompute, measured at nothing — the gate below ran on this code.
+
 ---
 
 ## Holding on to scroll position, and to what a cell owns

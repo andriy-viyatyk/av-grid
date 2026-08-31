@@ -685,6 +685,70 @@ describe("keepCellsAttached", () => {
         spy.mockRestore();
     });
 
+    it("re-parks cells rendered by a pass that a later recompute superseded", async () => {
+        const { grid } = track(createGrid({ keepCellsAttached: true }));
+
+        // Fill the pool, so the passes below have something to recycle.
+        for (const y of [400, 0, 800, 0]) {
+            grid.container.scrollTop = y;
+            grid.container.dispatchEvent(new Event("scroll"));
+            await nextFrame();
+        }
+
+        // Two recomputes inside one frame — a fast scroll, or two state writes landing in
+        // separate microtasks. `renderCell` runs in the *model*, so both passes pull cells out
+        // of the pool and un-hide them, but only the second is ever painted.
+        grid.container.scrollTop = 600;
+        grid.container.dispatchEvent(new Event("scroll"));
+        grid.container.scrollTop = 0;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // The dropped pass's cells were never in `attached`, so no `syncRegion` can evict them:
+        // without the loan ledger they stay visible for the life of the grid, a block of stale
+        // rows sitting below the real content. A pooled cell answers to no coordinate.
+        for (const el of grid.area.querySelectorAll(":scope > [data-avg-pooled]")) {
+            expect(el.hasAttribute("data-row")).toBe(false);
+        }
+        const rows = cellsIn(grid.area)
+            .filter((el) => !el.hasAttribute("data-avg-pooled"))
+            .map((el) => Number(el.getAttribute("data-row")));
+        expect(Math.max(...rows)).toBeLessThan(20);
+    });
+
+    it("re-pools a cell the renderer recycled and then dropped", async () => {
+        let steal: HTMLElement | undefined;
+        const { grid } = track(
+            createGrid({
+                keepCellsAttached: true,
+                renderCell: (p: RenderCellParams): RenderedCell => {
+                    // Takes a pooled cell and returns a different one: the loan is never
+                    // accounted for by the paint, so only the ledger can give it back.
+                    if (p.row === 0 && p.col === 0 && !steal) steal = p.recycle?.();
+                    const el = p.previous ?? document.createElement("div");
+                    el.setAttribute("data-type", "cell");
+                    el.setAttribute("data-row", String(p.row));
+                    el.setAttribute("data-col", String(p.col));
+                    return el;
+                },
+            }),
+        );
+
+        grid.container.scrollTop = 2000;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        grid.container.scrollTop = 0;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+
+        // Back in the pool, hidden, and claiming no coordinate — not stranded on screen.
+        expect(steal).toBeTruthy();
+        expect(steal!.hasAttribute("data-avg-pooled")).toBe(true);
+        expect(steal!.style.display).toBe("none");
+        expect(grid.stats.pool.released).toBeGreaterThan(0);
+    });
+
     it("leaves the default path detaching, exactly as before", async () => {
         const { grid } = track(createGrid());
         const first = grid.area.querySelector('[data-row="0"]') as HTMLElement;

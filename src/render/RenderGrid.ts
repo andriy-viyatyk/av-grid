@@ -29,7 +29,11 @@ import {
     type RenderGridOptions,
     type RenderGridState,
 } from "./RenderGridModel";
-import type { RenderedCell, RenderInputPrepared } from "./types";
+import type {
+    CellReuseKey,
+    RenderedCell,
+    RenderInputPrepared,
+} from "./types";
 import type { Unsubscribe } from "../core/observable";
 
 export interface RenderGridShellOptions extends RenderGridOptions {
@@ -197,6 +201,20 @@ export class RenderGrid {
      */
     private readonly hiddenDisplay = new WeakMap<HTMLElement, string>();
 
+    /**
+     * Cells the pool has handed to `renderCell` since the last paint.
+     *
+     * `renderCell` runs during the *model's* recompute, not during the paint, and a frame can
+     * hold more than one recompute — two scroll events, or two state writes landing in
+     * separate microtasks. Only the last render info survives to be painted; the passes before
+     * it are dropped. Their cells are not: each one came out of the pool, and with
+     * `keepCellsAttached` a pooled cell is still a child of its region, which the renderer has
+     * just un-hidden and repositioned. `attached` never saw them, so `syncRegion` has nothing
+     * to evict them from and they stay on screen for the life of the grid — stale rows below
+     * the real content. This set is how the paint finds them again. See `reclaimLoaned`.
+     */
+    private readonly loaned = new Set<HTMLElement>();
+
     private lastInfo?: RenderInputPrepared;
     private lastScrollBarWidth = -1;
     private lastScrollBarHeight = -1;
@@ -270,7 +288,7 @@ export class RenderGrid {
 
         this.model = new RenderGridModel({
             ...options,
-            recycle: this.pool.acquire,
+            recycle: this.acquireCell,
             setReuseKey: this.pool.setReuseKey,
         });
 
@@ -442,6 +460,8 @@ export class RenderGrid {
         this.model.dispose();
         this.pool.clear();
 
+        this.loaned.clear();
+
         for (const key of Object.keys(this.attached) as RegionKey[]) {
             this.attached[key].clear();
         }
@@ -542,6 +562,10 @@ export class RenderGrid {
         this.syncRegion("stickyBottomLeft", info.stickyBottomLeft, active);
         this.syncRegion("stickyBottomRight", info.stickyBottomRight, active);
 
+        // After the admits: a loaned cell this paint claimed is attached by now, and what is
+        // left in the set is what nothing on screen stands for.
+        this.reclaimLoaned(active);
+
         // Hiding the container resets its scrollTop to 0 while the model keeps the real
         // offset; put it back once the content is there to scroll. Only then — a container
         // whose position merely differs from the model's is a container the user has just
@@ -605,6 +629,39 @@ export class RenderGrid {
         }
 
         this.attached[key] = next;
+    }
+
+    /**
+     * The `recycle` the renderer is given: the pool's `acquire`, plus a note that this cell is
+     * out on loan until a paint accounts for it. See `loaned`.
+     */
+    private acquireCell = (reuseKey?: CellReuseKey): HTMLElement | undefined => {
+        const el = this.pool.acquire(reuseKey);
+        if (el) this.loaned.add(el);
+        return el;
+    };
+
+    /**
+     * Re-park every cell that went out on loan and did not end up in the painted render info.
+     *
+     * Two kinds of cell land here: one the renderer took and then dropped, and — the reason
+     * this exists — one rendered by a pass that a later recompute superseded before the frame's
+     * paint. Both are cells standing for no coordinate, which is exactly what eviction is for.
+     * Cells that *are* in `active` were admitted by the sync above and need nothing.
+     */
+    private reclaimLoaned(active: ReadonlySet<HTMLElement>): void {
+        if (!this.loaned.size) return;
+
+        for (const el of this.loaned) {
+            if (active.has(el)) continue;
+            // No parent means retention is off: the cell was never attached, so there is
+            // nothing to hide and only the pool entry to give back.
+            const parent = el.parentElement;
+            if (parent) this.evictCell(parent, el);
+            else this.pool.release(el);
+        }
+
+        this.loaned.clear();
     }
 
     /**
