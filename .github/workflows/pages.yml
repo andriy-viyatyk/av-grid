@@ -62,12 +62,11 @@ jobs:
                   cp -r examples/. site/examples/
                   cp -r dist/. site/dist/
 
-                  # The board example vendors the library into its own lib/ rather than loading a
-                  # CDN, because a Persephone board's CSP forbids remote scripts. That folder is a
-                  # build artifact and is gitignored, so it has to be filled in here or the page
-                  # 404s on ./lib/av-grid.js.
-                  mkdir -p site/examples/persephone-board/lib
-                  cp dist/av-grid.js dist/av-grid.css site/examples/persephone-board/lib/
+                  # The board example is NOT deployed: it runs inside Persephone, which injects
+                  # the `persephone` API and the scaffolded board-base.css. On a plain https page
+                  # none of that exists, so the page would render broken — the examples index
+                  # links its README on GitHub instead.
+                  rm -rf site/examples/persephone-board
 
                   # The root is a redirect rather than a copy of the index, so there is exactly one
                   # examples index and its relative links stay correct.
@@ -83,8 +82,7 @@ jobs:
                   # Pages serves what is here; anything missing is a 404 nobody sees until a
                   # visitor clicks it. Fail the build instead.
                   for f in site/index.html site/examples/index.html site/dist/av-grid.js \
-                           site/dist/av-grid.css site/dist/react.js \
-                           site/examples/persephone-board/lib/av-grid.js; do
+                           site/dist/av-grid.css site/dist/react.js; do
                       test -s "$f" || { echo "::error::missing or empty: $f"; exit 1; }
                   done
                   echo "assembled $(find site -type f | wc -l) files"
