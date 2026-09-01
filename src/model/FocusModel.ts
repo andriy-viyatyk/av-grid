@@ -28,7 +28,7 @@
  * stay selected and still need repainting because the border moved off it.
  */
 
-import { isPinnedLeft } from "../gridUtils";
+import { isChromeColumn } from "../gridUtils";
 import type { RenderCell, RerenderInfo } from "../render/types";
 import type { CellFocus, Column } from "../types";
 import type { AVGridDataChangeEvent } from "./AVGridData";
@@ -365,7 +365,7 @@ export class FocusModel<R> {
     ): void => {
         const fallback =
             this.model.models.columns.firstEditable?.index ??
-            this.model.data.columns.findIndex((c) => !isPinnedLeft(c));
+            this.model.data.columns.findIndex((c) => !isChromeColumn(c));
         this.selectRange(
             startIndex,
             oldFocus?.selection?.colStart ?? Math.max(0, fallback),
@@ -769,12 +769,13 @@ export class FocusModel<R> {
         let rowIndex = this.ranges.focusRow;
         let columnIndex = this.ranges.focusCol;
 
-        // The first column the focus can live in: pinned-left chrome (the checkbox, a row
-        // number) is not focusable by pointer — `onCellPointerDown` returns early for it — so
-        // the keyboard must not be the one way in either.
+        // The first column the focus can live in: chrome (the checkbox, a row number) is
+        // not focusable by pointer — `onCellPointerDown` returns early for it — so the
+        // keyboard must not be the one way in either. Chrome, not the sticky band: a
+        // pinned-left *data* column is focusable and the keyboard lands on it (task 53).
         const firstColumn = Math.min(
             columns.length - 1,
-            this.model.data.lastIsStatusIndex + 1,
+            this.model.data.firstDataColumnIndex,
         );
 
         // Nothing focused yet — the first navigation key lands on the first data cell. The

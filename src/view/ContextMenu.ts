@@ -34,7 +34,7 @@
  *    generated items so a host menu can offer the same actions without rebuilding them.
  */
 
-import { isPinnedLeft } from "../gridUtils";
+import { isChromeColumn } from "../gridUtils";
 import type { AVGridModel } from "../model/AVGridModel";
 import type { GridContextMenuEvent, MenuItem } from "../types";
 import { copyIcon, deleteIcon, pasteIcon, plusIcon } from "./icons";
@@ -90,7 +90,7 @@ export function gridContextMenuItems<R>(
                 label: "Insert column",
                 icon: plusIcon,
                 startGroup: custom.length > 0,
-                invisible: !structure.canAddColumns || isPinnedLeft(e.column),
+                invisible: !structure.canAddColumns || isChromeColumn(e.column),
                 // By key, not by the header's display index: `addColumns` indexes the host's
                 // own column list, which the checkbox column is not in.
                 onClick: () => {
@@ -104,7 +104,7 @@ export function gridContextMenuItems<R>(
                 id: "avg-delete-column",
                 label: "Delete column",
                 icon: deleteIcon,
-                invisible: !structure.canDeleteColumns || isPinnedLeft(e.column),
+                invisible: !structure.canDeleteColumns || isChromeColumn(e.column),
                 onClick: () => structure.deleteColumns([columnKey]),
             },
         );

@@ -34,7 +34,7 @@
  * added at most once per document.
  */
 
-import { isPinnedLeft, sortAsList } from "./gridUtils";
+import { isChromeColumn, isPinnedLeft, sortAsList } from "./gridUtils";
 import { GroupHeader } from "./view/GroupHeader";
 import { AVGridModel } from "./model/AVGridModel";
 import { RenderGrid } from "./render/RenderGrid";
@@ -1100,7 +1100,7 @@ export class AVGrid<R = any> {
                     sorted: sortList.find((s) => s.key === key)?.direction,
                     filtered: this.model.models.filters.isFiltered(key),
                     editable:
-                        editable && !column.readonly && !isPinnedLeft(column),
+                        editable && !column.readonly && !isChromeColumn(column),
                     isStatusColumn: column.isStatusColumn,
                     pinned: column.pinned ?? (isPinnedLeft(column) ? "left" : undefined),
                     hasRender: Boolean(column.render),

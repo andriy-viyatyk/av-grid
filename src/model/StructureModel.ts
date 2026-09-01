@@ -35,7 +35,7 @@
  *    `getSelectedRows().length`.
  */
 
-import { isPinnedLeft, trailingPinnedRight } from "../gridUtils";
+import { isChromeColumn, trailingPinnedRight } from "../gridUtils";
 import type { Column } from "../types";
 import { inferRowKeyProperty } from "../validate";
 import type { AVGridModel } from "./AVGridModel";
@@ -331,7 +331,7 @@ export class StructureModel<R> {
         if (!selection?.columns.length) return false;
         // The checkbox column is the grid's, not the host's, and ctrl+A selects it too.
         const keys = selection.columns
-            .filter((c) => !isPinnedLeft(c))
+            .filter((c) => !isChromeColumn(c))
             .map((c) => String(c.key));
         return this.deleteColumns(keys);
     };

@@ -251,17 +251,25 @@ export interface Column<R = any> {
 
     resizable?: boolean;
     readonly?: boolean;
-    /** Marks a non-data column (row selection checkbox, row number) pinned to the left. */
+    /**
+     * Marks a non-data **chrome** column (row selection checkbox, row number), pinned to the
+     * left. Chrome is not focusable, not editable, not copied, not resizable and has no
+     * filter funnel. For a *data* column that should stay visible while the rest scrolls —
+     * an id, a name — use `pinned: "left"` instead: it is sticky and fixed in place but keeps
+     * every data affordance.
+     */
     isStatusColumn?: boolean;
 
     /**
      * Pin this column to an edge, so it stays put while the rest scrolls horizontally.
      *
-     * Pinning is **positional**. `"right"` columns must be the *trailing* run of the column
-     * array — a `pinned: "right"` column followed by an unpinned one is a validation error.
-     * `"left"` is the newer spelling of `isStatusColumn: true` and means exactly the same
-     * thing: everything up to and including the last left-pinned column is sticky, non-data
-     * chrome — not focusable, not editable, not copied, not reorderable.
+     * Pinning is **positional**. `"left"` columns must be the *leading* run of the column
+     * array and `"right"` columns the *trailing* run — a pinned column on the wrong side of
+     * an unpinned one is a validation error. A pinned column cannot be drag-reordered, and no
+     * other column can be dropped into its band; everything else about it is ordinary — it is
+     * a **data** column that happens to be sticky: focusable, part of range selection, copied,
+     * editable, filterable, resizable. (An identity column pinned first is the typical use.)
+     * For the non-data chrome behavior — the checkbox — use `isStatusColumn` instead.
      *
      * A pinned column needs a **fixed** `width`; a percentage would have to be stretched by
      * the same fit arithmetic the pinned band is excluded from, so it is a validation error.

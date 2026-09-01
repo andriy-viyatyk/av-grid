@@ -19,7 +19,7 @@
  */
 
 import { detectColumnWidth, widthForValues } from "./column-width";
-import { columnDisplayValue, gatherByGroup, isPinnedLeft } from "./gridUtils";
+import { columnDisplayValue, gatherByGroup, isChromeColumn, isPinnedLeft } from "./gridUtils";
 import type { AVGridOptions, ResolvedOptions } from "./options";
 import type {
     AnyFilter,
@@ -321,6 +321,7 @@ export function validateColumns<R>(
     // Right pinning is positional: the pinned columns must be the *trailing* run of the
     // visible columns. Tracked across the loop below, over non-hidden columns only — a hidden
     // pinned column just shortens the run.
+    let firstUnpinnedKey: string | undefined;
     let lastPinnedRightKey: string | undefined;
 
     columns.forEach((column, index) => {
@@ -399,12 +400,27 @@ export function validateColumns<R>(
                         `columns — move "${key}" before them, or pin it too.`,
                 );
             }
+            // The mirror rule: left pinning is positional too, so the left-pinned columns
+            // must be the LEADING run. An interleaved one would silently drag every column
+            // before it into the sticky band (the band is "up to the last pinned-left index").
+            if (isPinnedLeft(col)) {
+                if (firstUnpinnedKey !== undefined) {
+                    fail(
+                        `Column "${key}" is pinned left but follows the unpinned column ` +
+                            `"${firstUnpinnedKey}". Left-pinned columns (isStatusColumn or ` +
+                            `pinned: "left") must be the leading columns — move "${key}" ` +
+                            `before "${firstUnpinnedKey}", or unpin it.`,
+                    );
+                }
+            } else if (firstUnpinnedKey === undefined && col.pinned !== "right") {
+                firstUnpinnedKey = key;
+            }
         }
 
         // A key that matches nothing in the data renders an empty column and looks like a
         // rendering bug. Two exemptions: computed columns never read the row property, and a
         // column being *added* is empty by definition — the data arrives when it is typed in.
-        const computed = Boolean(col.render || col.formatValue || isPinnedLeft(col));
+        const computed = Boolean(col.render || col.formatValue || isChromeColumn(col));
         if (
             !computed &&
             !exemptKeys?.has(key) &&

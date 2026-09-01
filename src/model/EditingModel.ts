@@ -42,7 +42,7 @@
  * `onFocusMoved` — which is a different event and one no editor can get wrong.
  */
 
-import { defaultValidate, gridBoolean, isPinnedLeft } from "../gridUtils";
+import { defaultValidate, gridBoolean, isChromeColumn } from "../gridUtils";
 import type {
     CellEdit,
     CellEditor,
@@ -120,7 +120,7 @@ export class EditingModel<R> {
             this.model.options.editable &&
                 column &&
                 !column.readonly &&
-                !isPinnedLeft(column),
+                !isChromeColumn(column),
         );
     }
 

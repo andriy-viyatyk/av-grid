@@ -109,9 +109,15 @@ option.
 
 ## Pinned columns
 
-**Both edges, positionally.** `pinned: "left"` is the newer spelling of `isStatusColumn` and means
-exactly the same chrome column; `pinned: "right"` pins the *trailing* run of the visible columns —
-data columns that happen to be sticky, keeping sort, filter, edit, copy and resize. The engine
+**Both edges, positionally.** `pinned: "left"` pins the *leading* run of the visible columns and
+`pinned: "right"` the *trailing* run — **data columns that happen to be sticky**, keeping sort,
+filter, edit, copy, focus and resize; the one loss is drag-reorder (left: fixed in place; right:
+within the band only). `isStatusColumn` is the separate *chrome* flag — the checkbox, a row number
+— which is what turns those affordances off. (Through 2.7.x `pinned: "left"` meant chrome too;
+task 53 split sticky from chrome so an identity column can stay visible and stay a data column —
+the keyboard focus clamp now lands past chrome rather than past the sticky band, verified live:
+grip drag 160 → 220 px with the scrolling band re-anchored to the new edge, pointer focus and
+range copy from the pinned column, the checkbox unchanged.) The engine
 already maintained all eight sticky regions; the grid layer's wiring is one count each way
 (`stickyLeft` = the last left-pinned index + 1, `stickyRight` = the trailing run length), both
 computed over the **visible** columns so a hidden pinned column just shortens its run.

@@ -22,7 +22,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-06.md`](tasks/plan-done-06.md) | The finished plan for phase 10, tasks 44–46 and 49–50: the wide-grid gate, pinned columns, `footerRows`, accessibility. **Its decision log applies too** — and it holds the full designs for the deferred tasks 47–48 |
 | [`tasks/plan-done-07.md`](tasks/plan-done-07.md) | The finished plan for phase 11, tasks 47–48: `Column.group` (the two-row header) and multi-column sort. **Its decision log applies too** |
 | [`tasks/plan-done-08.md`](tasks/plan-done-08.md) | The finished plan for phase 12, tasks 51–52: `externalFilter` / `externalSort` (the host owns the row set) and the built-in `"text"` filter type. **Its decision log applies too** — including the four review resolutions and the loan-ledger patch record |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 13, deliberately empty: the next task arrives when a consumer asks. Read the archived decision logs before starting anything |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 13, task 53: `pinned: "left"` as a data column (sticky split from chrome). Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -32,9 +32,10 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 13, **deliberately empty**. The
-open questions it carries (header focus, group collapse, `--avg-*` on `:root`, a `loading` state
-for host-owned grids, built-in range filters) wait for a consumer to ask.
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 13, carrying **task 53**
+(`pinned: "left"` as a data column, asked by a consumer 2026-09-01). Its previous open questions
+1–5 were removed at that consumer's request — they are handled consumer-side; the git history
+and the archived logs keep them if re-asked.
 A plan is archived as `plan-done-<nn>.md` once
 all its tasks are ✅; the next `plan.md` starts at the new phase, carrying forward the standing rules
 and a pointer back to the logs. **Every archived
@@ -82,10 +83,11 @@ stays DOM, that is the pooling invariant). The component is exported as **`AVGri
 **2.5.0** — see [`tasks/plan-done-06.md`](tasks/plan-done-06.md); tasks 47–48 were deferred to
 phase 11 by the author). The wide-grid gate proved the thesis holds sideways — **300 columns
 scroll horizontally at a 0.99× flat ratio**, `hidden` costs nothing per hidden column, the filter
-pass is row-bound. **`pinned: "left" | "right"`** pins columns positionally (`pinned: "left"` is
-the newer spelling of `isStatusColumn`, exactly equivalent; right-pinned columns are data —
+pass is row-bound. **`pinned: "left" | "right"`** pins columns positionally (right-pinned columns are data —
 sorting, filtering, editing and copying like any column, resize grip on their left edge, reorder
-confined to the band). **`footerRows`** pins rows to the bottom through the same columns as the
+confined to the band; `pinned: "left"` shipped as exactly `isStatusColumn`, an equivalence
+**deliberately superseded by task 53** — left-pinned columns are data now too, chrome is
+`isStatusColumn` alone). **`footerRows`** pins rows to the bottom through the same columns as the
 data and is invisible to everything that treats a row as data — the exclusion list is one test
 per line. And the **accessibility claim** is now explicit: keyboard-operable (17/17 board checks,
 Alt+↓ opens the filter popover, the Menu key opens the context menu at the focused cell) with
@@ -123,6 +125,15 @@ checklist's exact failure under server-filtered rows — pass `onGetOptions`. **
 reads to build a server predicate. A bare string normalizes to `contains`; trimmed-empty text is
 no filter. The needle lowercases once per pass in `filterRows`' resolved tuple, never per row and
 never into the value.
+
+**Task 53 — `pinned: "left"` as a data column — is implemented** (phase 13, shipping as
+**2.8.0**): sticky split from chrome. `isPinnedLeft()` stays the *geometry* predicate (the
+sticky band, `data-pinned`, `draggable`, the reorder band hit-test); a new `isChromeColumn()`
+(= `isStatusColumn === true`) carries the *behavior* — focus, editing, copy, the funnel, the
+resize grip, the context-menu column items, the keyboard clamp (now
+`AVGridData.firstDataColumnIndex`, computed beside `lastIsStatusIndex`). So `pinned: "left"`
+alone is a sticky, unreorderable, otherwise ordinary data column — the identity-column case —
+and validation now enforces left-pinned columns are the **leading** run, mirroring the right.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

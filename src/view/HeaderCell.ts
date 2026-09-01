@@ -14,7 +14,7 @@
  *    contract in `RenderCellParams`.
  */
 
-import { isPinnedLeft, sortAsList } from "../gridUtils";
+import { isChromeColumn, isPinnedLeft, sortAsList } from "../gridUtils";
 import type { RenderCellParams, RenderedCell } from "../render/types";
 import type { AVGridModel } from "../model/AVGridModel";
 import { filterIcon, sortAscIcon, sortDescIcon } from "./icons";
@@ -109,12 +109,16 @@ export function renderHeaderCell<R>(
     else if (pinnedLeft) el.setAttribute("data-pinned", "left");
     else el.removeAttribute("data-pinned");
 
-    const resizable = column.resizable !== false && !pinnedLeft;
+    // Chrome (the checkbox) has no grip; a *pinned data* column resizes like any other —
+    // from its right edge, since its left edge is the anchored one. The band offsets follow
+    // through the ordinary resize path (onColumnResize -> updateColumns -> relayout).
+    const resizable = column.resizable !== false && !isChromeColumn(column);
     el.setAttribute("data-resizable", resizable ? "true" : "false");
-    // Left-pinned columns are chrome, fixed in place; everything else can be dragged to
-    // reorder — a right-pinned column only within its own band (`GridInteractions` refuses
-    // a drop that would cross the boundary). While column groups are shown, reordering is
-    // off for every column: a grouped order is a prepared view (see `Column.group`).
+    // Pinning is positional, so *no* pinned column can be dragged — left or right, chrome or
+    // data — but a right-pinned column may still reorder within its own band, which is why
+    // draggability keys off the left band only ("GridInteractions" refuses a drop that would
+    // cross a band boundary). While column groups are shown, reordering is off for every
+    // column: a grouped order is a prepared view (see "Column.group").
     el.draggable = !pinnedLeft && !model.data.hasGroups;
 
     // --- sort indicator
@@ -163,11 +167,11 @@ export function renderHeaderCell<R>(
 
     // --- filter funnel
     // Filterable by default: `filterType: null` takes the funnel off one column, and
-    // `disableFiltering` off all of them. Status columns — the checkbox — have nothing to
-    // filter by.
+    // `disableFiltering` off all of them. Chrome — the checkbox — has nothing to filter by;
+    // a pinned data column filters like any other.
     const filterable =
         column.filterType !== null &&
-        !pinnedLeft &&
+        !isChromeColumn(column) &&
         !model.options.disableFiltering;
     structure.filter.style.display = filterable ? "" : "none";
     const filtered = model.options.filters?.some(

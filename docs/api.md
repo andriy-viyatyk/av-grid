@@ -474,8 +474,8 @@ interface Column<R = any> {
 
     resizable?: boolean;
     readonly?: boolean;
-    pinned?: "left" | "right";      // stick to an edge; "right" columns must be the trailing run
-    isStatusColumn?: boolean;       // the older spelling of pinned: "left"
+    pinned?: "left" | "right";      // sticky data column; "left" leads, "right" trails
+    isStatusColumn?: boolean;       // non-data chrome pinned left (checkbox, row number)
     group?: string;                 // the label drawn over this column — the two-row header
 
     sortValue?: (row: R) => any;                 // the value this column sorts by, read once per row
@@ -698,22 +698,30 @@ columns: [
 ]
 ```
 
-Pinning is **positional**, both sides. Left: every column up to and including the last
-left-pinned one is sticky — put them first. Right: the pinned columns must be the **trailing**
-run of the array — a `pinned: "right"` column followed by an unpinned one is a validation
-error naming both keys. A `hidden` pinned column just shortens its run.
+Pinning is **positional**, both sides. Left: the pinned columns must be the **leading** run of
+the array; right: the **trailing** run — a pinned column on the wrong side of an unpinned one
+is a validation error naming both keys. A `hidden` pinned column just shortens its run.
 
-The two edges mean different things:
+A pinned column — either edge — is a **data column that happens to be sticky**: it sorts,
+filters, edits, copies (in visible order, with no coordinate seam at the band boundary),
+takes focus and range selection, and resizes like any other column. The one thing pinning
+takes away is **drag-reorder**: a left-pinned column is fixed in place and no other column
+can be dropped before it (which is what makes "the identity column stays first" free); a
+right-pinned column can be reordered **within its band only** — a drop that would cross a
+band boundary shows no indicator and is refused. A right-pinned column's resize grip sits on
+its **left** edge, because its right edge is anchored to the viewport.
 
-- **`pinned: "left"` marks chrome** — it is the newer spelling of `isStatusColumn: true`
-  (below), with every consequence in that table: not focusable, not editable, not copied, no
-  header affordances.
-- **`pinned: "right"` is a data column that happens to be sticky** — a total, an actions
-  cell. It sorts, filters, edits, copies (in visible order, with no coordinate seam at the
-  band boundary) and resizes like any other column. Its resize grip sits on its **left** edge,
-  because its right edge is anchored to the viewport, and it can be drag-reordered **within
-  the pinned band only** — a drop that would cross the boundary shows no indicator and is
-  refused.
+The typical left case is an identity column — a name, an id — that stays visible while 200
+columns scroll under it:
+
+```js
+{ key: "name", name: "Name", pinned: "left", width: 220 }
+```
+
+For a **non-data** left column — the checkbox, a row number — use `isStatusColumn: true`
+(below) instead: that is what turns off focus, editing, copy and the header affordances.
+(Until 2.8.0 `pinned: "left"` *was* `isStatusColumn` by another name; the two split so that a
+sticky identity column keeps its data affordances. `pinned: "right"` behavior is unchanged.)
 
 A pinned column needs a **fixed** `width`: a percentage is resolved by stretching the
 scrolling columns to fit, which the pinned bands are excluded from, so a percentage width on a
@@ -722,9 +730,10 @@ columns — it is **not** renumbered inside a band.
 
 ### `isStatusColumn`
 
-Marks a column as **chrome rather than data** — a row number, a checkbox, a drag handle. The
-older spelling of `pinned: "left"`; both work, and they mean exactly the same thing. The
-selection column `selectColumn: true` adds is one, and a host writes its own the same way:
+Marks a column as **chrome rather than data** — a row number, a checkbox, a drag handle. It is
+pinned left like `pinned: "left"`, but where a pinned column keeps every data affordance, a
+status column steps out of all of them (the table below). The selection column
+`selectColumn: true` adds is one, and a host writes its own the same way:
 
 ```js
 { key: "__row", name: "", width: 48, isStatusColumn: true, render: (c) => String(c.rowIndex + 1) }

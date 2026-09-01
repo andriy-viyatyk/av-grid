@@ -247,9 +247,46 @@ describe("validateColumns: pinned", () => {
         ).toThrow(/The only values are "left" and "right"/);
     });
 
-    it("exempts a pinned-left column from the unknown-key check, like isStatusColumn", () => {
+    it("exempts an isStatusColumn from the unknown-key check; a pinned-left DATA column is checked", () => {
+        // Chrome never reads the row property.
+        expect(() =>
+            validateColumns(
+                [{ key: "rowNo", isStatusColumn: true }, { key: "a" }],
+                pinnable,
+            ),
+        ).not.toThrow();
+        // A column that is merely pinned left is data (task 53) — a key no row has is the
+        // same rendering bug it is anywhere else.
         expect(() =>
             validateColumns([{ key: "rowNo", pinned: "left" }, { key: "a" }], pinnable),
+        ).toThrow(/rowNo/);
+        // With a real key, pinned left is an ordinary data column.
+        expect(() =>
+            validateColumns([{ key: "a", pinned: "left" }, { key: "b" }], pinnable),
+        ).not.toThrow();
+    });
+
+    it("requires left-pinned columns to be the leading run", () => {
+        expect(() =>
+            validateColumns([{ key: "a" }, { key: "b", pinned: "left" }], pinnable),
+        ).toThrow(/"b".*leading/s);
+        expect(() =>
+            validateColumns(
+                [{ key: "a" }, { key: "rowNo", isStatusColumn: true, render: () => "" }],
+                pinnable,
+            ),
+        ).toThrow(/"rowNo".*leading/s);
+        // A hidden column in between does not break the run — runs are over visible columns.
+        expect(() =>
+            validateColumns(
+                [
+                    { key: "a", pinned: "left" },
+                    { key: "b", hidden: true },
+                    { key: "total", pinned: "left" },
+                    { key: "actions" },
+                ],
+                pinnable,
+            ),
         ).not.toThrow();
     });
 });

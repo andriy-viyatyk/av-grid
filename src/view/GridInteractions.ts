@@ -14,7 +14,7 @@
  * model does.
  */
 
-import { isPinnedLeft } from "../gridUtils";
+import { isChromeColumn } from "../gridUtils";
 import type { AVGridModel } from "../model/AVGridModel";
 import type { RenderGrid } from "../render/RenderGrid";
 import { SELECT_COLUMN_KEY } from "./SelectColumn";
@@ -293,8 +293,9 @@ export class GridInteractions<R> {
         // A status column — the checkbox, a row number — is chrome, not data. Clicking one
         // must not move the cell focus or start a range drag, which is also how the reference
         // behaved, there by simply not binding those handlers to those cells. The click that
-        // follows is still delivered, and is what toggles the checkbox.
-        if (isPinnedLeft(context.column)) return;
+        // follows is still delivered, and is what toggles the checkbox. A column that is
+        // merely pinned left is data — focus and range selection work from it (task 53).
+        if (isChromeColumn(context.column)) return;
 
         // Read before sending: `FocusModel` listens too, and moves the focus onto this cell.
         const focus = this.model.models.focus.focus;
@@ -574,7 +575,7 @@ export class GridInteractions<R> {
             const column = columnKey
                 ? this.model.data.columns.find((c) => String(c.key) === columnKey)
                 : undefined;
-            if (column && column.filterType !== null && !isPinnedLeft(column)) {
+            if (column && column.filterType !== null && !isChromeColumn(column)) {
                 e.preventDefault();
                 e.stopPropagation();
                 const anchor =

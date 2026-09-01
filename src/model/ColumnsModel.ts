@@ -9,7 +9,7 @@
  */
 
 import { range } from "../core/utils";
-import { gatherByGroup, isPinnedLeft, trailingPinnedRight } from "../gridUtils";
+import { gatherByGroup, isChromeColumn, isPinnedLeft, trailingPinnedRight } from "../gridUtils";
 import type { Column } from "../types";
 import { createSelectColumn } from "../view/SelectColumn";
 import type { AVGridModel } from "./AVGridModel";
@@ -41,10 +41,10 @@ export class ColumnsModel<R> {
         return this.model.data.columns.length;
     }
 
-    /** The first column an edit can land in — skips read-only and status columns. */
+    /** The first column an edit can land in — skips read-only and chrome columns. */
     get firstEditable(): { col: Column<R>; index: number } | undefined {
         const index = this.model.data.columns.findIndex(
-            (c) => !c.readonly && !isPinnedLeft(c),
+            (c) => !c.readonly && !isChromeColumn(c),
         );
         return index === -1
             ? undefined
@@ -104,6 +104,13 @@ export class ColumnsModel<R> {
         visible.forEach((c, idx) => {
             if (isPinnedLeft(c)) lastIsStatusIndex = idx;
         });
+
+        // Where keyboard focus may land: past the leading chrome run, which is *not* the
+        // sticky band — a pinned-left data column is focusable. Clamped so an all-chrome
+        // grid (only the checkbox) still has a valid index.
+        const firstData = visible.findIndex((c) => !isChromeColumn(c));
+        this.model.data.firstDataColumnIndex =
+            firstData === -1 ? Math.max(0, visible.length - 1) : firstData;
 
         this.model.data.lastIsStatusIndex = lastIsStatusIndex;
         this.model.data.stickyRightCount = trailingPinnedRight(visible);

@@ -77,8 +77,9 @@
         AVGrid.create(document.getElementById("host"), {
             rows,
             columns: [
-                // The pinned-left label: chrome, like the checkbox column — not focusable,
-                // not copied, no funnel. `isStatusColumn: true` spells the same thing.
+                // The pinned-left label stays put while the months scroll — and it is
+                // still a data column: focusable, copied, resizable, filterable. (For
+                // non-data chrome — a checkbox, a row number — use `isStatusColumn: true`.)
                 { key: "member", name: "Member", width: 140, pinned: "left" },
                 { key: "region", name: "Region", width: 100 },
                 ...monthColumns,

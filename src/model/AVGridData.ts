@@ -57,6 +57,17 @@ export class AVGridData<R> {
      */
     searchWords: readonly string[] = [];
 
+    /**
+     * Index of the first visible column that is *data* — past the leading chrome run (the
+     * checkbox, a host's `isStatusColumn` row number). The keyboard focus clamp lands here.
+     * Not `lastIsStatusIndex + 1`: a `pinned: "left"` data column sits inside the sticky band
+     * but focus may live on it (task 53).
+     *
+     * A plain field like `searchWords`, because nothing observes it alone — it only moves when
+     * `columns` moves, and `ColumnsModel.updateColumnsData` sets both in the same pass.
+     */
+    firstDataColumnIndex = 0;
+
     constructor(rows: readonly R[], columns: Column<R>[]) {
         this._rows = rows;
         this._columns = columns;

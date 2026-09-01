@@ -649,9 +649,10 @@ describe("pinned columns", () => {
                 `[data-type="header-cell"][data-column-key="${key}"]`,
             ) as HTMLElement;
 
-        // pinned: "left" is isStatusColumn by another name: chrome — fixed, not resizable.
+        // pinned: "left" is sticky and fixed in place — but DATA (task 53): it keeps its
+        // resize grip. Only chrome (isStatusColumn) loses it.
         expect(header("id").getAttribute("data-pinned")).toBe("left");
-        expect(header("id").getAttribute("data-resizable")).toBe("false");
+        expect(header("id").getAttribute("data-resizable")).toBe("true");
         expect(header("id").draggable).toBe(false);
 
         // A right-pinned column is data that happens to be sticky: everything stays.
@@ -682,6 +683,55 @@ describe("pinned columns", () => {
         grid.startEdit(0, 2);
         expect(grid.getState().editing?.columnKey).toBe("total");
         grid.cancelEdit();
+    });
+
+    it("a pinned-left DATA column keeps focus, copy, edit, filter and the keyboard landing", async () => {
+        // Task 53: pinned: "left" without isStatusColumn is sticky but still data. The
+        // checkbox stays chrome, so with selectColumn the visible columns are
+        // [checkbox, id (pinned left), a, total (pinned right)].
+        const grid = create({
+            rows: wide,
+            columns: [
+                { key: "id", width: 60, pinned: "left" },
+                { key: "a", width: 60 },
+                { key: "total", width: 60, pinned: "right" },
+            ],
+            editable: true,
+            selectColumn: true,
+        });
+        await settle();
+
+        // The keyboard landing (nothing focused yet) skips the checkbox (chrome) but stops
+        // ON the pinned data column, and ArrowLeft/Ctrl+Home stop there too.
+        const key = (k: string, init: KeyboardEventInit = {}) =>
+            grid.element.dispatchEvent(
+                new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...init }),
+            );
+        key("ArrowDown");
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+        key("ArrowLeft");
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+        key("Home", { ctrlKey: true });
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+
+        // Copy includes the pinned column — it is the identity column a paste most wants.
+        grid.selectRange(0, 1, 0, 2);
+        expect(grid.getSelectionText()).toBe("1\t0\n");
+
+        // It edits like any data cell.
+        grid.startEdit(0, 1);
+        expect(grid.getState().editing?.columnKey).toBe("id");
+        grid.cancelEdit();
+
+        // It keeps its filter funnel; the checkbox does not have one.
+        const funnel = (key: string) =>
+            grid.element.querySelector<HTMLElement>(
+                `[data-type="header-cell"][data-column-key="${key}"] [data-type="filter-button"]`,
+            );
+        expect(funnel("id")?.style.display).not.toBe("none");
+        // The checkbox header is chrome: either no funnel element at all, or a hidden one.
+        const selectFunnel = funnel("avg-select");
+        if (selectFunnel) expect(selectFunnel.style.display).toBe("none");
     });
 
     it("unpinning via setColumns collapses the band", async () => {

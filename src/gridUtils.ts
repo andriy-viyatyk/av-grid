@@ -336,12 +336,6 @@ export function gridBoolean(v: any): boolean {
 }
 
 /**
- * The two spellings of left pinning are one fact — `pinned: "left"` is the newer name for
- * `isStatusColumn: true`, and every behavior the grid keys off "is this a status column"
- * (not focusable, not editable, not copied, not draggable, sticky left) asks this instead of
- * either field, so the two can never drift apart.
- */
-/**
  * Gather same-`group` columns together, stably: each group stays anchored where it first
  * appears, ungrouped columns keep their positions relative to the groups around them. Returns
  * the **same array** when nothing moves, so change detection by identity keeps working.
@@ -407,11 +401,31 @@ export function sortEquals(
     );
 }
 
+/**
+ * Left pinning is one question split in two — this one is **geometry**: is the column in the
+ * left sticky band? Both spellings put it there. Everything positional asks this: the engine's
+ * `stickyLeft` count, the `data-pinned` attribute, `draggable` (a sticky column cannot be
+ * dragged out of the band, nor another dragged in), the reorder band hit-test.
+ *
+ * Whether the column is *data* is the other question — `isChromeColumn` below. Until task 53
+ * the two were deliberately fused ("`pinned: "left"` is exactly `isStatusColumn`"); a consumer's
+ * identity column — sticky, first, but resizable, focusable, copied — is what split them.
+ */
 export function isPinnedLeft(column: {
     isStatusColumn?: boolean;
     pinned?: "left" | "right";
 }): boolean {
     return column.isStatusColumn === true || column.pinned === "left";
+}
+
+/**
+ * The **behavior** half of left pinning: is this column chrome — the selection checkbox, a row
+ * number — rather than data? Chrome is not focusable, not editable, not copied, has no filter
+ * funnel and no resize grip. Only `isStatusColumn: true` means chrome; a column that is merely
+ * `pinned: "left"` is a data column that happens to be sticky, like `pinned: "right"` always was.
+ */
+export function isChromeColumn(column: { isStatusColumn?: boolean }): boolean {
+    return column.isStatusColumn === true;
 }
 
 /** Length of the trailing `pinned: "right"` run — the engine's `stickyRight` count. */
