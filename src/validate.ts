@@ -20,6 +20,7 @@
 
 import { detectColumnWidth, widthForValues } from "./column-width";
 import { columnDisplayValue, gatherByGroup, isChromeColumn, isPinnedLeft } from "./gridUtils";
+import { isTextFilterOp, textFilterOpNeedsText, TEXT_FILTER_OPS } from "./textFilterOps";
 import type { AVGridOptions, ResolvedOptions } from "./options";
 import type {
     AnyFilter,
@@ -389,6 +390,9 @@ export function validateColumns<R>(
                     `grouped — unpin it, or drop the group.`,
             );
         }
+        if (col.textFilterOps !== undefined) {
+            validateTextFilterOps(col.textFilterOps, col, key);
+        }
 
         if (!col.hidden) {
             if (col.pinned === "right") {
@@ -716,16 +720,55 @@ export function validateFilters<R>(
     });
 }
 
-const TEXT_FILTER_OPS = ["contains", "equals", "startsWith"] as const;
+/**
+ * `Column.textFilterOps`: the chips the text popover offers. A non-empty list of known operators,
+ * no duplicates, and only where the built-in `"text"` filter will read it — on any other column
+ * the field would render nothing, and an agent that set it expects chips.
+ */
+function validateTextFilterOps<R>(ops: unknown, col: Column<R>, key: string): void {
+    const where = `Column "${key}" has \`textFilterOps\``;
+    if (col.filter !== undefined || col.filterType !== "text") {
+        const actual = col.filter
+            ? `the custom "${col.filter.name}" definition`
+            : `filterType: ${JSON.stringify(col.filterType ?? "options")}`;
+        fail(
+            `${where} but its filter is ${actual}. The operator chips belong to the built-in ` +
+                `text filter — set filterType: "text" on this column, or drop textFilterOps.`,
+        );
+    }
+    if (!Array.isArray(ops) || !ops.length) {
+        fail(
+            `${where}: ${describe(ops)}. It must be a non-empty array of operators, ` +
+                `for example ["contains", "equals", "blank"]. Omit it for the default three.`,
+        );
+    }
+    const seen = new Set<string>();
+    for (const op of ops) {
+        if (!isTextFilterOp(op)) {
+            fail(
+                `${where} containing ${JSON.stringify(op)}. The operators are ` +
+                    `${TEXT_FILTER_OPS.map((o) => `"${o}"`).join(", ")}.`,
+            );
+        }
+        if (seen.has(op)) {
+            fail(`${where} listing "${op}" twice.`);
+        }
+        seen.add(op);
+    }
+}
 
 /**
- * Normalize a `"text"` filter's value to `{ op, text }`, or to `undefined` — the shape the row
- * test, the chips and persistence all read.
+ * Normalize a `"text"` filter's value to `{ op, text }` (or `{ op }` for a text-free operator),
+ * or to `undefined` — the shape the row test, the chips and persistence all read.
  *
  * A bare string is the shortest thing a caller can write, so it is accepted and given the
  * default operator; `op` alone may be omitted for the same reason. The text is trimmed — a
  * trailing space silently failing `equals` is the kind of bug nobody can see — and trimmed-empty
  * text means no filter at all, the same nullish rule the checklist follows.
+ *
+ * `blank` / `notBlank` carry no text: a `text` supplied beside one is dropped rather than
+ * rejected, so a host toggling the op on a value it holds need not strip the field. Every
+ * operator is accepted on every text column — the popover's chip list is not consulted here.
  */
 function normalizeTextValue(value: unknown, index: number): TextFilterValue | undefined {
     if (value === undefined || value === null) return undefined;
@@ -743,13 +786,16 @@ function normalizeTextValue(value: unknown, index: number): TextFilterValue | un
         );
     }
 
-    const v = value as TextFilterValue;
+    const v = value as { op?: unknown; text?: unknown };
     const op = v.op ?? "contains";
-    if (!TEXT_FILTER_OPS.includes(op)) {
+    if (!isTextFilterOp(op)) {
         fail(
             `\`filters[${index}].value.op\` must be one of ` +
                 `${TEXT_FILTER_OPS.map((o) => `"${o}"`).join(", ")}, but was ${describe(v.op)}.`,
         );
+    }
+    if (!textFilterOpNeedsText(op)) {
+        return { op } as TextFilterValue;
     }
     if (typeof v.text !== "string") {
         fail(
@@ -759,7 +805,7 @@ function normalizeTextValue(value: unknown, index: number): TextFilterValue | un
     }
 
     const text = v.text.trim();
-    return text.length ? { op, text } : undefined;
+    return text.length ? ({ op, text } as TextFilterValue) : undefined;
 }
 
 /**

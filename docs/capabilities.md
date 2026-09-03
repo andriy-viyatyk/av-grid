@@ -256,9 +256,13 @@ while the bar is up mutates **zero** DOM nodes; the bar appearing or going away 
 cells, because it changes the grid's height by 32 px.
 
 **A text filter, built in.** `filterType: "text"` swaps a column's checklist for one input and
-three operator chips — contains (the default), equals, starts with — matched case-insensitively
-against the *displayed* text, the same `formatValue` → `displayFormat` → `row[key]` projection the
-search box reads, so a formatted date column filters by what its cells show. The value is public
+a row of operator chips — contains (the default), equals, starts with, and, where a column opts in
+through `textFilterOps`, *is empty* / *is not empty* (`blank` / `notBlank`, no text; every
+operator is accepted on every text column, the chips alone are opt-in) — the comparing three
+matched case-insensitively against the *displayed* text, the same `formatValue` →
+`displayFormat` → `row[key]` projection the search box reads, so a formatted date column filters
+by what its cells show; *empty* is that same text, empty after trim. A host renames any chip
+through `filterLabel`, which `describeFilter()` honours too. The value is public
 surface and JSON-shaped — `{ op, text }`, a bare string accepted and normalized on the way in —
 so it persists with no `serialize` and translates straight into a server predicate. Measured at
 100,000 rows against the checklist on the same column: **2.1 ms** for the options pass, **3.8 /

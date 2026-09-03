@@ -18,6 +18,7 @@ import type {
     OptionsFilter,
     RowCompare,
     SortColumn,
+    TextFilterOp,
     TextFilterValue,
 } from "./types";
 
@@ -119,6 +120,8 @@ interface ResolvedFilter<R> {
      * predicate, and it is persisted — a derived field there would outlive its purpose.
      */
     needle?: string;
+    /** A `"text"` filter's operator, read once per pass beside the needle. */
+    op?: TextFilterOp;
 }
 
 function filterValue<R>(row: R, resolved: ResolvedFilter<R>): any {
@@ -202,8 +205,23 @@ function filtersMatch<R>(row: R, filters?: ResolvedFilter<R>[]): boolean {
                     // which filters nothing. The haystack is the *displayed* text — the same
                     // `formatValue` → `displayFormat` → `row[key]` projection the search box
                     // matches — so a date column filters by what its cells actually read.
+                    //
+                    // The two state operators come first: they have no needle by definition, and
+                    // "empty" is the same displayed text, empty after trim — so a nullish cell, an
+                    // empty string, whitespace, and a formatter that produced nothing all read as
+                    // empty, and `notBlank` is the exact complement.
+                    const op = resolved.op;
                     const needle = resolved.needle;
-                    if (needle !== undefined) {
+                    if (op === "blank" || op === "notBlank") {
+                        const value = column
+                            ? columnDisplayValue(column, row)
+                            : (row as any)?.[filter.columnKey];
+                        const empty =
+                            value === undefined ||
+                            value === null ||
+                            String(value).trim().length === 0;
+                        match = op === "blank" ? empty : !empty;
+                    } else if (needle !== undefined) {
                         const value = column
                             ? columnDisplayValue(column, row)
                             : (row as any)?.[filter.columnKey];
@@ -213,11 +231,12 @@ function filtersMatch<R>(row: R, filters?: ResolvedFilter<R>[]): boolean {
                                 : String(value).toLowerCase();
                         if (hay === undefined) {
                             match = false;
+                        } else if (op === "equals") {
+                            match = hay === needle;
+                        } else if (op === "startsWith") {
+                            match = hay.startsWith(needle);
                         } else {
-                            const op = (filter.value as TextFilterValue | undefined)?.op;
-                            if (op === "equals") match = hay === needle;
-                            else if (op === "startsWith") match = hay.startsWith(needle);
-                            else match = hay.includes(needle);
+                            match = hay.includes(needle);
                         }
                     }
                     break;
@@ -305,9 +324,12 @@ export function filterRows<R>(
                       ? (filter.value as TextFilterValue | string | undefined)
                       : undefined;
               const text = typeof raw === "string" ? raw : raw?.text;
+              const op: TextFilterOp | undefined =
+                  raw === undefined ? undefined : typeof raw === "string" ? "contains" : raw.op;
               return {
                   filter,
                   column,
+                  op,
                   needle: text ? text.toLowerCase() : undefined,
               };
           })

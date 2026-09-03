@@ -185,7 +185,7 @@ import { CALLBACK_OPTION_KEYS } from "av-grid";
 
 It holds every option the grid calls to *report* or to *intercept*: `onSelectionChange`, `onEdit`,
 `onInvalidEdit`, `onAddRows`, `onDeleteRows`, `onAddColumns`, `onDeleteColumns`, `onSortChange`,
-`onFiltersChange`, `onColumnResize`, `onColumnsReorder`, `onColumnsChange`, `onVisibleRowsChange`,
+`onFiltersChange`, `filterLabel`, `onColumnResize`, `onColumnsReorder`, `onColumnsChange`, `onVisibleRowsChange`,
 `onFocusChange`, `onCellClick`, `onCellDoubleClick`, `onCellContextMenu`, `getContextMenuItems`,
 `onCellClass`, `rowClass`, `footerRowClass`, `columnGroupRender` and `columnGroupClass`.
 

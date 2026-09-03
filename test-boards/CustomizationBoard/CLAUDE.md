@@ -9,7 +9,9 @@ row per documented claim** with the value it was checked against:
 `Column.copyValue` · `Column.sortValue`
 
 Phase 12 added two more subjects: `externalFilter` / `externalSort` (the host owns the row set)
-and the built-in `filterType: "text"` — the Task column runs it live.
+and the built-in `filterType: "text"` — the Task column runs it live. Phase 14 added the Owner
+column: the text filter with every operator (`textFilterOps`, including the text-free *is empty*
+/ *is not empty*), and `filterLabel` renaming one chip.
 
 Its sibling [`AVGridBoard/`](../AVGridBoard/CLAUDE.md) measures what those hooks **cost** —
 `measureClassHooks`, `measureCustomEditor`, `measureCustomFilter`, `measureCopyValue`,
@@ -49,7 +51,8 @@ window.custom.grid                      // the live AVGrid
 the "checked against" column carrying the number or string the assertion saw — a failure says
 *what it found*, not only that it failed.
 
-**The expected result is 29/29** (20 through phase 6, +9 from phase 12). Anything else is a
+**The expected result is 35/35** (20 through phase 6, +9 from phase 12, +6 from phase 14 —
+`blank` / `notBlank`, `textFilterOps`, `filterLabel`). Anything else is a
 regression, and the detail column names it. Run `checkAll()` from a clean grid — a filter left
 applied by an earlier experiment pollutes the row-count claims (`createGrid()` resets).
 

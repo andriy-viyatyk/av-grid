@@ -11,9 +11,12 @@
     round trip that would otherwise be invisible.
 
     The Name column is `filterType: "text"` — one input, contains / equals / starts with —
-    whose `{ op, text }` value translates straight into the server predicate. The Status
-    checklist gets its options from `onGetOptions`, because a server-filtered page can only
-    offer values that already pass — the server has to answer with the full set.
+    whose `{ op, text }` value translates straight into the server predicate. The Email column
+    is a text filter too, with `textFilterOps` adding the two state operators — *is empty* /
+    *is not empty*, `{ op: "blank" }` / `{ op: "notBlank" }` on the wire, no text — for the
+    rows the server holds no address for; `filterLabel` gives the chip the page's own word for
+    it. The Status checklist gets its options from `onGetOptions`, because a server-filtered
+    page can only offer values that already pass — the server has to answer with the full set.
 
     Run: npm run build once, then serve this folder and open the file:
         npx serve .          (or: python -m http.server)
@@ -55,6 +58,8 @@
         const DATABASE = Array.from({ length: 50_000 }, (_, i) => ({
             id: i + 1,
             name: `${FIRST[i % FIRST.length]} ${LAST[(i * 7) % LAST.length]} ${i + 1}`,
+            // Every third address is missing — null from the database, as it would be.
+            email: i % 3 === 2 ? null : `${FIRST[i % FIRST.length].toLowerCase()}.${i + 1}@example.test`,
             status: STATUS[(i * 13) % STATUS.length],
             score: ((i * 37) % 1000) / 10,
         }));
@@ -69,7 +74,13 @@
             for (const f of filters) {
                 if (f.type === "text" && f.value) {
                     // The text filter's value is `{ op, text }` — made for this translation.
+                    // The two state operators carry no text: IS NULL / IS NOT NULL, in effect.
                     const { op, text } = f.value;
+                    if (op === "blank" || op === "notBlank") {
+                        const isBlank = (r) => r[f.columnKey] == null || String(r[f.columnKey]).trim() === "";
+                        rows = rows.filter((r) => (op === "blank" ? isBlank(r) : !isBlank(r)));
+                        continue;
+                    }
                     const needle = text.toLowerCase();
                     rows = rows.filter((r) => {
                         const hay = String(r[f.columnKey]).toLowerCase();
@@ -126,9 +137,17 @@
             columns: [
                 { key: "id", name: "ID", width: 80, pinned: "left" },
                 { key: "name", name: "Name", width: 220, filterType: "text" },
+                {
+                    key: "email", name: "Email", width: 230, filterType: "text",
+                    // Opt in to the two state operators; the chips appear in this order.
+                    textFilterOps: ["contains", "startsWith", "blank", "notBlank"],
+                },
                 { key: "status", name: "Status", width: 110 },
                 { key: "score", name: "Score", dataType: "number", align: "right", width: 90 },
             ],
+            // The page's own word on one chip; `undefined` keeps the built-in text for the rest.
+            filterLabel: (filter) =>
+                filter.columnKey === "email" && filter.value?.op === "blank" ? "no address on file" : undefined,
             externalFilter: true,       // the page is already filtered…
             externalSort: true,         // …and already sorted
             multiSort: true,

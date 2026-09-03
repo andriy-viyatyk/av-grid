@@ -1025,15 +1025,22 @@ export const css = `
 /* The input's look is shared with the checklist's search box — see .avg-list-search above:
    the two popovers must read as one control set. */
 
-/* The three operators: one horizontal row of chips under the input, spread to its width. */
+/*
+ * The operators: a row of chips under the input, each stretched so they fill its width. The
+ * popover has an intrinsic width, so five chips widen it to one row (~354 px, measured) rather
+ * than wrapping; flex-wrap stays as the safety net under a host max-width, and it is why this is
+ * not space-between, which would spread a two-chip second row to the edges.
+ */
 .avg-text-filter-ops {
     display: flex;
     flex-direction: row;
-    justify-content: space-between;
+    flex-wrap: wrap;
     gap: 6px;
 }
 
 .avg-text-filter-op {
+    flex: 1 1 auto;
+    text-align: center;
     padding: 1px 6px;
     font: inherit;
     font-size: 0.85em;

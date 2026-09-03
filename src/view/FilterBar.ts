@@ -27,6 +27,7 @@
 import type { AVGridModel } from "../model/AVGridModel";
 import type { Column, DisplayFormat, Filter, TextFilterValue } from "../types";
 import { formatDisplayValue } from "../gridUtils";
+import { textFilterOpLabel, textFilterOpNeedsText } from "../textFilterOps";
 import { createIconButton } from "./Button";
 import { chevronDownIcon, chevronUpIcon, closeIcon } from "./icons";
 import { showFilterPopover } from "./FilterPopover";
@@ -88,13 +89,16 @@ export function optionsFilterValues(filter: Filter, maxCharCount: number): strin
 
 /**
  * A `"text"` filter's chip text: `contains smith` — the operator word spelled as the popover's
- * switch is labelled (`starts with`, not `startsWith`), then the text as typed.
+ * chip is labelled (`starts with`, not `startsWith`), then the text as typed; a text-free
+ * operator is the word alone: `is empty`.
  */
 function textFilterValues(filter: Filter): string {
     const value = filter.value as TextFilterValue | undefined;
-    if (!value?.text) return "";
-    const op = value.op === "startsWith" ? "starts with" : (value.op ?? "contains");
-    return `${op} ${value.text}`;
+    if (!value) return "";
+    const op = value.op ?? "contains";
+    if (!textFilterOpNeedsText(op)) return textFilterOpLabel(op);
+    if (!value.text) return "";
+    return `${textFilterOpLabel(op)} ${value.text}`;
 }
 
 /**
@@ -167,14 +171,42 @@ export interface FilterChipText {
     title: string;
 }
 
-/** The strings the built-in chip would show for this filter. See `grid.describeFilter()`. */
+/**
+ * The host's `filterLabel`, if any, over the built-in text. Guarded like a definition's
+ * `label`: host code on the bar's redraw path, so a throw warns, naming the column, and the
+ * chip shows the default rather than the bar going stale.
+ */
+function hostLabel<R>(
+    model: AVGridModel<R>,
+    filter: Filter,
+    column: Column<R> | undefined,
+    defaultText: string,
+): string | undefined {
+    const hook = model.options.filterLabel;
+    if (!hook) return undefined;
+    try {
+        const out = hook(filter, column, defaultText);
+        return typeof out === "string" ? out : undefined;
+    } catch (e) {
+        console.warn(`av-grid: \`filterLabel\` threw for column "${filter.columnKey}":`, e);
+        return undefined;
+    }
+}
+
+/**
+ * The strings the built-in chip would show for this filter — the bar's own chips and
+ * `grid.describeFilter()` both come through here, so the two can never disagree. A host
+ * `filterLabel` replaces `values` and, being untruncated, the tooltip's list as well.
+ */
 export function describeFilter<R>(model: AVGridModel<R>, filter: Filter): FilterChipText {
     const column = model.data.columns.find((c) => String(c.key) === filter.columnKey);
     const name = filter.columnName ?? filter.columnKey;
+    const builtIn = filterValues(filter, MAX_LABEL_CHARS, column);
+    const override = hostLabel(model, filter, column, builtIn);
     return {
         name,
-        values: filterValues(filter, MAX_LABEL_CHARS, column),
-        title: `${name}: ${fullValues(filter, column)}`,
+        values: override ?? builtIn,
+        title: `${name}: ${override ?? fullValues(filter, column)}`,
     };
 }
 
@@ -239,11 +271,12 @@ export class FilterBar<R = any> {
 
         for (const filter of filters) {
             const key = filter.columnKey;
-            const column = this.columnFor(key);
-            const signature = this.signature(filter, column);
+            const text = describeFilter(this.model, filter);
+            // NUL-separated: a separator no column name or value can contain.
+            const signature = `${text.name}\0${text.values}`;
             let chip = this.chipElements.get(key);
             if (!chip || chip.getAttribute("data-signature") !== signature) {
-                chip = this.buildChip(filter, signature, column);
+                chip = this.buildChip(filter, signature, text);
                 this.chipElements.set(key, chip);
             }
             live.add(key);
@@ -278,25 +311,12 @@ export class FilterBar<R = any> {
     // Chips
     // =========================================================================================
 
-    /** What a chip renders, as one string. Different signature, different chip. */
-    private signature(filter: Filter, column?: Column<R>): string {
-        return `${filter.columnName ?? filter.columnKey} ${filterValues(
-            filter,
-            MAX_LABEL_CHARS,
-            column,
-        )}`;
-    }
-
-    /** The column a filter names, for its `filter` definition. Undefined if it has gone. */
-    private columnFor(columnKey: string): Column<R> | undefined {
-        return this.model.data.columns.find((c) => String(c.key) === columnKey);
-    }
-
-    private buildChip(
-        filter: Filter,
-        signature: string,
-        column?: Column<R>,
-    ): HTMLElement {
+    /**
+     * Build one chip from the strings `describeFilter` resolved. The signature is what it renders
+     * as one string: different signature, different chip — which is also how a changed
+     * `filterLabel` answer reaches the bar on the next refresh.
+     */
+    private buildChip(filter: Filter, signature: string, text: FilterChipText): HTMLElement {
         const chip = document.createElement("span");
         chip.className = "avg-filter-chip";
         chip.setAttribute("data-signature", signature);
@@ -307,15 +327,15 @@ export class FilterBar<R = any> {
         const body = document.createElement("span");
         body.className = "avg-filter-chip-body";
         body.setAttribute("data-action", "edit");
-        body.title = `${filter.columnName ?? filter.columnKey}: ${fullValues(filter, column)}`;
+        body.title = text.title;
 
         const name = document.createElement("span");
         name.className = "avg-filter-chip-name";
-        name.textContent = `${filter.columnName ?? filter.columnKey}:`;
+        name.textContent = `${text.name}:`;
 
         const values = document.createElement("span");
         values.className = "avg-filter-chip-values";
-        values.textContent = filterValues(filter, MAX_LABEL_CHARS, column);
+        values.textContent = text.values;
 
         const caret = document.createElement("span");
         caret.className = "avg-filter-chip-caret";

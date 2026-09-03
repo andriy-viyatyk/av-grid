@@ -96,6 +96,12 @@ export { CustomFilterContent } from "./view/CustomFilterContent";
 export type { CustomFilterContentOptions } from "./view/CustomFilterContent";
 export { TextFilterContent, TEXT_FILTER_MIN_WIDTH } from "./view/TextFilterContent";
 export type { TextFilterContentOptions } from "./view/TextFilterContent";
+export {
+    TEXT_FILTER_OPS,
+    DEFAULT_TEXT_FILTER_OPS,
+    textFilterOpLabel,
+} from "./textFilterOps";
+export type { TextFilterOpInfo } from "./textFilterOps";
 export { FilterBar, optionsFilterValues, describeFilter } from "./view/FilterBar";
 export type { FilterBarOptions, FilterChipText } from "./view/FilterBar";
 export { createButton, createIconButton } from "./view/Button";

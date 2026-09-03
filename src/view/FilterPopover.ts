@@ -177,6 +177,7 @@ export function showFilterPopover<R>(
     } else if (type === "text") {
         body = new TextFilterContent({
             filter,
+            ops: column.textFilterOps,
             onApply: applyAndClose,
         });
     } else {

@@ -349,6 +349,21 @@ export interface Column<R = any> {
      * missing funnel is invisible.
      */
     filterType?: FilterType | null;
+    /**
+     * Which operator chips the built-in `"text"` filter's popover offers, in this order. Default
+     * `["contains", "equals", "startsWith"]` — the three comparisons, so nothing changes for a
+     * column that does not say. Name the two state operators to add *is empty* / *is not empty*:
+     *
+     * ```js
+     * { key: "email", filterType: "text", textFilterOps: ["contains", "equals", "blank", "notBlank"] }
+     * ```
+     *
+     * This governs the **chips, not the operators**: a `{ op: "blank" }` value set through
+     * `setFilters` or restored from persistence validates and matches on any text column, and
+     * the popover shows the applied op's chip even when the list omits it. A column whose server
+     * predicate has no `startsWith` can leave it out. Only meaningful with `filterType: "text"`.
+     */
+    textFilterOps?: readonly TextFilterOp[];
 
     /**
      * A filter type of this column's own, in place of the built-in checklist: a date range, a
@@ -438,24 +453,37 @@ export interface OptionsFilter extends Filter {
     value?: OptionsFilterValue | readonly any[];
 }
 
+/** An operator of the built-in `"text"` filter. See {@link TextFilterValue}. */
+export type TextFilterOp = "contains" | "equals" | "startsWith" | "blank" | "notBlank";
+
 /**
  * A `"text"` filter's value. This shape is public surface: a host building a server-side
  * predicate reads `op` and `text` and nothing else, and it is what `persistFilters` stores.
+ *
+ * Three operators **compare** the displayed text and carry `text`: `contains`, `equals`,
+ * `startsWith`. Two describe a **state** of the cell and carry no text: `blank` (the displayed
+ * text is empty after trim — null, undefined, `""`, whitespace, or a formatter that produced
+ * nothing) and `notBlank`, its exact complement. The union is discriminated on `op`, so
+ * narrowing on it gives a guaranteed `text: string` for the comparing three.
  *
  * A bare string is accepted on the way in and normalized to `{ op: "contains", text }`, so the
  * shortest useful text filter is:
  *
  * ```js
- * grid.setFilters([{ columnKey: "name", value: "smith" }]);   // name contains "smith"
+ * grid.setFilters([{ columnKey: "name", value: "smith" }]);       // name contains "smith"
+ * grid.setFilters([{ columnKey: "email", value: { op: "blank" } }]);  // email is empty
  * ```
  *
  * Empty text means no filter at all — the same nullish rule the checklist follows — so applying
- * an empty input removes the filter rather than filtering to nothing.
+ * an empty input removes the filter rather than filtering to nothing. That rule is about the
+ * comparing operators; `{ op: "blank" }` has no text and is a filter.
+ *
+ * Every operator is **accepted on any text column**, whether or not the column's popover offers
+ * its chip ({@link Column.textFilterOps}) — a saved filter must restore after the op list changed.
  */
-export interface TextFilterValue {
-    op: "contains" | "equals" | "startsWith";
-    text: string;
-}
+export type TextFilterValue =
+    | { op: "contains" | "equals" | "startsWith"; text: string }
+    | { op: "blank" | "notBlank"; text?: undefined };
 
 export interface TextFilter extends Filter {
     type?: "text";

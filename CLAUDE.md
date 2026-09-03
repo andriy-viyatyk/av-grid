@@ -23,7 +23,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-07.md`](tasks/plan-done-07.md) | The finished plan for phase 11, tasks 47–48: `Column.group` (the two-row header) and multi-column sort. **Its decision log applies too** |
 | [`tasks/plan-done-08.md`](tasks/plan-done-08.md) | The finished plan for phase 12, tasks 51–52: `externalFilter` / `externalSort` (the host owns the row set) and the built-in `"text"` filter type. **Its decision log applies too** — including the four review resolutions and the loan-ledger patch record |
 | [`tasks/plan-done-09.md`](tasks/plan-done-09.md) | The finished plan for phase 13, task 53: `pinned: "left"` as a data column — sticky split from chrome. **Its decision log applies too** — it supersedes the phase-10 equivalence rule |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 14, deliberately empty: the next task arrives when a consumer asks. Read the archived decision logs before starting anything |
+| [`tasks/plan-done-10.md`](tasks/plan-done-10.md) | The finished plan for phase 14, tasks 54–55: `blank` / `notBlank` on the built-in `"text"` filter (opt-in chips via `textFilterOps`) and `filterLabel`. **Its decision log applies too** |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 15, empty; it carries the standing rules and the open questions. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -33,7 +34,9 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 14, **deliberately empty**.
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 15, deliberately empty: it
+carries the standing rules and three open questions (control-size tokens for the popovers'
+inputs; a grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips).
 (Plan 09's earlier open questions 1–5 were removed at a consumer's request, 2026-09-01 —
 handled consumer-side; the git history and the archived logs keep them if re-asked.)
 A plan is archived as `plan-done-<nn>.md` once
@@ -135,6 +138,21 @@ resize grip, the context-menu column items, the keyboard clamp (now
 `AVGridData.firstDataColumnIndex`, computed beside `lastIsStatusIndex`). So `pinned: "left"`
 alone is a sticky, unreorderable, otherwise ordinary data column — the identity-column case —
 and validation now enforces left-pinned columns are the **leading** run, mirroring the right.
+
+**Phase 14 is done** (tasks 54–55, shipped as **2.9.0** — see
+[`tasks/plan-done-10.md`](tasks/plan-done-10.md)). **`blank` / `notBlank`** are two text-free
+*state* operators on the built-in `"text"` filter — *is empty* / *is not empty*, testing the same
+displayed text the other three compare, empty after trim, `notBlank` the exact complement. The
+**chips are opt-in per column** through `Column.textFilterOps` (default: the three comparisons,
+so nothing changed for anyone); the **operators are not** — `{ op: "blank" }` validates and
+matches on any text column, and the popover shows an applied op's chip even when the column's
+list omits it. `TextFilterValue` is now a union discriminated on `op` (a deliberate compile-time
+nudge for strict hosts reading `.text`), the operator table lives once in `src/textFilterOps.ts`,
+and the checklist's `(null)` / `(undefined)` entries deliberately stay a different notion of
+empty. **`filterLabel`** is the host's word on a filter-bar chip: grid-level, runs for every
+filter type after a definition's own `label`, receives the built-in text, `undefined` keeps it,
+and `describeFilter()` honours it — the bar now builds every chip from that one resolver. Measured
+at 100k: the state operators cost at or under `contains`; no render-path file changed.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

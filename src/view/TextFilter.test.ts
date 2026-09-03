@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
 /**
- * The built-in `"text"` filter type: `filterType: "text"` — one input, three operators.
+ * The built-in `"text"` filter type: `filterType: "text"` — one input, operator chips (three by
+ * default; `textFilterOps` adds `blank` / `notBlank`), and the host `filterLabel` hook.
  *
  * Like `CustomFilter.test.ts`, the subject is spread over several files — `validate` (the value
  * normalization), `gridUtils` (the row test), `FilterPopover` (which body opens),
@@ -468,5 +469,421 @@ describe("the value a host reads", () => {
         expect(Object.keys(value).sort()).toEqual(["op", "text"]);
         // The needle is lowercased per pass, never written back: the host reads what was typed.
         expect(value.text).toBe("Smith");
+    });
+});
+
+// =============================================================================================
+// Task 54 — blank / notBlank: the two text-free state operators
+// =============================================================================================
+
+interface Sparse {
+    id: number;
+    email: string | null | undefined;
+}
+
+const sparse: Sparse[] = [
+    { id: 1, email: "ada@example.test" },
+    { id: 2, email: null },
+    { id: 3, email: undefined },
+    { id: 4, email: "" },
+    { id: 5, email: "   " },
+    { id: 6, email: "grace@example.test" },
+];
+
+/** `email` is a text filter with every operator; a 300px viewport fits it first. */
+function sparseGrid(options: Partial<AVGridOptions<Sparse>> = {}): AVGrid<Sparse> {
+    return create<Sparse>({
+        rows: sparse,
+        filterBar: true,
+        columns: [
+            {
+                key: "email",
+                name: "Email",
+                filterType: "text",
+                textFilterOps: ["contains", "equals", "startsWith", "blank", "notBlank"],
+            },
+            { key: "id" },
+        ],
+        ...options,
+    });
+}
+
+const ids = (grid: AVGrid<Sparse>): number[] => grid.getVisibleRows().map((r) => r.id);
+
+describe("blank / notBlank — the row test", () => {
+    it("blank keeps null, undefined, empty and whitespace-only cells", () => {
+        const grid = sparseGrid();
+        grid.setFilters([{ columnKey: "email", value: { op: "blank" } }]);
+        expect(ids(grid)).toEqual([2, 3, 4, 5]);
+    });
+
+    it("notBlank is the exact complement", () => {
+        const grid = sparseGrid();
+        grid.setFilters([{ columnKey: "email", value: { op: "notBlank" } }]);
+        expect(ids(grid)).toEqual([1, 6]);
+    });
+
+    it("every row satisfies exactly one of the two", () => {
+        const grid = sparseGrid();
+        grid.setFilters([{ columnKey: "email", value: { op: "blank" } }]);
+        const blank = ids(grid);
+        grid.setFilters([{ columnKey: "email", value: { op: "notBlank" } }]);
+        const notBlank = ids(grid);
+        expect([...blank, ...notBlank].sort((a, b) => a - b)).toEqual(sparse.map((r) => r.id));
+    });
+
+    it("reads the DISPLAYED text — a formatter that shows nothing is empty", () => {
+        const grid = create<Sparse>({
+            rows: sparse,
+            columns: [
+                {
+                    key: "email",
+                    filterType: "text",
+                    // Present values whose display is blank: `is empty` means "shows nothing".
+                    formatValue: (_c, row) => (row.id === 1 ? "" : (row.email ?? "(none)")),
+                },
+                { key: "id" },
+            ],
+        });
+        grid.setFilters([{ columnKey: "email", value: { op: "blank" } }]);
+        // Row 1 displays "" → empty; rows 2–3 display "(none)" → not empty; 4–5 display "" / "   ".
+        expect(ids(grid)).toEqual([1, 4, 5]);
+    });
+
+    it("is accepted on a column whose chip list is the default three", () => {
+        const grid = textGrid();
+        grid.setFilters([{ columnKey: "name", value: { op: "blank" } }]);
+        expect(names(grid)).toEqual([]);
+        grid.setFilters([{ columnKey: "name", value: { op: "notBlank" } }]);
+        expect(names(grid)).toHaveLength(4);
+    });
+
+    it("round-trips through getFilters as exactly { op }", () => {
+        const grid = sparseGrid();
+        grid.setFilters([{ columnKey: "email", value: { op: "blank" } }]);
+        const [filter] = grid.getFilters();
+        expect(filter.value).toEqual({ op: "blank" });
+        expect(Object.keys(filter.value as object)).toEqual(["op"]);
+        // ...and is accepted straight back.
+        grid.setFilters(grid.getFilters());
+        expect(ids(grid)).toEqual([2, 3, 4, 5]);
+    });
+
+    it("a text supplied beside blank is dropped, not rejected", () => {
+        const grid = sparseGrid();
+        grid.setFilters([{ columnKey: "email", value: { op: "blank", text: "ignored" } as any }]);
+        expect(grid.getFilters()[0].value).toEqual({ op: "blank" });
+        expect(ids(grid)).toEqual([2, 3, 4, 5]);
+    });
+
+    it("filterRows (public) matches blank without normalization", () => {
+        const columns = [{ key: "email", filterType: "text" } as any];
+        const kept = filterRows(sparse, columns, undefined, [
+            { columnKey: "email", type: "text", value: { op: "notBlank" } } as Filter,
+        ]);
+        expect(kept.map((r) => r.id)).toEqual([1, 6]);
+    });
+});
+
+describe("blank / notBlank — validation", () => {
+    it("names all five operators for an unknown op", () => {
+        expect(() =>
+            sparseGrid({
+                filters: [{ columnKey: "email", value: { op: "endsWith" as any, text: "x" } }],
+            }),
+        ).toThrow(/"contains", "equals", "startsWith", "blank", "notBlank"/);
+    });
+
+    it("rejects an unknown entry in textFilterOps, naming the column", () => {
+        expect(() =>
+            create<Sparse>({
+                rows: sparse,
+                columns: [
+                    { key: "email", filterType: "text", textFilterOps: ["contains", "regex" as any] },
+                ],
+            }),
+        ).toThrow(/Column "email".*textFilterOps.*"regex"/s);
+    });
+
+    it("rejects an empty list and a duplicate", () => {
+        expect(() =>
+            create<Sparse>({
+                rows: sparse,
+                columns: [{ key: "email", filterType: "text", textFilterOps: [] }],
+            }),
+        ).toThrow(/non-empty/);
+        expect(() =>
+            create<Sparse>({
+                rows: sparse,
+                columns: [
+                    { key: "email", filterType: "text", textFilterOps: ["blank", "blank"] },
+                ],
+            }),
+        ).toThrow(/"blank" twice/);
+    });
+
+    it("rejects textFilterOps on a column that is not a text filter", () => {
+        expect(() =>
+            create<Sparse>({
+                rows: sparse,
+                columns: [{ key: "email", textFilterOps: ["blank"] }],
+            }),
+        ).toThrow(/Column "email".*filterType: "options"/s);
+    });
+});
+
+describe("blank / notBlank — the popover", () => {
+    it("renders exactly the named chips, in the named order", async () => {
+        const grid = create<Sparse>({
+            rows: sparse,
+            columns: [
+                {
+                    key: "email",
+                    name: "Email",
+                    filterType: "text",
+                    textFilterOps: ["blank", "contains", "notBlank"],
+                },
+                { key: "id" },
+            ],
+        });
+        void open(grid, "email");
+        await settle();
+
+        const chips = [...popover()!.querySelectorAll('[role="radio"]')];
+        expect(chips.map((c) => c.getAttribute("data-op"))).toEqual([
+            "blank",
+            "contains",
+            "notBlank",
+        ]);
+        expect(chips.map((c) => c.textContent)).toEqual(["is empty", "contains", "is not empty"]);
+        // The first named chip is the preselected one when nothing is applied.
+        expect(isChecked("blank")).toBe(true);
+    });
+
+    it("a default column still shows three chips — nothing changed for it", async () => {
+        const grid = textGrid();
+        void open(grid, "name");
+        await settle();
+        expect(popover()!.querySelectorAll('[role="radio"]')).toHaveLength(3);
+    });
+
+    it("Apply on `is empty` with an empty input APPLIES the filter — it does not clear", async () => {
+        const grid = sparseGrid();
+        void open(grid, "email");
+        await settle();
+
+        chip("blank").click();
+        expect(textInput().value).toBe("");
+        click(button("apply"));
+
+        expect(grid.getFilters()[0]?.value).toEqual({ op: "blank" });
+        expect(ids(grid)).toEqual([2, 3, 4, 5]);
+    });
+
+    it("text typed beside `is empty` is ignored and not stored", async () => {
+        const grid = sparseGrid();
+        void open(grid, "email");
+        await settle();
+
+        textInput().value = "stray";
+        chip("notBlank").click();
+        click(button("apply"));
+
+        expect(grid.getFilters()[0]?.value).toEqual({ op: "notBlank" });
+    });
+
+    it("Enter applies from the input with a text-free operator selected", async () => {
+        const grid = sparseGrid();
+        const closed = open(grid, "email");
+        await settle();
+
+        chip("blank").click();
+        textInput().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+        const applied = await closed;
+        expect(applied?.value).toEqual({ op: "blank" });
+    });
+
+    it("the input says the text is not used under a text-free chip, and recovers", async () => {
+        const grid = sparseGrid();
+        void open(grid, "email");
+        await settle();
+
+        expect(textInput().placeholder).toBe("filter text…");
+        chip("blank").click();
+        expect(textInput().placeholder).toBe("no text needed");
+        expect(textInput().disabled).toBe(false);
+        chip("contains").click();
+        expect(textInput().placeholder).toBe("filter text…");
+    });
+
+    it("arrow keys cycle all five chips in DOM order", async () => {
+        const grid = sparseGrid();
+        void open(grid, "email");
+        await settle();
+
+        const group = popover()!.querySelector('[role="radiogroup"]')!;
+        const right = () =>
+            group.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        right();
+        right();
+        right();
+        expect(isChecked("blank")).toBe(true);
+        right();
+        expect(isChecked("notBlank")).toBe(true);
+        right();
+        expect(isChecked("contains")).toBe(true);
+    });
+
+    it("shows the applied op's chip even when the column's list omits it", async () => {
+        // The default three chips, but a `blank` filter applied from the API / persistence.
+        const grid = textGrid({ filters: [{ columnKey: "name", value: { op: "blank" } }] });
+        void open(grid, "name");
+        await settle();
+
+        const chips = [...popover()!.querySelectorAll('[role="radio"]')];
+        expect(chips.map((c) => c.getAttribute("data-op"))).toEqual([
+            "contains",
+            "equals",
+            "startsWith",
+            "blank",
+        ]);
+        expect(isChecked("blank")).toBe(true);
+        // ...and the roving tabindex has somewhere to land.
+        expect(chips.filter((c) => (c as HTMLElement).tabIndex === 0)).toHaveLength(1);
+    });
+});
+
+describe("blank / notBlank — the chip and persistence", () => {
+    it("the chip reads `Email: is empty` — the word alone, no trailing text", () => {
+        const grid = sparseGrid({ filters: [{ columnKey: "email", value: { op: "blank" } }] });
+        expect(chipText("email")).toBe("Email: is empty");
+        const [filter] = grid.getFilters();
+        expect(grid.describeFilter(filter)).toEqual({
+            name: "Email",
+            values: "is empty",
+            title: "Email: is empty",
+        });
+    });
+
+    it("persists and restores as { op }", () => {
+        const store = new Map<string, string>();
+        const storage = {
+            getItem: (k: string) => store.get(k) ?? null,
+            setItem: (k: string, v: string) => void store.set(k, v),
+            removeItem: (k: string) => void store.delete(k),
+        };
+        const first = sparseGrid({ persistFilters: { name: "blank-test", storage } });
+        first.setFilters([{ columnKey: "email", value: { op: "notBlank" } }]);
+        first.destroy();
+
+        const second = sparseGrid({ persistFilters: { name: "blank-test", storage } });
+        expect(second.getFilters()[0]?.value).toEqual({ op: "notBlank" });
+        expect(ids(second)).toEqual([1, 6]);
+    });
+});
+
+// =============================================================================================
+// Task 55 — filterLabel: the host's word on a chip
+// =============================================================================================
+
+describe("filterLabel", () => {
+    it("replaces the chip's text for a text filter, and describeFilter agrees", () => {
+        const grid = sparseGrid({
+            filters: [{ columnKey: "email", value: { op: "blank" } }],
+            filterLabel: (filter) =>
+                filter.type === "text" && (filter.value as TextFilterValue)?.op === "blank"
+                    ? "has no value"
+                    : undefined,
+        });
+        expect(chipText("email")).toBe("Email: has no value");
+        const [filter] = grid.getFilters();
+        expect(grid.describeFilter(filter)).toEqual({
+            name: "Email",
+            values: "has no value",
+            title: "Email: has no value",
+        });
+    });
+
+    it("replaces the chip's text for an options filter, receiving the built-in text", () => {
+        const seen: string[] = [];
+        const grid = textGrid({
+            filters: [{ columnKey: "status", value: ["open", "done"] }],
+            filterLabel: (_filter, column, defaultText) => {
+                seen.push(`${String(column?.key)}|${defaultText}`);
+                return "either";
+            },
+        });
+        void grid;
+        expect(seen[0]).toBe("status|open,done");
+        expect(chipText("status")).toBe("status: either");
+    });
+
+    it("undefined keeps the built-in text", () => {
+        const grid = textGrid({
+            filters: [{ columnKey: "name", value: "smith" }],
+            filterLabel: () => undefined,
+        });
+        void grid;
+        expect(chipText("name")).toBe("Name: contains smith");
+    });
+
+    it("runs after a custom definition's label and receives it", () => {
+        const grid = create<Row>({
+            rows,
+            filterBar: true,
+            columns: [
+                {
+                    key: "id",
+                    name: "Id",
+                    filter: {
+                        name: "min",
+                        create: () => ({ element: document.createElement("div"), getValue: () => 2 }),
+                        match: (value: number, row: Row) => row.id >= value,
+                        label: (value: number) => `≥ ${value}`,
+                    },
+                },
+                { key: "name" },
+            ],
+            filters: [{ columnKey: "id", value: 3 }],
+            filterLabel: (_f, _c, defaultText) => `at least ${defaultText.replace("≥ ", "")}`,
+        });
+        void grid;
+        expect(chipText("id")).toBe("Id: at least 3");
+    });
+
+    it("a throw warns naming the column and the chip shows the default", () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const grid = textGrid({
+            filters: [{ columnKey: "name", value: "smith" }],
+            filterLabel: () => {
+                throw new Error("boom");
+            },
+        });
+        void grid;
+        expect(chipText("name")).toBe("Name: contains smith");
+        expect(warn).toHaveBeenCalled();
+        expect(String(warn.mock.calls[0][0])).toMatch(/filterLabel.*"name"/);
+    });
+
+    it("a changed answer rebuilds the chip on the next refresh", () => {
+        let word = "first";
+        const grid = textGrid({
+            filters: [{ columnKey: "name", value: "smith" }],
+            filterLabel: () => word,
+        });
+        expect(chipText("name")).toBe("Name: first");
+        word = "second";
+        // Any filters change redraws the bar; the signature differs, so the chip is rebuilt.
+        grid.setFilters([{ columnKey: "name", value: "smithee" }]);
+        expect(chipText("name")).toBe("Name: second");
+    });
+
+    it("can be set later through setOptions", () => {
+        const grid = textGrid({ filters: [{ columnKey: "name", value: "smith" }] });
+        expect(chipText("name")).toBe("Name: contains smith");
+        grid.setOptions({ filterLabel: () => "later" });
+        grid.setFilters([{ columnKey: "name", value: "smith" }, { columnKey: "status", value: ["open"] }]);
+        expect(chipText("name")).toBe("Name: later");
     });
 });

@@ -438,6 +438,7 @@ See [The context menu](#the-context-menu).
 |---|---|---|
 | `onSortChange` | `(sort: SortColumn \| undefined) => void` | The sort changed. |
 | `onFiltersChange` | `(filters: Filter[]) => void` | The filters changed — from the API, a funnel or a chip alike. Receives the normalized list, safe to hand straight back to `setFilters()`. |
+| `filterLabel` | `(filter, column, defaultText) => string \| undefined` | A filter-bar chip is drawn. Return your word for it, or `undefined` to keep the built-in text. See [The filter bar](#the-filter-bar). |
 | `onColumnResize` | `(columnKey: string, width: number) => void` | A column was resized. |
 | `onColumnsReorder` | `(sourceKey: string, targetKey: string) => void` | Columns were dragged into a new order. |
 | `onColumnsChange` | `(columns: Column<R>[]) => void` | Any change to the column set, whatever caused it. |
@@ -482,6 +483,7 @@ interface Column<R = any> {
     rowCompare?: (left: R, right: R) => number;  // ...or the comparison itself; wins over sortValue
     filterType?: "options" | "text" | null;  // default "options"; "text" is contains/equals/
                                     // starts with; null takes the funnel off
+    textFilterOps?: TextFilterOp[]; // the "text" popover's chips; add "blank" / "notBlank"
     filter?: FilterDefinition<R>;   // a filter type of your own, in place of the checklist
 
     validate?: (column: Column<R>, row: R, value: any) => any;
@@ -1442,14 +1444,17 @@ the same funnel opens that — see [a filter type of your own](#columnfilter--a-
 ### `filterType: "text"` — the built-in text filter
 
 For a high-cardinality column — names, descriptions, ids — where a checklist of every distinct
-value is the wrong shape. One input, three operators: **contains** (the default), **equals**,
-**starts with**.
+value is the wrong shape. One input and a row of operator chips: by default **contains** (the
+default), **equals**, **starts with**; opt a column into **is empty** / **is not empty** with
+`textFilterOps`.
 
 ```js
 AVGrid.create(el, {
     rows,
     columns: [
         { key: "name", filterType: "text" },   // input + contains | equals | starts with
+        { key: "email", filterType: "text",    // …plus the two state operators, no text
+          textFilterOps: ["contains", "equals", "startsWith", "blank", "notBlank"] },
         { key: "status" },                     // unchanged: the options checklist
     ],
     filterBar: true,
@@ -1457,16 +1462,21 @@ AVGrid.create(el, {
 ```
 
 The value is JSON-shaped, so persistence needs no `serialize`, and it is the whole of what a
-host building a server-side predicate reads:
+host building a server-side predicate reads. It is a union discriminated on `op`: the three
+comparing operators carry `text`, the two state operators carry nothing —
 
 ```ts
-interface TextFilterValue { op: "contains" | "equals" | "startsWith"; text: string }
+type TextFilterOp = "contains" | "equals" | "startsWith" | "blank" | "notBlank";
+type TextFilterValue =
+    | { op: "contains" | "equals" | "startsWith"; text: string }
+    | { op: "blank" | "notBlank" };
 ```
 
 ```js
 grid.setFilters([{ columnKey: "name", value: "smith" }]);                       // bare string —
 // normalizes to { op: "contains", text: "smith" }
 grid.setFilters([{ columnKey: "name", value: { op: "startsWith", text: "A" } }]);
+grid.setFilters([{ columnKey: "email", value: { op: "blank" } }]);              // email is empty
 ```
 
 The rules, all shared with the checklist where they can be:
@@ -1474,18 +1484,33 @@ The rules, all shared with the checklist where they can be:
 - **It filters locally.** `match` runs case-insensitively against the *displayed* text — the
   same `formatValue` → `displayFormat` → `row[key]` projection the search box matches,
   `String()`-coerced — so a date column filters by what its cells actually show, and a nullish
-  cell never matches. `equals` compares the whole displayed string. (Under
+  cell never matches a comparing operator. `equals` compares the whole displayed string. (Under
   [`externalFilter`](#host-owned-filtering-and-sorting) the local test never runs and the host
   reads `op` and `text` instead.)
+- **`blank` and `notBlank` read the same displayed text**: a cell is *empty* when that text is
+  empty **after trim** — `null`, `undefined`, `""`, whitespace, or a `formatValue` /
+  `displayFormat` that produced nothing. So on a formatted column *is empty* means "shows
+  nothing", not "holds no value"; it is the one rule a user can predict from the screen.
+  `notBlank` is the exact complement — every row satisfies exactly one of the two. This is a
+  different notion of empty from the options checklist's `(null)` / `(undefined)` entries, which
+  are *values the data holds* and stay distinct; the two can disagree on one column by design.
+- **The chips are opt-in; the operators are not.** `textFilterOps` decides what the popover
+  *renders* (in the order given — a column whose server predicate has no `startsWith` can leave
+  it out). Every operator **validates and matches on every text column**: a `{ op: "blank" }`
+  set through `setFilters`, or restored from persistence after the column's list changed, works,
+  and the popover shows that op's chip beside the column's own so the pressed chip always exists.
+  `textFilterOps` on a column that is not a text filter is an error, naming the column.
 - **Empty text removes the filter** — the input's text is trimmed, and Apply on a trimmed-empty
-  input is Clear, exactly like the checklist's empty selection.
-- **The chip** reads `Name: contains smith`, the operator spelled as the switch is labelled
-  (`starts with`, not `startsWith`).
+  input is Clear, exactly like the checklist's empty selection. Under *is empty* / *is not
+  empty* the input says `no text needed`, whatever it holds is ignored, and Apply **applies**.
+- **The chip** reads `Name: contains smith`, the operator spelled as the popover chip is
+  labelled (`starts with`, not `startsWith`); a text-free operator is the word alone —
+  `Email: is empty`. Your own word instead: [`filterLabel`](#the-filter-bar).
 - **Keyboard**: Alt+↓ opens the popover with the caret in the input (stretched to the popover's
-  width); the operators are a row of chips under it carrying radio semantics — arrow keys cycle
-  them; **Enter applies**.
+  width); the operators are chips under it carrying radio semantics — arrow keys cycle them in
+  DOM order (the popover widens to fit five on one row); **Enter applies**.
 - The needle is lowercased once per filter pass, never once per row, and never written into the
-  value — `getFilters()` hands back exactly `{ op, text }` as typed.
+  value — `getFilters()` hands back exactly `{ op, text }` as typed, or exactly `{ op }`.
 
 `endsWith`, negation, regex and ranges are deliberately not here; a range is the worked example
 under [a filter type of your own](#columnfilter--a-filter-type-of-your-own).
@@ -1724,6 +1749,27 @@ AVGrid.createFilterBar("#toolbar", { grid, clearButton: false });
 A grid can have any number of bars watching it, mounted either way; they all show the same filters
 and any of them can edit them.
 
+**Your word on a chip — `filterLabel`.** The built-in chip text is `contains smith` for a text
+filter, `open,pending (+3)` for a checklist, and a custom definition's own `label`. To say it
+differently — a localized *is empty*, a domain word for a value — give the grid one callback:
+
+```js
+AVGrid.create(el, {
+    rows, columns, filterBar: true,
+    filterLabel: (filter, column, defaultText) => {
+        if (filter.type === "text" && filter.value?.op === "blank") return "no address on file";
+        return undefined;                       // undefined → the built-in text
+    },
+});
+```
+
+It runs for every applied filter, whatever its type, *after* a definition's `label` (which it
+receives as `defaultText`), so one callback covers the whole bar. `undefined` keeps the default,
+so you override one case and inherit the rest. The result is not truncated — you chose it — and
+it is the chip's tooltip too. `describeFilter()` honours it, so chips you draw yourself agree
+with the bar. A throw is caught, warned once naming the column, and the default text shows. It
+names the **bar** chip only; the operator chips inside the text popover keep their labels.
+
 `filterBar` is read at `create()`, because the grid wraps itself in a flex column to make room and
 that is not something to do to a page later. `setOptions({ filterBar: false })` still takes the
 bar away, and `true` puts it back on a grid that was *created* with one — on a grid that was not,
@@ -1757,7 +1803,7 @@ myClearButton.onclick = () => grid.clearFilters();
 
 | Piece of a chip | The call |
 |---|---|
-| Its text and tooltip | `grid.describeFilter(filter)` → `{ name, values, title }` |
+| Its text and tooltip | `grid.describeFilter(filter)` → `{ name, values, title }` — with your `filterLabel` applied, if you gave one |
 | Clicking its body | `grid.showFilterPopover(filter.columnKey, { anchor: chipElement })` |
 | Its ✕ | `grid.removeFilter(filter.columnKey)` |
 | The remove-all ✕ | `grid.clearFilters()` |

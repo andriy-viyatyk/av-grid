@@ -512,6 +512,26 @@ export interface AVGridOptions<R = any> {
      */
     onGetOptions?: GetFilterOptions<R>;
     /**
+     * Your word on a filter-bar chip. Called for every applied filter, whatever its type, with
+     * the text the chip would have shown; return a string to use instead, or `undefined` to keep
+     * the built-in text — so you override one case and inherit the rest.
+     *
+     * ```js
+     * filterLabel: (filter, column, defaultText) =>
+     *     filter.type === "text" && filter.value?.op === "blank" ? "has no value" : undefined
+     * ```
+     *
+     * Runs after a custom definition's own `label` (which it receives as `defaultText`), and
+     * `describeFilter()` honours it too, so chips you draw yourself agree with the bar. The
+     * result is not truncated — you chose it — and it is the chip's tooltip as well. A throw is
+     * caught, warned once naming the column, and the default text shows.
+     */
+    filterLabel?: (
+        filter: Filter,
+        column: Column<R> | undefined,
+        defaultText: string,
+    ) => string | undefined;
+    /**
      * The host owns filtering: the grid keeps the whole filter UI — funnels, popovers, chips,
      * `onFiltersChange`, persistence — but never tests a row against `filters`. Default `false`.
      *
@@ -749,6 +769,7 @@ export const CALLBACK_OPTION_KEYS = [
     "onDeleteColumns",
     "onSortChange",
     "onFiltersChange",
+    "filterLabel",
     "onColumnResize",
     "onColumnsReorder",
     "onColumnsChange",

@@ -41,6 +41,9 @@ function makeRows(count) {
             ["review the migration", "write the release note", "chase the failing test",
              "answer the ticket"][i % 4]
         }`,
+        // A third of the owners are missing — null, or an empty string — for the text
+        // filter's two state operators. Both read as "empty": the operator tests the displayed text.
+        owner: i % 3 === 0 ? (i % 6 === 0 ? null : "") : ["ada", "alan", "grace", "edsger"][i % 4],
         priority: PRIORITIES[i % 4],
         due: iso((i % 17) - 5),
         progress: i % 7 === 6 ? 100 : (i * 17) % 101,
@@ -108,6 +111,14 @@ function columns() {
             // A constant string builds no context object at all.
             cellClass: hooksOn ? "wrap" : undefined,
             headerClass: hooksOn ? "wrap" : undefined,
+        },
+        {
+            key: "owner",
+            name: "Owner",
+            width: 110,
+            // The text filter with every operator, including the two text-free state ones.
+            filterType: "text",
+            textFilterOps: ["contains", "equals", "startsWith", "blank", "notBlank"],
         },
         {
             key: "priority",
@@ -178,6 +189,9 @@ function createGrid(count = Number(el("rows").value) || 2000) {
                   r.row.progress === 100 ? "done" : r.row.due < today ? "overdue" : undefined
             : undefined,
         onEdit: (e) => say(`onEdit ${e.columnKey} @ ${e.rowKey}: ${JSON.stringify(e.value)}`),
+        // The host's word on one chip — the docs' snippet; `undefined` keeps the rest built-in.
+        filterLabel: (filter) =>
+            filter.columnKey === "owner" && filter.value?.op === "blank" ? "unassigned" : undefined,
     });
     window.custom.grid = grid;
     statusEl.textContent = `${count.toLocaleString()} rows · hooks ${hooksOn ? "on" : "off"}`;
@@ -619,7 +633,64 @@ async function checkTextFilter() {
             ? `input present, focus on ${document.activeElement?.className || "?"}`
             : "(no text input)",
     });
+    const taskChips = document.querySelectorAll(".avg-filter-popover [data-op]").length;
+    out.push({
+        claim: "a column without textFilterOps still shows the default three chips",
+        ok: taskChips === 3,
+        detail: `${taskChips} chips`,
+    });
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await settle(2);
+
+    // Task 54: the two text-free state operators, opted into on the Owner column.
+    const isBlank = (r) => r.owner == null || String(r.owner).trim() === "";
+    for (const [op, test] of [["blank", isBlank], ["notBlank", (r) => !isBlank(r)]]) {
+        grid.setFilters([{ columnKey: "owner", value: { op } }]);
+        await settle(2);
+        const expected = rows.filter(test).length;
+        const got = grid.getState().rowCount;
+        out.push({
+            claim: `filterType "text": ${op} keeps the rows the docs say (displayed text empty after trim)`,
+            ok: got === expected && expected > 0,
+            detail: `${got} rows, expected ${expected}`,
+        });
+    }
+    const notBlankChip = document.querySelector(
+        '.avg-filter-chip[data-column-key="owner"] .avg-filter-chip-values',
+    );
+    out.push({
+        claim: "the chip for a text-free operator is the word alone: `is not empty`",
+        ok: notBlankChip?.textContent === "is not empty",
+        detail: notBlankChip?.textContent ?? "(no chip)",
+    });
+
+    // Task 55: filterLabel — the host's word replaces the built-in text on one chip.
+    grid.setFilters([{ columnKey: "owner", value: { op: "blank" } }]);
+    await settle(2);
+    const blankChip = document.querySelector(
+        '.avg-filter-chip[data-column-key="owner"] .avg-filter-chip-values',
+    );
+    out.push({
+        claim: "filterLabel's word replaces the chip text, and describeFilter agrees",
+        ok:
+            blankChip?.textContent === "unassigned" &&
+            grid.describeFilter(grid.getFilters()[0]).values === "unassigned",
+        detail: `chip "${blankChip?.textContent ?? "(no chip)"}", describeFilter "${grid.describeFilter(grid.getFilters()[0]).values}"`,
+    });
+
+    // The five-chip popover, with the applied op pressed.
+    void grid.showFilterPopover("owner");
+    await settle(2);
+    const ownerChips = [...document.querySelectorAll(".avg-filter-popover [data-op]")];
+    const pressed = ownerChips.find((c) => c.getAttribute("aria-checked") === "true");
+    out.push({
+        claim: "textFilterOps renders the named chips, the applied op pressed",
+        ok: ownerChips.length === 5 && pressed?.getAttribute("data-op") === "blank",
+        detail: `${ownerChips.length} chips, pressed: ${pressed?.getAttribute("data-op") ?? "(none)"}`,
+    });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await settle(2);
+    grid.setFilters([]);
     await settle(2);
     return out;
 }
