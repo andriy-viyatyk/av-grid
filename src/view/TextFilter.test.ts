@@ -704,17 +704,48 @@ describe("blank / notBlank — the popover", () => {
         expect(applied?.value).toEqual({ op: "blank" });
     });
 
-    it("the input says the text is not used under a text-free chip, and recovers", async () => {
+    it("the input is read-only and cleared under a text-free chip, editable again after", async () => {
         const grid = sparseGrid();
         void open(grid, "email");
         await settle();
 
         expect(textInput().placeholder).toBe("filter text…");
+        expect(textInput().readOnly).toBe(false);
+        textInput().value = "stray";
         chip("blank").click();
         expect(textInput().placeholder).toBe("no text needed");
+        expect(textInput().readOnly).toBe(true);
         expect(textInput().disabled).toBe(false);
+        // Cleared, not stashed — the text went with the operator that needed it.
+        expect(textInput().value).toBe("");
+        expect(popover()!.querySelector(".avg-text-filter-text-unused")).not.toBeNull();
         chip("contains").click();
         expect(textInput().placeholder).toBe("filter text…");
+        expect(textInput().readOnly).toBe(false);
+        expect(textInput().value).toBe("");
+        expect(popover()!.querySelector(".avg-text-filter-text-unused")).toBeNull();
+    });
+
+    it("opened on a stored state-op filter, the input is read-only from the first paint and focused", async () => {
+        const grid = sparseGrid({ filters: [{ columnKey: "email", value: { op: "blank" } }] });
+        void open(grid, "email");
+        await settle();
+
+        expect(textInput().readOnly).toBe(true);
+        expect(textInput().value).toBe("");
+        expect(document.activeElement).toBe(textInput());
+    });
+
+    it("Enter still applies from the read-only input", async () => {
+        const grid = sparseGrid();
+        const closed = open(grid, "email");
+        await settle();
+
+        chip("notBlank").click();
+        expect(textInput().readOnly).toBe(true);
+        textInput().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        const applied = await closed;
+        expect(applied?.value).toEqual({ op: "notBlank" });
     });
 
     it("arrow keys cycle all five chips in DOM order", async () => {

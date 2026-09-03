@@ -24,7 +24,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-08.md`](tasks/plan-done-08.md) | The finished plan for phase 12, tasks 51–52: `externalFilter` / `externalSort` (the host owns the row set) and the built-in `"text"` filter type. **Its decision log applies too** — including the four review resolutions and the loan-ledger patch record |
 | [`tasks/plan-done-09.md`](tasks/plan-done-09.md) | The finished plan for phase 13, task 53: `pinned: "left"` as a data column — sticky split from chrome. **Its decision log applies too** — it supersedes the phase-10 equivalence rule |
 | [`tasks/plan-done-10.md`](tasks/plan-done-10.md) | The finished plan for phase 14, tasks 54–55: `blank` / `notBlank` on the built-in `"text"` filter (opt-in chips via `textFilterOps`) and `filterLabel`. **Its decision log applies too** |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 15, empty; it carries the standing rules and the open questions. Read the archived decision logs before starting anything |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 15, task 56: the text filter's input read-only under a text-free operator, and its state class into the DOM contract. Read the archived decision logs before starting anything, `plan-done-10.md` decision 5 above all — task 56 refines it |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -34,9 +34,14 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 15, deliberately empty: it
-carries the standing rules and three open questions (control-size tokens for the popovers'
-inputs; a grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips).
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 15, holding **task 56**: the text
+filter's input becomes `readOnly` under a text-free operator (`is empty` / `is not empty`), and
+`avg-text-filter-text-unused` — the state class `syncChips` already toggles and nothing documents —
+joins the DOM contract. It refines task 54's decision 5 rather than reversing it: enabled and
+editable were conflated, and everything that decision protects (focus on open, Enter applies) a
+read-only input keeps. The plan also carries the standing rules and three open questions
+(control-size tokens for the popovers' inputs; a grid-level `textFilterOps` default;
+`textFilterLabels` for the popover's own chips).
 (Plan 09's earlier open questions 1–5 were removed at a consumer's request, 2026-09-01 —
 handled consumer-side; the git history and the archived logs keep them if re-asked.)
 A plan is archived as `plan-done-<nn>.md` once

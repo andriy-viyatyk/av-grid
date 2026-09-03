@@ -860,6 +860,16 @@ export const css = `
     width: 100%;
 }
 
+/* Under a text-free operator (is empty / is not empty) the input is read-only and empty: the
+   library's own inert look, so a host need not supply one. Both hooks named — the property on
+   the input, the state class on the popover body around it. */
+.avg-text-filter-text-unused .avg-text-filter-input,
+.avg-text-filter-body .avg-text-filter-input:read-only {
+    color: var(--avg-text-muted);
+    background-color: var(--avg-hover-bg);
+    cursor: default;
+}
+
 /* The 1px border is the focus indicator, for both inputs. A host's own :focus-visible ring
    would sit outside it at whatever width that host chose — 2px on a Persephone board — and a
    bare class selector ties with a bare :focus-visible on specificity, so it loses on source

@@ -1502,7 +1502,9 @@ The rules, all shared with the checklist where they can be:
   `textFilterOps` on a column that is not a text filter is an error, naming the column.
 - **Empty text removes the filter** — the input's text is trimmed, and Apply on a trimmed-empty
   input is Clear, exactly like the checklist's empty selection. Under *is empty* / *is not
-  empty* the input says `no text needed`, whatever it holds is ignored, and Apply **applies**.
+  empty* the input is **read-only and cleared**, its placeholder reads `no text needed`, and Apply
+  **applies**. It stays focusable and Enter still applies from it — `readOnly`, not `disabled`,
+  for exactly those two reasons. The popover carries `avg-text-filter-text-unused` in that state.
 - **The chip** reads `Name: contains smith`, the operator spelled as the popover chip is
   labelled (`starts with`, not `startsWith`); a text-free operator is the word alone —
   `Email: is empty`. Your own word instead: [`filterLabel`](#the-filter-bar).
@@ -2132,7 +2134,9 @@ These are containers, not cells: put backgrounds, borders and scrollbar styling 
 `position`, `overflow` and `transform` alone — the virtualization owns those. Inside a filter popover: `avg-filter-content` (either body),
 `avg-filter-buttons` (the Apply / Clear row), and for a `column.filter`,
 `avg-custom-filter-content` on the panel with `avg-custom-filter-body` around the element your
-`create()` returned.
+`create()` returned. On a `"text"` filter's body, `avg-text-filter-text-unused` is present while a
+text-free operator (*is empty* / *is not empty*) is pressed — the input is then read-only and
+empty, and this is the hook to dress that state.
 
 **If you write your own cell renderer returning an element, the stylesheet must position it
 absolutely.** The engine writes `top` and `left`; nothing writes `position`. A cell that lays out

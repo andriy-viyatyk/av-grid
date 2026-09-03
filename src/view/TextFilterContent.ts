@@ -137,8 +137,10 @@ export class TextFilterContent {
 
     /**
      * One chip pressed, and only that one in the tab order — the roving-tabindex pattern. The
-     * input follows the op: under a text-free operator it stays enabled (Enter still applies
-     * from it) but says so, and whatever it holds is ignored on Apply.
+     * input follows the op: under a text-free operator it is **read-only and cleared** — still
+     * focusable (the popover's own focus target) and still firing `keydown` (Enter applies from
+     * it), but it accepts no characters and shows nothing, so the control demonstrates the same
+     * thing its placeholder says. `disabled` would lose both the focus and the Enter.
      */
     private syncChips(): void {
         for (const chip of this.chips) {
@@ -149,6 +151,10 @@ export class TextFilterContent {
         }
         const needsText = textFilterOpNeedsText(this.op);
         this.input.placeholder = needsText ? PLACEHOLDER : PLACEHOLDER_UNUSED;
+        this.input.readOnly = !needsText;
+        // Cleared, not stashed: the text is gone with the operator that needed it. Restoring
+        // it on the way back was considered and declined as too much machinery for the case.
+        if (!needsText) this.input.value = "";
         this.element.classList.toggle("avg-text-filter-text-unused", !needsText);
     }
 
