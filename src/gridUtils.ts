@@ -297,12 +297,19 @@ export function searchWords(searchString: string | undefined): string[] {
  *
  * Returns the *same array* when there is nothing to apply, which is what lets `setRows()` on
  * an unfiltered 100k-row grid avoid copying anything.
+ *
+ * `columns` is what the search runs over; `filterColumns`, when given, is what each filter's
+ * column is looked up in, and defaults to `columns`. The grid passes its visible columns as the
+ * first and its full column set as the second, so a filter on a `hidden` column still resolves
+ * to its column — and matches by that column's `formatValue` or `filter` definition — while the
+ * search stays over what is on screen.
  */
 export function filterRows<R>(
     rows: readonly R[],
     columns: Column<R>[],
     searchString?: string,
     filters?: Filter[],
+    filterColumns: readonly Column<R>[] = columns,
 ): readonly R[] {
     if (!searchString?.length && !filters?.length) {
         return rows;
@@ -311,7 +318,7 @@ export function filterRows<R>(
 
     const resolved = filters?.length
         ? filters.map<ResolvedFilter<R>>((filter) => {
-              const column = columns.find(
+              const column = filterColumns.find(
                   (c) => String(c.key) === filter.columnKey,
               );
               // A text filter's needle is lowercased here, once per pass — never per row, and

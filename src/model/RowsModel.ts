@@ -130,6 +130,11 @@ export class RowsModel<R> {
      * keeps filtering. The guard lives here and not in `filterRows` — the utility is pure, has
      * other callers (the cascade in `defaultFilterOptions`), and the policy belongs to the
      * model that owns the pipeline.
+     *
+     * Two column sets, on purpose. The search runs over the *visible* columns — searching what
+     * is on screen is the point. The filters resolve over the *full* set — a filter on a hidden
+     * column matches by that column's `formatValue` / `filter` definition exactly as it did while
+     * the column was shown, rather than falling back to the raw row property.
      */
     private filter = (rows: readonly R[]): readonly R[] =>
         filterRows(
@@ -139,6 +144,7 @@ export class RowsModel<R> {
             this.model.options.externalFilter
                 ? undefined
                 : this.model.options.filters,
+            this.model.options.columns,
         );
 
     private sort = (

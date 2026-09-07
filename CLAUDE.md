@@ -24,7 +24,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-08.md`](tasks/plan-done-08.md) | The finished plan for phase 12, tasks 51–52: `externalFilter` / `externalSort` (the host owns the row set) and the built-in `"text"` filter type. **Its decision log applies too** — including the four review resolutions and the loan-ledger patch record |
 | [`tasks/plan-done-09.md`](tasks/plan-done-09.md) | The finished plan for phase 13, task 53: `pinned: "left"` as a data column — sticky split from chrome. **Its decision log applies too** — it supersedes the phase-10 equivalence rule |
 | [`tasks/plan-done-10.md`](tasks/plan-done-10.md) | The finished plan for phase 14, tasks 54–55: `blank` / `notBlank` on the built-in `"text"` filter (opt-in chips via `textFilterOps`) and `filterLabel`. **Its decision log applies too** |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 15, task 56: the text filter's input read-only under a text-free operator, and its state class into the DOM contract. Read the archived decision logs before starting anything, `plan-done-10.md` decision 5 above all — task 56 refines it |
+| [`tasks/plan-done-11.md`](tasks/plan-done-11.md) | The finished plan for phase 15, task 56: the text filter's input read-only and cleared under a text-free operator, and `avg-text-filter-text-unused` into the DOM contract. **Its decision log applies too** — it refines `plan-done-10.md` decision 5 |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 16, task 57: a filter or a sort on a `hidden` column must survive the column being hidden (a defect — `FiltersModel` and `setSort` validate against the visible column set). Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -34,14 +35,13 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 15, holding **task 56**: the text
-filter's input becomes `readOnly` under a text-free operator (`is empty` / `is not empty`), and
-`avg-text-filter-text-unused` — the state class `syncChips` already toggles and nothing documents —
-joins the DOM contract. It refines task 54's decision 5 rather than reversing it: enabled and
-editable were conflated, and everything that decision protects (focus on open, Enter applies) a
-read-only input keeps. The plan also carries the standing rules and three open questions
-(control-size tokens for the popovers' inputs; a grid-level `textFilterOps` default;
-`textFilterLabels` for the popover's own chips).
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 16, holding **task 57**: a filter or
+a sort on a `hidden` column must survive the column being hidden. Today `FiltersModel` and `setSort`
+validate against the *visible* column set while construction validates against the full one, so a
+host echoing `{ columns, filters }` back after hiding a filtered column gets
+``Unknown column "…" in `filters[0]` `` — under React a render-phase throw. The plan also carries
+the standing rules and three open questions (control-size tokens for the popovers' inputs; a
+grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips).
 (Plan 09's earlier open questions 1–5 were removed at a consumer's request, 2026-09-01 —
 handled consumer-side; the git history and the archived logs keep them if re-asked.)
 A plan is archived as `plan-done-<nn>.md` once
@@ -158,6 +158,17 @@ empty. **`filterLabel`** is the host's word on a filter-bar chip: grid-level, ru
 filter type after a definition's own `label`, receives the built-in text, `undefined` keeps it,
 and `describeFilter()` honours it — the bar now builds every chip from that one resolver. Measured
 at 100k: the state operators cost at or under `contains`; no render-path file changed.
+
+**Phase 15 is done** (task 56, shipped as **2.9.1** — see
+[`tasks/plan-done-11.md`](tasks/plan-done-11.md)): the text filter's input is `readOnly` and cleared
+under *is empty* / *is not empty*, and `avg-text-filter-text-unused` is styled and in the DOM contract.
+**Phase 16 is done** (task 57, shipping as **2.9.2** — see [`tasks/plan.md`](tasks/plan.md)): **a
+filter or a sort on a `hidden` column survives the column being hidden.** A filter's or a sort's
+*identity* now resolves over the full column set through `ColumnsModel.columnByKey` — `FiltersModel`,
+`setSort`, `SortColumnModel` and `describeFilter` — while `data.columns` stays the geometry; a hidden
+column matches and sorts exactly as a shown one (its `formatValue` / `filter` definition, its
+`sortValue` / `rowCompare`), and `searchString` stays over the visible columns, which is why
+`filterRows` gained an optional trailing `filterColumns`. The unknown-column error is unchanged.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

@@ -687,6 +687,23 @@ type DisplayFormat = "text" | "date" | "dateTime" | "phone" | `date:${string}` |
 | `"dateTime"` | `toLocaleString()`. |
 | `"phone"` | A 10-character string as `(123) 456-7890`; anything else unchanged. |
 
+### `hidden`
+
+`hidden: true` takes a column off the screen and nothing else. The column stays in `getColumns()`
+and in `onColumnsChange`, and it stays **a column**: a filter or a sort naming it is still valid,
+stays applied, and keeps narrowing or ordering the rows — so a host that holds `columns` and
+`filters` in its own state and echoes both back after hiding a filtered column is fine, and so is
+a filter or sort restored from storage against a column the user has since hidden. Hiding is the
+only way to take a column off the screen without losing what is attached to it; removing it from
+the array is what makes a filter on it an unknown-column error.
+
+A hidden column's filter matches exactly what it matched while the column was shown — the column's
+own `formatValue`, `displayFormat` or `filter` definition — and its bar chip still reads by the
+definition's `label`. Sorting keeps the column's `sortValue` / `rowCompare`. Only two things follow
+the visible set: `searchString` searches the columns on screen, and the filter popover cannot open
+on a column that has no header. `data-col` indexes the visible columns; see the
+[DOM contract](#dom-contract).
+
 ### `pinned`
 
 Pin a column to an edge, so it stays put while the rest scrolls horizontally.
@@ -776,7 +793,7 @@ The rules, all chosen so the option cannot be half-applied:
 | | |
 |---|---|
 | **Order is normalized** | Columns of one group are gathered together if the array interleaves them — stable, each group anchored where it first appears. `getColumns()` returns the normalized order. |
-| **Reorder is off** | While groups are shown, no header is draggable: a grouped order is a prepared view. Sort, filter, resize and `hidden` all still work; a hidden column just shrinks its group, and hiding all of a group's columns removes its cell. |
+| **Reorder is off** | While groups are shown, no header is draggable: a grouped order is a prepared view. Sort, filter, resize and `hidden` all still work — a filter or sort on a hidden column stays applied, see [`hidden`](#hidden); a hidden column just shrinks its group, and hiding all of a group's columns removes its cell. |
 | **Pinned columns cannot be grouped** | `pinned` (either edge, either spelling) plus `group` is a validation error — the sticky corners keep their plain tall headers. |
 | **Groups do not nest** | Two levels, full stop. |
 | **Affordances stay on the leaf header** | A group cell has no sort, no funnel, no resize grip. It shows its `group` string, or what the hooks below return. |
@@ -1431,6 +1448,10 @@ are the same call: applying an empty selection means "no filter", not "no rows".
 or the `name` of a `FilterDefinition` you put on the column. Do not write `type` by hand for a
 custom filter: it is taken from the column, and a filter naming a type the column does not have
 is rejected.
+
+A filter is resolved against the **full** column array, `hidden` columns included — the same set at
+`create()` and on every setter, so hiding a filtered column never makes its filter "unknown". See
+[`hidden`](#hidden).
 
 ### The funnel
 
@@ -2452,7 +2473,7 @@ should not have to reimplement them.
 |---|---|
 | `formatDisplayValue(value, format?)` | What a cell shows, for a `DisplayFormat`. |
 | `defaultCompare(propertyKey?)` | The comparator the grid sorts by. |
-| `filterRows(rows, columns, searchString?, filters?)` | The whole filter pass. Returns the *same array* when nothing filters. |
+| `filterRows(rows, columns, searchString?, filters?, filterColumns?)` | The whole filter pass. Returns the *same array* when nothing filters. `columns` is what the search runs over; `filterColumns` (default: `columns`) is where each filter's column is looked up — the grid passes its visible columns and its full set, so a filter on a `hidden` column still resolves to its column. |
 | `columnDisplayValue(column, row)` | The plain-text projection used for sort, filter and copy. |
 | `rowsToCsvText(rows, columns, withHeaders?, tabDelimiter?)` | What `Ctrl+C` produces. |
 | `defaultValidate(column, row, value)` | The coercion applied when a column has no `validate`. |

@@ -212,12 +212,13 @@ export function defaultFilterOptions<R>(
     columnKey: string,
     search?: string,
     searchString?: string,
+    filterColumns: readonly Column<R>[] = columns,
 ): DisplayOption[] {
     const column = columns.find((c) => String(c.key) === columnKey);
     const others = filters.filter((f) => f.columnKey !== columnKey);
 
     const distinct = new Set<any>();
-    for (const row of filterRows(rows, columns, searchString, others)) {
+    for (const row of filterRows(rows, columns, searchString, others, filterColumns)) {
         // The same rule the row filter matches by: a computed column has no row property, so
         // its distinct values are the ones it displays.
         distinct.add(
@@ -358,6 +359,10 @@ export class FiltersModel<R> {
         columnKey: string,
         search?: string,
     ): DisplayOption[] | Promise<DisplayOption[]> {
+        // The *visible* columns, deliberately: the cascade describes what is on screen, and a
+        // host's `onGetOptions` is told about the same columns the user is looking at. The other
+        // filters are resolved over the full set though — a filter on a hidden column narrows the
+        // cascade exactly as it narrows the rows.
         const columns = this.model.data.columns;
         const others = this.filters.filter((f) => f.columnKey !== columnKey);
         const host = this.model.options.onGetOptions;
@@ -370,6 +375,7 @@ export class FiltersModel<R> {
                   columnKey,
                   search,
                   this.model.options.searchString,
+                  this.model.options.columns,
               );
     }
 
@@ -424,13 +430,15 @@ export class FiltersModel<R> {
     };
 
     /**
-     * The columns to resolve a filter against — the live set, or the option when the data model
-     * has not built one yet, which is the case while this model's own constructor runs.
+     * The columns a filter is resolved against: the **full** set, `hidden` ones included. A
+     * filter names a column, not a cell on screen — hiding the column must not make the filter
+     * "unknown" (which is what happened when this read `data.columns`, the visible set). This is
+     * also the set `validateOptions` uses at `create()`, so mount and update agree. And it is
+     * always there, including while this model's own constructor runs, before the data model has
+     * built the visible set.
      */
     private get columns(): Column<R>[] {
-        return this.model.data.columns.length
-            ? this.model.data.columns
-            : this.model.options.columns;
+        return this.model.options.columns;
     }
 
     private validate = (filters: readonly Filter[] | undefined): Filter[] =>

@@ -59,6 +59,21 @@ export class ColumnsModel<R> {
     indexOfKey = (columnKey: string): number =>
         this.model.data.columns.findIndex((c) => String(c.key) === columnKey);
 
+    /**
+     * The column a filter or a sort *names*, looked up over the **full** column set —
+     * `options.columns`, `hidden` ones included.
+     *
+     * This is the identity lookup; `data.columns` and `indexOfKey` are the geometry. A filter on
+     * a column the host has hidden is still a filter on that column: it validates, it matches by
+     * the column's own `formatValue` / `filter` definition, and its chip still reads by the
+     * definition's `label`. Resolving identity against the visible set made `hidden` — a
+     * presentation flag — silently semantic: the same `{ columns, filters }` a host had been
+     * echoing back was rejected the moment one column went hidden. Never returns the checkbox
+     * column, which is not in `options.columns` and is never a filter target.
+     */
+    columnByKey = (columnKey: string): Column<R> | undefined =>
+        this.model.options.columns.find((c) => String(c.key) === columnKey);
+
     /** Replace the column set. The single funnel every column change goes through. */
     setColumns = (columns: Column<R>[]): void => {
         // Same-group columns are gathered together, stably — the grouped order *is* the

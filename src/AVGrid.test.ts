@@ -1332,6 +1332,110 @@ describe("filters", () => {
     });
 });
 
+describe("a filter or a sort on a hidden column survives the column being hidden", () => {
+    // Task 57. A host hides a column through its own picker — `hidden: true`, the column kept in
+    // the array — and echoes `{ columns, filters }` back. Before, `FiltersModel` and `setSort`
+    // validated against the *visible* set, so the very column just hidden became "unknown" and
+    // the next update threw; under React that is a render-phase throw and a white screen.
+    const yesNo = (_c: any, r: any) => (r.active ? "yes" : "no");
+    const shown = () => [{ key: "name" }, { key: "active", filterType: "text" as const, formatValue: yesNo }];
+    const hidden = () => [{ key: "name" }, { key: "active", filterType: "text" as const, formatValue: yesNo, hidden: true }];
+    const onlyYes = [{ columnKey: "active", value: { op: "contains" as const, text: "yes" } }];
+
+    it("setFilters, then setColumns hiding that column: the filter stays and keeps narrowing", async () => {
+        const grid = create({ rows: people, columns: shown() });
+        grid.setFilters(onlyYes);
+        grid.setColumns(hidden());
+        await settle();
+        expect(grid.getFilters().map((f) => f.columnKey)).toEqual(["active"]);
+        expect(columnText(grid, "name")).toEqual(["Ada", "Grace"]);
+    });
+
+    it("the echo: one setOptions carrying the newly hidden column and the unchanged filters", async () => {
+        const grid = create({ rows: people, columns: shown(), filters: onlyYes });
+        expect(() => grid.setOptions({ columns: hidden(), filters: onlyYes })).not.toThrow();
+        // And the same filters again — the value guard has to be reachable, not thrown past.
+        const changes: any[] = [];
+        grid.setOptions({ onFiltersChange: (f) => changes.push(f) });
+        expect(() => grid.setFilters(onlyYes)).not.toThrow();
+        expect(changes).toHaveLength(0);
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Ada", "Grace"]);
+    });
+
+    it("mount parity: a hidden column already filtered is accepted, as it always was", async () => {
+        const grid = create({ rows: people, columns: hidden(), filters: onlyYes });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Ada", "Grace"]);
+    });
+
+    it("matches by the column's formatValue hidden exactly as shown", async () => {
+        // `yes` / `no` exist only in the projection; the raw value is a boolean. Matching a
+        // hidden column against the raw property would find nothing.
+        const grid = create({ rows: people, columns: hidden(), filters: [{ columnKey: "active", value: { op: "equals", text: "no" } }] });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Alan"]);
+    });
+
+    it("consults a hidden column's own filter definition", async () => {
+        const minId = {
+            name: "min-id",
+            create: () => ({ element: document.createElement("div"), getValue: () => 2 }),
+            label: (v: any) => `≥ ${v}`,
+            match: (v: any, row: any) => row.id >= v,
+        };
+        const grid = create({
+            rows: people,
+            columns: [{ key: "name" }, { key: "id", filter: minId, hidden: true }],
+            filters: [{ columnKey: "id", type: "min-id", value: 2 }],
+        });
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Alan", "Grace"]);
+        // The bar reads by the definition's label too — the column is hidden, not gone.
+        expect(grid.describeFilter(grid.getFilters()[0]!).values).toBe("≥ 2");
+    });
+
+    it("the sort twin: setOptions({ columns, sort }) and setSort() on a hidden column", async () => {
+        const grid = create({ rows: people, columns: shown(), sort: { key: "active", direction: "asc" } });
+        expect(() => grid.setOptions({ columns: hidden(), sort: { key: "active", direction: "asc" } })).not.toThrow();
+        expect(grid.getSort()).toEqual({ key: "active", direction: "asc" });
+        expect(() => grid.setSort({ key: "active", direction: "desc" })).not.toThrow();
+        await settle();
+        // Descending is the ascending order reversed (the reference's stable mirror), so the
+        // two `true` rows come back in reverse source order.
+        expect(columnText(grid, "name")).toEqual(["Grace", "Ada", "Alan"]);
+    });
+
+    it("a hidden column keeps its sortValue, and its rowCompare", async () => {
+        const rank: Record<string, number> = { Grace: 0, Ada: 1, Alan: 2 };
+        const byRank = create({
+            rows: people,
+            columns: [{ key: "id" }, { key: "name", hidden: true, sortValue: (r: any) => rank[r.name] }],
+            sort: { key: "name", direction: "asc" },
+        });
+        await settle();
+        expect(columnText(byRank, "id")).toEqual(["3", "1", "2"]);
+
+        const byCompare = create({
+            rows: people,
+            columns: [{ key: "id" }, { key: "name", hidden: true, rowCompare: (a: any, b: any) => rank[a.name] - rank[b.name] }],
+            sort: { key: "name", direction: "asc" },
+        });
+        await settle();
+        expect(columnText(byCompare, "id")).toEqual(["3", "1", "2"]);
+    });
+
+    it("still throws for a column that is genuinely unknown", () => {
+        const grid = create({ rows: people, columns: shown() });
+        expect(() => grid.setFilters([{ columnKey: "nmae", value: ["x"] }])).toThrow(
+            /Unknown column "nmae" in `filters\[0\]`\. Available columns: name, active\./,
+        );
+        expect(() => grid.setSort({ key: "nmae", direction: "asc" })).toThrow(
+            /Unknown column "nmae" in `sort`\. Available columns: name, active\./,
+        );
+    });
+});
+
 describe("search highlighting", () => {
     /**
      * The marked runs of each cell in a column, in row order, joined by `|`.

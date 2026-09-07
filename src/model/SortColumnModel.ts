@@ -171,9 +171,8 @@ export class SortColumnModel<R> {
             const compareValues = defaultCompare();
             const levels = (sort as readonly SortColumn[]).map(
                 ({ key, direction }) => {
-                    const col = this.model.data.columns.find(
-                        (c) => String(c.key) === key,
-                    );
+                    // Identity, not geometry: a hidden column keeps its `sortValue` / `rowCompare`.
+                    const col = this.model.models.columns.columnByKey(key);
                     return {
                         sign: direction === "desc" ? -1 : 1,
                         rowCompare: col?.rowCompare,
@@ -199,9 +198,7 @@ export class SortColumnModel<R> {
             };
         } else if (sort) {
             const single = sort as SortColumn;
-            const col = this.model.data.columns.find(
-                (c) => String(c.key) === single.key,
-            );
+            const col = this.model.models.columns.columnByKey(single.key);
             if (col?.rowCompare) {
                 rowCompare = col.rowCompare;
             } else if (col?.sortValue) {

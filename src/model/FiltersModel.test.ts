@@ -10,7 +10,7 @@ import {
 } from "./FiltersModel";
 import { resolveOptions } from "../validate";
 import type { AVGridOptions } from "../options";
-import type { Filter, FilterStorage } from "../types";
+import type { DisplayOption, Filter, FilterStorage } from "../types";
 
 interface Row {
     id: number;
@@ -415,6 +415,47 @@ describe("FiltersModel", () => {
             ).not.toThrow();
             expect(names(model)).toEqual(["Ada", "Alan"]);
             warn.mockRestore();
+        });
+    });
+
+    describe("a hidden column", () => {
+        const withStatusHidden = columns.map((c) => (c.key === "status" ? { ...c, hidden: true } : c));
+
+        it("keeps a persisted filter across a reload that hides the column", () => {
+            const storage = makeStorage();
+            const first = makeModel({ persistFilters: { name: "orders", storage } });
+            first.model.models.filters.applyFilter({ columnKey: "status", value: ["open"] });
+
+            const { model: restored } = makeModel({
+                columns: withStatusHidden,
+                persistFilters: { name: "orders", storage },
+            });
+            expect(restored.models.filters.filters.map((f) => f.columnKey)).toEqual(["status"]);
+            expect(names(restored)).toEqual(["Ada", "Alan"]);
+        });
+
+        it("still narrows the options cascade of the other columns", () => {
+            const { model } = makeModel({
+                columns: withStatusHidden,
+                filters: [{ columnKey: "status", value: ["closed"] }],
+            });
+            const options = model.models.filters.getOptions("first") as DisplayOption[];
+            expect(options.map((o) => o.value)).toEqual(["Grace"]);
+        });
+
+        it("hands onGetOptions the visible columns, and every filter", () => {
+            const seen: any[] = [];
+            const { model } = makeModel({
+                columns: withStatusHidden,
+                filters: [{ columnKey: "status", value: ["closed"] }],
+                onGetOptions: (cols, others) => {
+                    seen.push(cols.map((c) => String(c.key)), others.map((f) => f.columnKey));
+                    return [];
+                },
+            });
+            model.models.filters.getOptions("first");
+            expect(seen[0]).not.toContain("status");
+            expect(seen[1]).toEqual(["status"]);
         });
     });
 

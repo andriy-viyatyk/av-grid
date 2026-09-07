@@ -139,6 +139,28 @@ describe("externalFilter", () => {
             }),
         ).toThrow(/"id".*match/s);
     });
+
+    it("a filter on a hidden column reaches the host and leaves the handed-over page alone", () => {
+        // Task 57's report came from this mode: the host filters server-side, the user hides
+        // the filtered column, the host echoes `{ columns, filters }` back.
+        const seen: any[] = [];
+        const grid = create<Row>({
+            rows,
+            externalFilter: true,
+            columns: [{ key: "name" }, { key: "status" }],
+            onFiltersChange: (filters) => seen.push(filters),
+        });
+        grid.setFilters([{ columnKey: "status", value: ["open"] }]);
+        expect(() =>
+            grid.setOptions({
+                columns: [{ key: "name" }, { key: "status", hidden: true }],
+                filters: [{ columnKey: "status", value: ["open"] }],
+            }),
+        ).not.toThrow();
+        expect(names(grid)).toEqual(["Grace", "Ada", "Edsger", "Alan"]);
+        expect(grid.getFilters().map((f) => f.columnKey)).toEqual(["status"]);
+        expect(seen).toHaveLength(1);
+    });
 });
 
 // =============================================================================================

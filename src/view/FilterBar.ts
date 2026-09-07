@@ -199,7 +199,9 @@ function hostLabel<R>(
  * `filterLabel` replaces `values` and, being untruncated, the tooltip's list as well.
  */
 export function describeFilter<R>(model: AVGridModel<R>, filter: Filter): FilterChipText {
-    const column = model.data.columns.find((c) => String(c.key) === filter.columnKey);
+    // The full set: a filter on a hidden column still reads by its definition's `label`, and
+    // `filterLabel` still receives the column.
+    const column = model.models.columns.columnByKey(filter.columnKey);
     const name = filter.columnName ?? filter.columnKey;
     const builtIn = filterValues(filter, MAX_LABEL_CHARS, column);
     const override = hostLabel(model, filter, column, builtIn);

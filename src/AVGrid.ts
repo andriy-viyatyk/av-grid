@@ -556,10 +556,12 @@ export class AVGrid<R = any> {
     /** Set or clear the sort. Pass `undefined` (or `[]` in `multiSort` mode) for unsorted. */
     setSort(sort: SortState | undefined): void {
         if (!this.alive("grid.setSort()")) return;
+        // The full column set, `hidden` included — the same set `create()` validated against. A
+        // sort names a column; hiding that column must not turn it into an unknown one.
         this.model.setSort(
             validateSort(
                 sort ?? undefined,
-                this.model.data.columns,
+                this.model.options.columns,
                 this.model.options.multiSort,
             ),
         );
