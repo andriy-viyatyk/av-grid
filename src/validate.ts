@@ -814,6 +814,66 @@ function normalizeTextValue(value: unknown, index: number): TextFilterValue | un
  * Called from `create()` and again from `setOptions()`, so a bad value passed later fails the
  * same way as a bad value passed up front.
  */
+/**
+ * `treeColumn` names a data column and carries three functions; `onTreeToggle`, when given, is a
+ * function. Run at `create()` and again by `setOptions()` whenever either arrives, against the
+ * columns as they will be after the call.
+ */
+export function validateTreeColumn<R>(
+    tree: unknown,
+    columns: readonly Column<R>[],
+    onTreeToggle: unknown,
+): void {
+    const example =
+        `For example: treeColumn: { key: "name", depth: (r) => r.depth, ` +
+        `hasChildren: (r) => r.children > 0, expanded: (r) => open[r.id] }.`;
+    if (onTreeToggle !== undefined && typeof onTreeToggle !== "function") {
+        fail(
+            `\`onTreeToggle\` must be a function (row, expanded) => void, but was ${describe(onTreeToggle)}. ` +
+                `Omit it for a static tree with no expand / collapse gesture.`,
+        );
+    }
+    if (tree === undefined) return;
+    if (!tree || typeof tree !== "object") {
+        fail(`\`treeColumn\` must be an object, but was ${describe(tree)}. ${example}`);
+    }
+    const t = tree as Record<string, unknown>;
+    if (typeof t.key !== "string" || !t.key.length) {
+        fail(`\`treeColumn.key\` must name a column, but was ${describe(t.key)}. ${example}`);
+    }
+    const column = columns.find((c) => String(c.key) === t.key);
+    if (!column) {
+        fail(
+            `Unknown column "${t.key}" in \`treeColumn.key\`. Available columns: ` +
+                `${columns.map((c) => String(c.key)).join(", ")}.`,
+        );
+    }
+    if (column.isStatusColumn) {
+        fail(
+            `\`treeColumn.key\` names "${t.key}", which is chrome (isStatusColumn) — a tree gutter goes on a data column.`,
+        );
+    }
+    for (const name of ["depth", "hasChildren", "expanded"] as const) {
+        if (typeof t[name] !== "function") {
+            fail(
+                `\`treeColumn.${name}\` must be a function of the row, but was ${describe(t[name])}. ${example}`,
+            );
+        }
+    }
+    if (t.indentSize !== undefined && (typeof t.indentSize !== "number" || !(t.indentSize >= 0))) {
+        fail(`\`treeColumn.indentSize\` must be a number of pixels, but was ${describe(t.indentSize)}. Omit it for 16.`);
+    }
+    if (t.chevrons !== undefined && typeof t.chevrons !== "boolean" && typeof t.chevrons !== "function") {
+        fail(
+            `\`treeColumn.chevrons\` must be a boolean or a function of the row, but was ${describe(t.chevrons)}. ` +
+                `For example: chevrons: (r) => r.depth > 0 — no chevron slot on an always-expanded first level.`,
+        );
+    }
+    if (t.path !== undefined && typeof t.path !== "function") {
+        fail(`\`treeColumn.path\` must be a function of the row returning the text to copy, but was ${describe(t.path)}.`);
+    }
+}
+
 export function resolveOptions<R>(options: unknown): ResolvedOptions<R> {
     if (!options || typeof options !== "object") {
         fail(
@@ -889,6 +949,7 @@ export function resolveOptions<R>(options: unknown): ResolvedOptions<R> {
 
     // Validated for its own sake; the resolved value is read from the model, not from here.
     validateSort(o.sort, columns, Boolean(o.multiSort));
+    validateTreeColumn(o.treeColumn, columns, o.onTreeToggle);
 
     if (o.persistFilters !== undefined) {
         const p = o.persistFilters as PersistFiltersOptions;

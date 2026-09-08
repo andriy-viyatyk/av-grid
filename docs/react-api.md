@@ -194,7 +194,7 @@ change, not on every render — so a `columnGroupRender` whose output depends on
 shows the new output on the next columns change, not immediately. Derive group content from
 `{ group, columns }` and this never matters.
 
-**Five function options are not on it**, because their mere *presence* changes what the grid does,
+**Six function options are not on it**, because their mere *presence* changes what the grid does,
 so a proxy standing in for an absent one would change behaviour:
 
 | Option | What absence means |
@@ -203,11 +203,15 @@ so a proxy standing in for an absent one would change behaviour:
 | `newRow`, `newColumn` | The grid's own blank-row / blank-column defaults |
 | `onGetOptions` | A filter popover offers the column's distinct values |
 | `onGridContextMenu` | The grid draws its own context menu |
+| `onTreeToggle` | A static tree: the chevrons show open / closed and do nothing, `→` / `←` navigate |
 
-Give those five a **stable identity** — a module-level function, or `useCallback` — or lane 3 will
+Give those six a **stable identity** — a module-level function, or `useCallback` — or lane 3 will
 send a `setOptions` on every render. The same applies to `columns` **and to `footerRows`**: define
 them outside the component or memoize them, exactly as you would for any array prop — a footer
-array rebuilt during render sends a `setOptions` per commit.
+array rebuilt during render sends a `setOptions` per commit. `treeColumn` is an object prop with
+the same rule; its `expanded` reader usually closes over host state, so a new object per toggle is
+expected and is exactly the repaint a toggle needs — `onTreeToggle` stays outside it so it can be
+stable on its own.
 
 Three callbacks are on the paint path: `onCellClass`, `rowClass` and `footerRowClass` are consulted
 per *cell*, and their presence alone makes the cell renderer build a context object it otherwise

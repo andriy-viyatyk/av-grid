@@ -272,6 +272,7 @@ function createGrid(count = Number(el("rows").value) || 1000, useColumns = true)
         onColumnResize: (key, width) => live(`resize: ${key} → ${width}px`),
         onColumnsReorder: (from, to) => live(`reorder: ${from} → ${to}`),
         selectColumn: true,
+        disableColumnReorder: el("noreorder").checked,
         onSelectionChange: (keys) => live(`selected: ${keys.length} rows`),
         // Task 17. Takes no space until something is filtered, so it costs the other checks
         // nothing to leave it on.
@@ -2968,6 +2969,309 @@ async function runBenchmark(count = 100000) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 17 — task 58 (`disableColumnReorder`) and task 59 (`treeColumn`)
+// ---------------------------------------------------------------------------
+
+const MARKETS = ["North", "South", "East", "West", "Central", "Coastal", "Plains", "Lakes",
+    "Valley", "Ridge", "Delta", "Bay", "Summit", "Prairie", "Harbor", "Mesa", "Canyon", "Pine",
+    "Cedar", "Maple"];
+const PAYERS = ["Aetna", "Cigna", "Humana", "United", "Anthem", "Kaiser", "Molina", "Centene",
+    "Oscar", "Bright", "Devoted", "Alignment", "Clover", "SCAN", "Medica", "Priority", "Sentara",
+    "Geisinger", "Highmark", "Premera", "Regence", "Moda", "PacificSource", "Providence", "Tufts"];
+const MEASURES = ["Members", "Visits", "Admits", "ER visits", "Cost PMPM", "Quality", "Readmits",
+    "Dialysis", "Transplant", "Pharmacy", "Labs", "Imaging", "Home health", "SNF", "Hospice",
+    "Telehealth", "Referrals", "Auths", "Denials", "Appeals"];
+
+/**
+ * Task 59's *engine half*, host-side, in thirty lines — the part the library deliberately does
+ * not own. A nested source tree, an `expanded` set, and a flatten that yields the visible rows
+ * in display order. `treeColumn` reads `depth`, `children.length` and the set; `onTreeToggle`
+ * writes the set and hands the grid `flatten()`.
+ */
+function buildTreeEngine(markets = MARKETS.length, payers = PAYERS.length, measures = MEASURES.length) {
+    const roots = [];
+    let seq = 0;
+    const node = (label, depth, parent) => ({
+        id: `n${++seq}`,
+        label,
+        depth,
+        parent,
+        children: [],
+        q1: (seq * 7919) % 1000,
+        q2: (seq * 104729) % 1000,
+        q3: (seq * 1299709) % 1000,
+        q4: (seq * 15485863) % 1000,
+        py: (seq * 32452843) % 1000,
+    });
+    for (let m = 0; m < markets; m++) {
+        const market = node(`${MARKETS[m % MARKETS.length]} ${m >= MARKETS.length ? m : ""}`.trim(), 0, null);
+        roots.push(market);
+        for (let p = 0; p < payers; p++) {
+            const payer = node(PAYERS[p % PAYERS.length], 1, market);
+            market.children.push(payer);
+            for (let x = 0; x < measures; x++) payer.children.push(node(MEASURES[x % MEASURES.length], 2, payer));
+        }
+    }
+    const engine = {
+        roots,
+        expanded: new Set(),
+        flatten() {
+            const out = [];
+            const walk = (n) => {
+                out.push(n);
+                if (n.children.length && this.expanded.has(n.id)) for (const c of n.children) walk(c);
+            };
+            for (const r of this.roots) walk(r);
+            return out;
+        },
+        expandAll() {
+            const walk = (n) => {
+                if (n.children.length) this.expanded.add(n.id);
+                n.children.forEach(walk);
+            };
+            this.roots.forEach(walk);
+        },
+        path(n) {
+            const parts = [];
+            for (let c = n; c; c = c.parent) parts.unshift(c.label);
+            return parts.join(" › ");
+        },
+    };
+    return engine;
+}
+
+/** @type {ReturnType<typeof buildTreeEngine> | undefined} */
+let tree;
+const treeStats = { toggles: 0, actions: 0 };
+
+function treeColumns() {
+    return [
+        {
+            key: "label",
+            name: "Dimension",
+            width: 280,
+            pinned: "left",
+            // The host's content after the grid's gutter: an icon, the label with search
+            // marking, and an action button resolved in `onCellClick` from `e.target` — the
+            // same rules every `render` column already lives by.
+            render: (c) =>
+                `<span class="tree-ico">${c.row.depth === 2 ? "▪" : c.row.depth === 1 ? "◆" : "●"}</span>` +
+                `<span class="avg-cell-text">${c.highlight(c.row.label)}</span>` +
+                `<button class="tree-act" type="button" data-act="pin" tabindex="-1">pin</button>`,
+            // Searchable and filterable by the label, like the `full` column above.
+            formatValue: (_col, row) => row.label,
+        },
+        { key: "q1", name: "Q1", width: 90, align: "right", group: "2026" },
+        { key: "q2", name: "Q2", width: 90, align: "right", group: "2026" },
+        { key: "q3", name: "Q3", width: 90, align: "right", group: "2026" },
+        { key: "q4", name: "Q4", width: 90, align: "right", group: "2026" },
+        { key: "py", name: "Total", width: 100, align: "right", group: "2025" },
+    ];
+}
+
+/**
+ * Task 59. A three-level tree — market › payer › measure — over the host-side engine above.
+ * `collapsible: false` leaves `onTreeToggle` out: a static, indented view. `rootsOpen` keeps the
+ * first level always expanded with no chevron and no slot (`chevrons: (r) => r.depth > 0`).
+ * `disableSorting` because a header sort over a flat tree list would interleave levels — the
+ * documented caveat, demonstrated rather than hidden.
+ */
+function treeGrid({ collapsible = true, rootsOpen = false, expandAll = false } = {}) {
+    grid?.destroy();
+    const host = el("grid-host");
+    host.textContent = "";
+    tree = buildTreeEngine();
+    if (expandAll) tree.expandAll();
+    else if (rootsOpen) for (const r of tree.roots) tree.expanded.add(r.id);
+    else tree.expanded.add(tree.roots[0].id);
+    treeStats.toggles = 0;
+    treeStats.actions = 0;
+
+    const startedAt = performance.now();
+    grid = AVGrid.create(host, {
+        rows: tree.flatten(),
+        columns: treeColumns(),
+        getRowKey: (r) => r.id,
+        name: "avgrid-board-tree",
+        disableSorting: true,
+        disableColumnReorder: el("noreorder").checked,
+        selectColumn: true,
+        filterBar: true,
+        treeColumn: {
+            key: "label",
+            depth: (r) => r.depth,
+            hasChildren: (r) => r.children.length > 0,
+            expanded: (r) => tree.expanded.has(r.id),
+            chevrons: rootsOpen ? (r) => r.depth > 0 : true,
+            path: (r) => tree.path(r),
+        },
+        ...(collapsible
+            ? {
+                  onTreeToggle: (row, open) => {
+                      treeStats.toggles++;
+                      if (open) tree.expanded.add(row.id);
+                      else tree.expanded.delete(row.id);
+                      grid.setRows(tree.flatten());
+                      live(`toggle: ${tree.path(row)} → ${open ? "open" : "closed"} · ${grid.getVisibleRows().length} rows`);
+                  },
+              }
+            : {}),
+        onCellClick: (c, e) => {
+            const act = e.target?.closest?.(".tree-act");
+            if (act) {
+                treeStats.actions++;
+                live(`action: ${act.dataset.act} on ${tree.path(c.row)}`);
+                return;
+            }
+            live(`click: ${c.column.key} = ${String(c.value)}`);
+        },
+        onColumnsReorder: (from, to) => live(`reorder: ${from} → ${to}`),
+    });
+    const firstPaintMs = performance.now() - startedAt;
+    window.avg.grid = grid;
+    status(`tree: ${grid.getVisibleRows().length} rows shown of ${countNodes(tree.roots)} · ${collapsible ? "collapsible" : "static"}${rootsOpen ? " · roots always open" : ""} · ${firstPaintMs.toFixed(1)} ms`);
+    return firstPaintMs;
+}
+
+function countNodes(nodes) {
+    let n = 0;
+    const walk = (x) => {
+        n++;
+        x.children.forEach(walk);
+    };
+    nodes.forEach(walk);
+    return n;
+}
+
+/**
+ * The task-59 gate. Everything expanded (~10,500 rows) so the gutter is on every visible row:
+ * first paint and scroll paint cost against the same grid with `treeColumn` removed (the
+ * gutter's cost per frame), the gutter's own DOM mutations across 60 scroll frames of one
+ * observed row (must be none: a re-pointed cell grows or shrinks in place), a real chevron
+ * press through `pointerdown`, the keyboard gesture, the copy value, and the two static shapes.
+ */
+async function measureTree() {
+    status("tree gate…");
+    const labelCells = () => [...grid.element.querySelectorAll('[data-type="data-cell"][data-column-key="label"]')];
+    const partsOf = (cell) => [...cell.children].map((c) => c.className.split(" ")[0]);
+
+    // 1. With the gutter, everything expanded.
+    const firstPaintMs = treeGrid({ expandAll: true });
+    await settle(5);
+    const rowsShown = grid.getVisibleRows().length;
+    const sc = scrollEl();
+    const paintTop = await measurePaintCost(0);
+    const paintBottom = await measurePaintCost(sc.scrollHeight - sc.clientHeight - 2000);
+
+    // A row's gutter must not be touched by scrolling past it and back.
+    sc.scrollTop = 0;
+    await settle(3);
+    const watched = labelCells()[3];
+    const observer = new MutationObserver(() => {});
+    observer.observe(watched, { childList: true, attributes: true, subtree: true, characterData: true });
+    grid.refresh();
+    await settle(3);
+    const gutterMutationsOnRepaint = observer.takeRecords().filter((r) => r.target !== watched.querySelector(".avg-tree-content") && !watched.querySelector(".avg-tree-content")?.contains(r.target)).length;
+    observer.disconnect();
+
+    // The three shapes on screen right now.
+    const shapes = {
+        root: partsOf(labelCells().find((c) => c.getAttribute("data-row") === "0")),
+        payer: partsOf(labelCells().find((c) => c.getAttribute("data-row") === "1")),
+        leaf: partsOf(labelCells().find((c) => c.getAttribute("data-row") === "2")),
+    };
+    const ariaRoot = labelCells().find((c) => c.getAttribute("data-row") === "0")?.getAttribute("aria-expanded");
+
+    // 2. Copy the path.
+    grid.selectRange(2, 1, 2, 1);
+    const copied = grid.getSelectionText();
+
+    // 3. A real chevron press collapses the first market — through pointerdown, as a user would.
+    // Focus on the second market first — a row that survives the collapse (the leaf the copy
+    // step selected would vanish with its parent, and the grid drops a focus whose row is gone,
+    // which is `setRows`, not the press). The press must leave the focus exactly there.
+    grid.setFocus({ rowKey: tree.roots[1].id, columnKey: "q1", isDragging: false });
+    const rowsBefore = grid.getVisibleRows().length;
+    const focusBeforeChevron = grid.getFocus()?.rowKey;
+    const chevron = labelCells().find((c) => c.getAttribute("data-row") === "0")?.querySelector(".avg-tree-chevron");
+    const t0 = performance.now();
+    chevron.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, pointerType: "mouse" }));
+    chevron.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+    const toggleMs = performance.now() - t0;
+    await settle(3);
+    const rowsAfterCollapse = grid.getVisibleRows().length;
+    const focusAfterChevron = grid.getFocus()?.rowKey;
+    const actionsAfterChevron = treeStats.actions;
+
+    // 4. Keyboard: → on the collapsed root expands it again; → on a leaf navigates (the label is
+    // the first data column after the checkbox, so ← has nowhere to go there).
+    grid.setFocus({ rowKey: tree.roots[0].id, columnKey: "label", isDragging: false });
+    grid.element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    await settle(3);
+    const rowsAfterKey = grid.getVisibleRows().length;
+    grid.setFocus({ rowKey: tree.roots[0].children[0].children[0].id, columnKey: "label", isDragging: false });
+    grid.element.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    const leafArrowMovedTo = String(grid.getFocus()?.columnKey);
+
+    // 5. The same grid without the gutter — the cost of the feature.
+    grid.setOptions({ treeColumn: undefined, onTreeToggle: undefined });
+    await settle(5);
+    const gutterGone = !grid.element.querySelector(".avg-tree-content");
+    const plainTop = await measurePaintCost(0);
+    const plainBottom = await measurePaintCost(sc.scrollHeight - sc.clientHeight - 2000);
+
+    // 6. The two static shapes.
+    treeGrid({ collapsible: false });
+    await settle(3);
+    const staticChevronInert = labelCells()[0]?.querySelector(".avg-tree-chevron")?.hasAttribute("data-inert") ?? false;
+    treeGrid({ rootsOpen: true });
+    await settle(3);
+    const rootsOpenShape = {
+        root: partsOf(labelCells().find((c) => c.getAttribute("data-row") === "0")),
+        payer: partsOf(labelCells().find((c) => c.getAttribute("data-row") === "1")),
+    };
+
+    // Leave the interactive demo on screen.
+    treeGrid();
+
+    const checks = {
+        rootShape: JSON.stringify(shapes.root) === JSON.stringify(["avg-tree-chevron", "avg-tree-content"]),
+        leafShape: JSON.stringify(shapes.leaf) === JSON.stringify(["avg-tree-indent", "avg-tree-indent", "avg-tree-stub", "avg-tree-content"]),
+        ariaRoot: ariaRoot === "true",
+        gutterMutationsOnRepaint: gutterMutationsOnRepaint === 0,
+        copiedPath: copied.includes(" › ") && !copied.startsWith(" "),
+        chevronCollapsed: rowsAfterCollapse < rowsBefore,
+        chevronMovedNoFocus: focusAfterChevron === focusBeforeChevron && focusBeforeChevron !== tree.roots[0].id,
+        chevronNotAnAction: actionsAfterChevron === 0,
+        keyExpanded: rowsAfterKey === rowsBefore,
+        leafArrowNavigates: leafArrowMovedTo === "q1",
+        gutterGone,
+        staticChevronInert,
+        rootsOpenRootFlush: JSON.stringify(rootsOpenShape.root) === JSON.stringify(["avg-tree-content"]),
+        rootsOpenPayerHasChevron: JSON.stringify(rootsOpenShape.payer) === JSON.stringify(["avg-tree-indent", "avg-tree-chevron", "avg-tree-content"]),
+    };
+    return {
+        rowsShown,
+        firstPaintMs,
+        paintTopMs: paintTop.avgMs,
+        paintBottomMs: paintBottom.avgMs,
+        flatRatio: paintTop.avgMs ? paintBottom.avgMs / paintTop.avgMs : 0,
+        plainTopMs: plainTop.avgMs,
+        plainBottomMs: plainBottom.avgMs,
+        gutterCostRatio: plainTop.avgMs ? paintTop.avgMs / plainTop.avgMs : 0,
+        gutterMutationsOnRepaint,
+        toggleMs,
+        rowsBefore,
+        rowsAfterCollapse,
+        copied,
+        shapes,
+        rootsOpenShape,
+        checks,
+        allPass: Object.values(checks).every(Boolean),
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Readout
 // ---------------------------------------------------------------------------
 
@@ -3068,6 +3372,13 @@ function live(text) {
 el("rebuild").addEventListener("click", () => createGrid());
 el("bench").addEventListener("click", () => runBenchmark());
 el("minimal").addEventListener("click", () => minimalGrid());
+el("tree").addEventListener("click", () => treeGrid());
+el("tree-static").addEventListener("click", () => treeGrid({ collapsible: false, rootsOpen: true }));
+// Task 58: flips live on whichever grid is up; `createGrid` and `treeGrid` read it at build.
+el("noreorder").addEventListener("change", (e) => {
+    grid?.setOptions({ disableColumnReorder: e.target.checked });
+    live(`disableColumnReorder: ${e.target.checked}`);
+});
 el("search").addEventListener("input", (e) => grid?.setSearchString(e.target.value));
 
 /**
@@ -3272,6 +3583,11 @@ window.avg = {
     measureGroups,
     measureMultiSort,
     measureKeyboard,
+    treeGrid,
+    measureTree,
+    get tree() {
+        return tree;
+    },
     scrollTo,
     settle,
     get grid() {

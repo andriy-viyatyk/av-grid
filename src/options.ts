@@ -30,6 +30,7 @@ import type {
     ColumnGroupContext,
     RowContext,
     SortState,
+    TreeColumnOptions,
 } from "./types";
 
 export interface AVGridOptions<R = any> {
@@ -584,6 +585,43 @@ export interface AVGridOptions<R = any> {
     /** Take the funnel off every header. A column opts out on its own with `filterType: null`. */
     disableFiltering?: boolean;
     /**
+     * Take header drag-reorder off every column. Default `false`.
+     *
+     * For a grid whose column order *is* the data's order — a pivot with one column per period,
+     * where dragging `Q2` before `Q1` would produce a grid that lies:
+     *
+     * ```js
+     * AVGrid.create(el, { rows, columns, disableColumnReorder: true });
+     * ```
+     *
+     * Governs the *gesture* only: sort, filter, resize and `hidden` keep working,
+     * `onColumnsReorder` simply never fires, and `setColumns()` from the host still reorders.
+     * Reordering is already off while column groups are shown and for pinned columns; this
+     * makes that state the host's choice too. Flips live through `setOptions()`.
+     */
+    disableColumnReorder?: boolean;
+    /**
+     * Give one column a tree gutter — indent guides and a chevron or stub in front of the
+     * column's ordinary content. The host's rows are already flat and in display order; the grid
+     * changes nothing about which rows exist. See `TreeColumnOptions`.
+     *
+     * ```js
+     * treeColumn: { key: "name", depth: (r) => r.depth, hasChildren: (r) => r.kids > 0, expanded: (r) => open[r.id] }
+     * ```
+     */
+    treeColumn?: TreeColumnOptions<R>;
+    /**
+     * A tree row's chevron was pressed, or `→` / `←` on its focused tree cell: `expanded` is the
+     * state the user asked for. The host updates its own state and hands back the rows it now
+     * wants shown — usually `setRows(flatten())`; the grid repaints the chevron either way.
+     *
+     * **Optional on purpose.** Leave it out and the tree is a static, indented view: the chevrons
+     * still show open / closed, they just do nothing, and `→` / `←` are plain column navigation.
+     * Its *presence* is what turns the gesture on, so under `av-grid/react` it is a lane-3 option
+     * (give it a stable identity), not a proxied callback.
+     */
+    onTreeToggle?: (row: R, expanded: boolean) => void;
+    /**
      * Show a bar of removable filter chips directly above the grid.
      *
      * ```js
@@ -805,7 +843,8 @@ type PresenceSensitiveOptionKey =
     | "newRow"
     | "newColumn"
     | "onGetOptions"
-    | "onGridContextMenu";
+    | "onGridContextMenu"
+    | "onTreeToggle";
 
 type AssertNever<T extends never> = T;
 

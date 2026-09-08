@@ -6,6 +6,7 @@ import { AVGrid } from "./AVGrid";
 import { version } from "./index";
 import { AVGRID_STYLE_ID } from "./styles/av-grid.css";
 import type { AVGridOptions } from "./options";
+import type { TreeColumnOptions } from "./types";
 
 /**
  * happy-dom does no layout, so every element measures 0×0 and the grid would decide it has no
@@ -1433,6 +1434,434 @@ describe("a filter or a sort on a hidden column survives the column being hidden
         expect(() => grid.setSort({ key: "nmae", direction: "asc" })).toThrow(
             /Unknown column "nmae" in `sort`\. Available columns: name, active\./,
         );
+    });
+});
+
+describe("disableColumnReorder", () => {
+    // Task 58. A grid whose column order is the data's order — a pivot with one column per
+    // period — turns the header drag off by the host's choice, the way groups and pinning
+    // already turn it off by the library's.
+    const columns = [{ key: "id" }, { key: "name" }, { key: "active" }];
+    const headers = (grid: AVGrid<any>) =>
+        Array.from(grid.element.querySelectorAll('[data-type="header-cell"]')) as HTMLElement[];
+    const header = (grid: AVGrid<any>, key: string) =>
+        grid.element.querySelector(
+            `[data-type="header-cell"][data-column-key="${key}"]`,
+        ) as HTMLElement;
+    const fire = (el: Element, type: string) => {
+        const e = new Event(type, { bubbles: true, cancelable: true });
+        el.dispatchEvent(e);
+        return e;
+    };
+
+    it("no header is draggable, a primed drag is cancelled, and a drop does nothing", () => {
+        const reordered: any[] = [];
+        const grid = create({
+            rows: people,
+            columns,
+            disableColumnReorder: true,
+            onColumnsReorder: (s, t) => reordered.push([s, t]),
+        });
+        expect(headers(grid).map((h) => h.draggable)).toEqual([false, false, false]);
+
+        expect(fire(header(grid, "id"), "dragstart").defaultPrevented).toBe(true);
+        fire(header(grid, "active"), "drop");
+        expect(reordered).toEqual([]);
+        expect(grid.getColumns().map((c) => String(c.key))).toEqual(["id", "name", "active"]);
+    });
+
+    it("off by default: headers stay draggable and a drag-and-drop still reorders", () => {
+        const reordered: any[] = [];
+        const grid = create({
+            rows: people,
+            columns,
+            onColumnsReorder: (s, t) => reordered.push([s, t]),
+        });
+        expect(headers(grid).map((h) => h.draggable)).toEqual([true, true, true]);
+        expect(fire(header(grid, "id"), "dragstart").defaultPrevented).toBe(false);
+        fire(header(grid, "active"), "drop");
+        expect(reordered).toEqual([["id", "active"]]);
+    });
+
+    it("refuses the drop of a drag that was primed before the option flipped", () => {
+        const reordered: any[] = [];
+        const grid = create({
+            rows: people,
+            columns,
+            onColumnsReorder: (s, t) => reordered.push([s, t]),
+        });
+        fire(header(grid, "id"), "dragstart");
+        grid.setOptions({ disableColumnReorder: true });
+        fire(header(grid, "active"), "drop");
+        expect(reordered).toEqual([]);
+    });
+
+    it("governs the gesture only: sort, filter, hide and setColumns still work", async () => {
+        const grid = create({ rows: people, columns, disableColumnReorder: true });
+        header(grid, "name").click();
+        expect(grid.getSort()).toEqual({ key: "name", direction: "asc" });
+        grid.setFilters([{ columnKey: "active", value: [true] }]);
+        grid.setColumns([{ key: "active", hidden: true }, { key: "name" }, { key: "id" }]);
+        await settle();
+        expect(columnText(grid, "name")).toEqual(["Ada", "Grace"]);
+        expect(grid.getColumns().map((c) => String(c.key))).toEqual(["active", "name", "id"]);
+        expect(header(grid, "name").getAttribute("data-resizable")).toBe("true");
+    });
+
+    it("flips live through setOptions — the headers repaint on the next paint", async () => {
+        // `setOptions` ends in `refresh()`, which marks every cell; the paint itself is
+        // deferred to the frame, as every paint in this grid is. No dedicated repaint path
+        // is needed, and the same `refresh()` carries `disableFiltering` (the funnel).
+        const grid = create({ rows: people, columns });
+        grid.setOptions({ disableColumnReorder: true });
+        await settle();
+        expect(headers(grid).map((h) => h.draggable)).toEqual([false, false, false]);
+        grid.setOptions({ disableColumnReorder: false });
+        await settle();
+        expect(headers(grid).map((h) => h.draggable)).toEqual([true, true, true]);
+        const funnel = () =>
+            (grid.element.querySelector('[data-type="filter-button"]') as HTMLElement).style
+                .display;
+        grid.setOptions({ disableFiltering: true });
+        await settle();
+        expect(funnel()).toBe("none");
+        grid.setOptions({ disableFiltering: false });
+        await settle();
+        expect(funnel()).not.toBe("none");
+    });
+
+    it("stays off while groups show, whatever the option says", () => {
+        const grid = create({
+            rows: people,
+            columns: [{ key: "id", group: "Who" }, { key: "name", group: "Who" }, { key: "active" }],
+            disableColumnReorder: false,
+        });
+        expect(headers(grid).map((h) => h.draggable)).toEqual([false, false, false]);
+    });
+});
+
+describe("treeColumn — the tree gutter on one column", () => {
+    // Task 59. av-grid draws the gutter (guides, chevron or stub); the consumer renders the
+    // content through the column's ordinary hooks; the host owns the rows and the expanded state.
+    type Node = { id: string; label: string; depth: number; kids: number };
+    const nodes = (): Node[] => [
+        { id: "m1", label: "Market 1", depth: 0, kids: 2 },
+        { id: "p1", label: "Payer A", depth: 1, kids: 1 },
+        { id: "x1", label: "Measure", depth: 2, kids: 0 },
+        { id: "p2", label: "Payer B", depth: 1, kids: 1 },
+        { id: "m2", label: "Market 2", depth: 0, kids: 0 },
+    ];
+    const columns = [{ key: "id", width: 60 }, { key: "label", width: 200 }, { key: "kids", width: 60 }];
+    const LABEL_COL = 1;
+    const treeOf = (expanded: Record<string, boolean>, extra: Partial<TreeColumnOptions<Node>> = {}) => ({
+        key: "label",
+        depth: (r: Node) => r.depth,
+        hasChildren: (r: Node) => r.kids > 0,
+        expanded: (r: Node) => Boolean(expanded[r.id]),
+        ...extra,
+    });
+    const labelCell = (grid: AVGrid<any>, row: number) =>
+        grid.element.querySelector(
+            `[data-type="data-cell"][data-row="${row}"][data-column-key="label"]`,
+        ) as HTMLElement;
+    const parts = (cell: HTMLElement) =>
+        Array.from(cell.children).map((c) => c.className.split(" ")[0]);
+    const press = (target: Element, type = "pointerdown") =>
+        target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
+    const key = (grid: AVGrid<any>, k: string) =>
+        grid.element.dispatchEvent(
+            new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }),
+        );
+
+    it("renders the documented markup: guides, chevron or stub, then the content host", async () => {
+        const grid = create({ rows: nodes(), columns, treeColumn: treeOf({ m1: true, p1: true }) });
+        await settle();
+
+        const root = labelCell(grid, 0);
+        expect(root.classList.contains("avg-tree-cell")).toBe(true);
+        expect(parts(root)).toEqual(["avg-tree-chevron", "avg-tree-content"]);
+        const chevron = root.firstElementChild as HTMLElement;
+        expect(chevron.getAttribute("data-part")).toBe("tree-chevron");
+        expect(chevron.getAttribute("data-expanded")).toBe("true");
+        // No `onTreeToggle`: the chevron shows the state and is inert.
+        expect(chevron.hasAttribute("data-inert")).toBe(true);
+        expect(root.getAttribute("aria-expanded")).toBe("true");
+        expect(root.querySelector(".avg-tree-content .avg-cell-text")?.textContent).toBe("Market 1");
+
+        const leaf = labelCell(grid, 2);
+        expect(parts(leaf)).toEqual(["avg-tree-indent", "avg-tree-indent", "avg-tree-stub", "avg-tree-content"]);
+        expect(leaf.children[0]!.hasAttribute("data-first")).toBe(true);
+        expect(leaf.children[1]!.hasAttribute("data-first")).toBe(false);
+        expect((leaf.children[0] as HTMLElement).style.width).toBe("16px");
+        expect(leaf.hasAttribute("aria-expanded")).toBe(false);
+
+        const closed = labelCell(grid, 3);
+        expect(closed.firstElementChild!.className).toBe("avg-tree-indent");
+        expect(closed.children[1]!.getAttribute("data-expanded")).toBeNull();
+        expect(closed.getAttribute("aria-expanded")).toBe("false");
+
+        // Other columns are untouched.
+        expect(dataCell(grid, 0)!.classList.contains("avg-tree-cell")).toBe(false);
+    });
+
+    it("chevrons: false removes the slot; a per-row function removes it for the rows it names", async () => {
+        const none = create({
+            rows: nodes(),
+            columns,
+            treeColumn: treeOf({ m1: true }, { chevrons: false, indentSize: 24 }),
+        });
+        await settle();
+        expect(parts(labelCell(none, 0))).toEqual(["avg-tree-content"]);
+        expect(parts(labelCell(none, 2))).toEqual(["avg-tree-indent", "avg-tree-indent", "avg-tree-content"]);
+        expect((labelCell(none, 2).children[0] as HTMLElement).style.width).toBe("24px");
+
+        // The always-expanded first level: roots start flush, their children keep a guide and
+        // a chevron.
+        const roots = create({
+            rows: nodes(),
+            columns,
+            treeColumn: treeOf({ m1: true, p1: true }, { chevrons: (r) => r.depth > 0 }),
+            onTreeToggle: () => {},
+        });
+        await settle();
+        expect(parts(labelCell(roots, 0))).toEqual(["avg-tree-content"]);
+        expect(labelCell(roots, 0).hasAttribute("aria-expanded")).toBe(false);
+        expect(parts(labelCell(roots, 1))).toEqual(["avg-tree-indent", "avg-tree-chevron", "avg-tree-content"]);
+    });
+
+    it("grows and shrinks the gutter in place on a recycled cell, and an unchanged row does no DOM writes", async () => {
+        const grid = create({ rows: nodes(), columns, treeColumn: treeOf({ m1: true, p1: true }) });
+        await settle();
+        const before = labelCell(grid, 0);
+
+        // The same element, re-pointed at a depth-3 folder, then back to depth 1.
+        const deep: Node = { id: "d", label: "Deep", depth: 3, kids: 1 };
+        grid.setRows([deep, ...nodes().slice(1)]);
+        await settle();
+        expect(labelCell(grid, 0)).toBe(before);
+        expect(parts(before)).toEqual([
+            "avg-tree-indent", "avg-tree-indent", "avg-tree-indent", "avg-tree-chevron", "avg-tree-content",
+        ]);
+        grid.setRows([{ ...deep, depth: 1, kids: 0 }, ...nodes().slice(1)]);
+        await settle();
+        expect(parts(before)).toEqual(["avg-tree-indent", "avg-tree-stub", "avg-tree-content"]);
+        expect(before.children[0]!.hasAttribute("data-first")).toBe(true);
+
+        // A full repaint of an unchanged row touches nothing in the cell.
+        const observer = new MutationObserver(() => {});
+        observer.observe(before, { childList: true, attributes: true, subtree: true, characterData: true });
+        grid.refresh();
+        await settle();
+        expect(observer.takeRecords()).toHaveLength(0);
+        observer.disconnect();
+    });
+
+    it("the consumer's render — a string or an Element — lands in the content host beside an intact gutter", async () => {
+        const grid = create({
+            rows: nodes(),
+            columns: [
+                { key: "id" },
+                {
+                    key: "label",
+                    render: (c: any) =>
+                        c.row.depth === 2
+                            ? Object.assign(document.createElement("b"), { textContent: c.row.label })
+                            : `<i class="ico"></i><span class="avg-cell-text">${c.highlight(c.row.label)}</span>`,
+                },
+            ],
+            treeColumn: treeOf({ m1: true, p1: true }),
+            highlightString: "market",
+        });
+        await settle();
+        const root = labelCell(grid, 0);
+        expect(parts(root)).toEqual(["avg-tree-chevron", "avg-tree-content"]);
+        const host = root.querySelector(".avg-tree-content")!;
+        expect(host.querySelector(".ico")).not.toBeNull();
+        // Search highlighting reaches the consumer's markup through `c.highlight`.
+        expect(host.querySelector(".avg-search-match")?.textContent).toBe("Market");
+
+        const leaf = labelCell(grid, 2);
+        expect(leaf.querySelector(".avg-tree-content > b")?.textContent).toBe("Measure");
+        expect(parts(leaf)).toEqual(["avg-tree-indent", "avg-tree-indent", "avg-tree-stub", "avg-tree-content"]);
+    });
+
+    it("a chevron press toggles on pointerdown, moves no focus and is not a cell click; the content zone is an ordinary cell", async () => {
+        const toggles: any[] = [];
+        const clicks: string[] = [];
+        const expanded: Record<string, boolean> = { m1: true, p1: true };
+        const grid = create({
+            rows: nodes(),
+            columns,
+            treeColumn: treeOf(expanded),
+            onTreeToggle: (row, open) => toggles.push([row.id, open]),
+            onCellClick: (c) => clicks.push(String(c.value)),
+        });
+        await settle();
+        const chevron = labelCell(grid, 0).firstElementChild!;
+        expect(chevron.hasAttribute("data-inert")).toBe(false);
+
+        press(chevron);
+        press(chevron, "click");
+        expect(toggles).toEqual([["m1", false]]);
+        expect(grid.getFocus()).toBeUndefined();
+        expect(clicks).toEqual([]);
+
+        // A stub is content: the press lands as a cell press.
+        const stub = labelCell(grid, 2).querySelector(".avg-tree-stub")!;
+        press(stub);
+        expect(toggles).toHaveLength(1);
+        expect(grid.getFocus()?.rowKey).toBe("x1");
+
+        const content = labelCell(grid, 3).querySelector(".avg-tree-content")!;
+        press(content);
+        press(content, "click");
+        expect(grid.getFocus()?.rowKey).toBe("p2");
+        expect(clicks).toEqual(["Payer B"]);
+        expect(toggles).toHaveLength(1);
+    });
+
+    it("repaints the chevron after onTreeToggle even when the host changes no row", async () => {
+        const expanded: Record<string, boolean> = { m1: true, p1: true };
+        const grid = create({
+            rows: nodes(),
+            columns,
+            treeColumn: treeOf(expanded),
+            onTreeToggle: (row, open) => {
+                expanded[row.id] = open; // and no setRows
+            },
+        });
+        await settle();
+        const chevron = labelCell(grid, 0).firstElementChild!;
+        press(chevron);
+        await settle();
+        expect(chevron.getAttribute("data-expanded")).toBeNull();
+        expect(labelCell(grid, 0).getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("→ expands a collapsed folder and ← collapses an expanded one; everything else navigates", async () => {
+        const toggles: any[] = [];
+        const expanded: Record<string, boolean> = { m1: true, p1: true };
+        const grid = create({
+            rows: nodes(),
+            columns,
+            treeColumn: treeOf(expanded),
+            onTreeToggle: (row, open) => {
+                expanded[row.id] = open;
+                toggles.push([row.id, open]);
+            },
+        });
+        await settle();
+        const focusOn = (rowKey: string) =>
+            grid.setFocus({ rowKey, columnKey: "label", isDragging: false });
+
+        focusOn("m1"); // expanded folder
+        key(grid, "ArrowLeft");
+        expect(toggles).toEqual([["m1", false]]);
+        expect(String(grid.getFocus()?.columnKey)).toBe("label");
+        key(grid, "ArrowLeft"); // now collapsed: navigates
+        expect(toggles).toHaveLength(1);
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+
+        focusOn("p2"); // collapsed folder
+        key(grid, "ArrowRight");
+        expect(toggles.at(-1)).toEqual(["p2", true]);
+        expect(String(grid.getFocus()?.columnKey)).toBe("label");
+        key(grid, "ArrowRight"); // now expanded: navigates
+        expect(String(grid.getFocus()?.columnKey)).toBe("kids");
+
+        focusOn("x1"); // a leaf: both arrows navigate
+        key(grid, "ArrowRight");
+        expect(String(grid.getFocus()?.columnKey)).toBe("kids");
+        focusOn("x1");
+        key(grid, "ArrowLeft");
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+        expect(toggles).toHaveLength(2);
+    });
+
+    it("without onTreeToggle there is no gesture: the arrows navigate and a chevron press is a cell press", async () => {
+        const grid = create({ rows: nodes(), columns, treeColumn: treeOf({ m1: true }) });
+        await settle();
+        grid.setFocus({ rowKey: "m1", columnKey: "label", isDragging: false });
+        key(grid, "ArrowLeft");
+        expect(String(grid.getFocus()?.columnKey)).toBe("id");
+
+        press(labelCell(grid, 0).firstElementChild!);
+        expect(grid.getFocus()?.rowKey).toBe("m1");
+        expect(labelCell(grid, 0).getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("copies the path, and a column copyValue wins over it", async () => {
+        const grid = create({
+            rows: nodes(),
+            columns,
+            treeColumn: treeOf({ m1: true, p1: true }, { path: (r) => `ROOT › ${r.id.toUpperCase()}` }),
+        });
+        await settle();
+        grid.selectRange(2, LABEL_COL, 2, LABEL_COL);
+        expect(grid.getSelectionText()).toBe("ROOT › X1");
+
+        const own = create({
+            rows: nodes(),
+            columns: [{ key: "id" }, { key: "label", copyValue: () => "mine" }],
+            treeColumn: treeOf({}, { path: (r) => r.id }),
+        });
+        await settle();
+        own.selectRange(0, 1, 0, 1);
+        expect(own.getSelectionText()).toBe("mine");
+
+        // Without `path`, the displayed text — never indentation.
+        const plain = create({ rows: nodes(), columns, treeColumn: treeOf({ m1: true, p1: true }) });
+        await settle();
+        plain.selectRange(2, LABEL_COL, 2, LABEL_COL);
+        expect(plain.getSelectionText()).toBe("Measure");
+    });
+
+    it("mounts an editor over the content zone, leaving the gutter in place", async () => {
+        const grid = create({ rows: nodes(), columns, editable: true, treeColumn: treeOf({ m1: true, p1: true }) });
+        await settle();
+        grid.startEdit(2, LABEL_COL);
+        await settle();
+        const cell = labelCell(grid, 2);
+        const editor = cell.querySelector('[data-type="cell-editor"]');
+        expect(editor?.parentElement?.className).toBe("avg-tree-content");
+        expect(parts(cell)).toEqual(["avg-tree-indent", "avg-tree-indent", "avg-tree-stub", "avg-tree-content"]);
+        grid.cancelEdit();
+        await settle();
+        expect(cell.querySelector(".avg-tree-content .avg-cell-text")?.textContent).toBe("Measure");
+    });
+
+    it("validates at create() and at setOptions(), and leaves the grid as it was on a bad update", async () => {
+        expect(() =>
+            create({ rows: nodes(), columns, treeColumn: { ...treeOf({}), key: "nope" } }),
+        ).toThrow(/Unknown column "nope" in `treeColumn\.key`\. Available columns: id, label, kids\./);
+        expect(() =>
+            create({ rows: nodes(), columns, selectColumn: true, treeColumn: { ...treeOf({}), key: "--select-column--" } }),
+        ).toThrow(/Unknown column "--select-column--"/);
+        expect(() =>
+            create({ rows: nodes(), columns, treeColumn: { ...treeOf({}), depth: 2 as any } }),
+        ).toThrow(/`treeColumn\.depth` must be a function of the row, but was a number/);
+        expect(() =>
+            create({ rows: nodes(), columns, treeColumn: treeOf({}), onTreeToggle: true as any }),
+        ).toThrow(/`onTreeToggle` must be a function/);
+        expect(() =>
+            create({ rows: nodes(), columns, treeColumn: { ...treeOf({}), chevrons: "no" as any } }),
+        ).toThrow(/`treeColumn\.chevrons` must be a boolean or a function/);
+
+        const grid = create({ rows: nodes(), columns, treeColumn: treeOf({ m1: true }) });
+        await settle();
+        expect(() => grid.setOptions({ treeColumn: { ...treeOf({}), key: "nope" } })).toThrow(/Unknown column "nope"/);
+        expect((grid as any).model.options.treeColumn?.key).toBe("label");
+
+        // A hidden tree column is legal and draws nothing.
+        expect(() =>
+            grid.setOptions({ columns: [{ key: "id" }, { key: "label", hidden: true }], treeColumn: treeOf({}) }),
+        ).not.toThrow();
+        // And the option comes off again.
+        grid.setOptions({ columns, treeColumn: undefined });
+        await settle();
+        expect(labelCell(grid, 0).classList.contains("avg-tree-cell")).toBe(false);
+        expect(labelCell(grid, 0).hasAttribute("aria-expanded")).toBe(false);
+        expect(labelCell(grid, 0).querySelector(".avg-tree-content")).toBeNull();
     });
 });
 

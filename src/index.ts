@@ -24,6 +24,7 @@ export type {
     ViewportSnapshot,
 } from "./AVGrid";
 export type { AVGridOptions, ResolvedOptions } from "./options";
+export type { TreeColumnOptions } from "./types";
 export { CALLBACK_OPTION_KEYS, PAINT_PATH_CALLBACK_KEYS } from "./options";
 export type { CallbackOptionKey } from "./options";
 export { AVGridError } from "./validate";

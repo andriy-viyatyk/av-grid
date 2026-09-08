@@ -126,6 +126,11 @@ export class CopyPasteModel<R> {
             return column.copyValue(this.cellContext(column, row, rowIndex, colIndex));
         }
 
+        // A tree cell copies its `path` — `PENN › AETNA`, never indentation. After `copyValue`,
+        // which is the host's word everywhere; before the displayed text, which is the default.
+        const path = this.model.models.tree.pathOf(column, row);
+        if (path !== undefined) return path;
+
         if (column.formatValue || column.displayFormat || !column.render) {
             return columnDisplayValue(column, row);
         }

@@ -283,6 +283,12 @@ export class GridInteractions<R> {
      * events also mean the header's column-reorder drag and the cells' selection drag no
      * longer share one event stream that each has to filter itself out of.
      */
+    /** The tree chevron slot under an event target, if the target is inside one in this grid. */
+    private treeChevronAt(target: EventTarget | null): Element | null {
+        const slot = (target as Element | null)?.closest?.('[data-part="tree-chevron"]') ?? null;
+        return slot && this.root.contains(slot) ? slot : null;
+    }
+
     private onCellPointerDown = (e: PointerEvent): void => {
         const cell = this.dataCellAt(e.target);
         if (!cell) return;
@@ -296,6 +302,19 @@ export class GridInteractions<R> {
         // follows is still delivered, and is what toggles the checkbox. A column that is
         // merely pinned left is data — focus and range selection work from it (task 53).
         if (isChromeColumn(context.column)) return;
+
+        // The tree chevron, resolved on the press for the same reason the boolean box below is:
+        // a real press repaints the cell before `click` arrives. Toggling moves no focus and
+        // starts no drag — the host is about to rebuild its rows. A chevron with no gesture
+        // (no `onTreeToggle`, or a stub) is ordinary content: the press falls through.
+        if (
+            e.button === 0 &&
+            this.treeChevronAt(e.target) &&
+            this.model.models.tree.toggle(context.row, cell.row)
+        ) {
+            e.preventDefault();
+            return;
+        }
 
         // Read before sending: `FocusModel` listens too, and moves the focus onto this cell.
         const focus = this.model.models.focus.focus;
@@ -713,6 +732,13 @@ export class GridInteractions<R> {
                     this.model.models.selected.toggleSelected(context.rowKey);
                     return;
                 }
+                // The press already toggled; the click that follows is not a cell click.
+                if (
+                    this.treeChevronAt(e.target) &&
+                    this.model.models.tree.canToggle(context.row)
+                ) {
+                    return;
+                }
                 this.model.events.cell.onClick.send({
                     e,
                     row: context.row,
@@ -728,6 +754,11 @@ export class GridInteractions<R> {
     private onDoubleClick = (e: MouseEvent): void => {
         const cell = this.dataCellAt(e.target);
         if (!cell) return;
+        // Two quick chevron presses are two toggles, not an editor.
+        if (this.treeChevronAt(e.target)) {
+            const context = this.model.cellContext(cell.row, cell.col);
+            if (context && this.model.models.tree.canToggle(context.row)) return;
+        }
         const context = this.model.cellContext(cell.row, cell.col);
         if (!context) return;
 
@@ -896,10 +927,10 @@ export class GridInteractions<R> {
 
     private onDragStart = (e: DragEvent): void => {
         const header = this.headerAt(e.target);
-        // No reordering while column groups are shown — a grouped order is a prepared view
+        // No reordering while column groups are shown or `disableColumnReorder` is on
         // (`HeaderCell` also stops setting `draggable`; this catches a drag already primed
-        // when the groups appeared mid-gesture).
-        if (!header || this.resizing || this.model.data.hasGroups) {
+        // when either condition arrived mid-gesture).
+        if (!header || this.resizing || !this.model.reorderEnabled()) {
             e.preventDefault();
             return;
         }
@@ -928,8 +959,8 @@ export class GridInteractions<R> {
 
     private reorderAllowed(sourceKey: string, targetKey: string | undefined): boolean {
         if (targetKey === undefined) return false;
-        // Groups that appeared while a drag was in flight refuse its drop, too.
-        if (this.model.data.hasGroups) return false;
+        // Groups, or the option, that appeared while a drag was in flight refuse its drop, too.
+        if (!this.model.reorderEnabled()) return false;
         return this.columnBand(sourceKey) === this.columnBand(targetKey);
     }
 

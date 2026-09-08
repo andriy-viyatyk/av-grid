@@ -117,9 +117,10 @@ export function renderHeaderCell<R>(
     // Pinning is positional, so *no* pinned column can be dragged — left or right, chrome or
     // data — but a right-pinned column may still reorder within its own band, which is why
     // draggability keys off the left band only ("GridInteractions" refuses a drop that would
-    // cross a band boundary). While column groups are shown, reordering is off for every
-    // column: a grouped order is a prepared view (see "Column.group").
-    el.draggable = !pinnedLeft && !model.data.hasGroups;
+    // cross a band boundary). While column groups are shown, or when the host says so
+    // (`disableColumnReorder`), reordering is off for every column — `reorderEnabled()` is the
+    // one place both conditions live.
+    el.draggable = !pinnedLeft && model.reorderEnabled();
 
     // --- sort indicator
     const sortList = sortAsList(model.state.get().sort);

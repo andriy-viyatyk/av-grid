@@ -294,6 +294,63 @@ describe("the option diff lane", () => {
         expect(made).toHaveLength(1);
     });
 
+    it("carries the phase-17 option — disableColumnReorder — with no wrapper change", async () => {
+        const made = spyOnCreate();
+        const view = render(
+            <AVGridReact<Row> rows={rows} columns={columns} disableColumnReorder />,
+        );
+        const grid = made.at(-1)!;
+        const draggable = () =>
+            Array.from(grid.element.querySelectorAll('[data-type="header-cell"]')).map(
+                (el) => (el as HTMLElement).draggable,
+            );
+        expect(draggable().some(Boolean)).toBe(false);
+
+        const setOptions = vi.spyOn(grid, "setOptions");
+        view.rerender(<AVGridReact<Row> rows={rows} columns={columns} />);
+        // The prop disappeared: lane 3 sends `undefined`, the default (reorder on) is back.
+        expect(setOptions).toHaveBeenCalledTimes(1);
+        expect(setOptions).toHaveBeenCalledWith({ disableColumnReorder: undefined });
+        await settle();
+        expect(draggable().every(Boolean)).toBe(true);
+        expect(made).toHaveLength(1);
+    });
+
+    it("carries treeColumn on lane 3 and onTreeToggle as a presence-sensitive option", async () => {
+        const made = spyOnCreate();
+        type Node = Row & { depth: number; kids: number };
+        const tree = {
+            key: "name",
+            depth: (r: Node) => r.depth,
+            hasChildren: (r: Node) => r.kids > 0,
+            expanded: () => true,
+        };
+        const nodes = rows.map((r, i) => ({ ...r, depth: i % 2, kids: i === 0 ? 1 : 0 })) as Node[];
+        const cols = columns as unknown as Column<Node>[];
+        const view = render(<AVGridReact<Node> rows={nodes} columns={cols} treeColumn={tree} />);
+        const grid = made.at(-1)!;
+        const chevron = () =>
+            grid.element.querySelector('[data-column-key="name"] [data-part="tree-chevron"]')!;
+        expect(chevron().hasAttribute("data-inert")).toBe(true);
+
+        // The same object again: nothing is sent.
+        const setOptions = vi.spyOn(grid, "setOptions");
+        view.rerender(<AVGridReact<Node> rows={nodes} columns={cols} treeColumn={tree} />);
+        expect(setOptions).not.toHaveBeenCalled();
+
+        // A new object, and the gesture arriving: one diffed setOptions carrying both.
+        const tree2 = { ...tree };
+        const onTreeToggle = () => {};
+        view.rerender(
+            <AVGridReact<Node> rows={nodes} columns={cols} treeColumn={tree2} onTreeToggle={onTreeToggle} />,
+        );
+        expect(setOptions).toHaveBeenCalledTimes(1);
+        expect(setOptions).toHaveBeenCalledWith({ treeColumn: tree2, onTreeToggle });
+        await settle();
+        expect(chevron().hasAttribute("data-inert")).toBe(false);
+        expect(made).toHaveLength(1);
+    });
+
     it("sends undefined for a prop that disappeared, and the option goes back to its default", () => {
         const made = spyOnCreate();
         const view = render(

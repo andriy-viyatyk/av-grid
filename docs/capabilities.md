@@ -37,6 +37,7 @@ Each subsystem has its own gate, and each is about the shape of the cost rather 
 | **Structure** (14) | Inserting a row *above* the viewport at row 90,000 mutates **0 DOM nodes** and keeps both the scroll position and the focus — after fixing a focus-recentre that was moving the viewport 261 px behind the user's back |
 | **Filtering** (15) | 100k rows down: **5.9 ms, 1 repaint, 0 mutations**. Back up: nothing at all. Searching a computed column costs **+8.7%**, because it puts a host callback inside the row loop |
 | **Popovers** (16) | Opening one over 100,000 rows marks **1 cell dirty** and mutates **0 DOM nodes**, whether the column has five distinct values or a hundred thousand |
+| **Tree column** (59) | 10,520 tree rows fully expanded: the gutter costs **1.01×** the same grid without it per scroll frame (0.121 against 0.121 ms), a full repaint does **0 mutations** inside a row's gutter, a chevron press through the real `pointerdown` costs **0.9 ms** including the host's re-flatten |
 | **Context menu** | Opening one marks **0** things and mutates **0** DOM nodes; **2.3 ms with every row selected against 2.9 ms with one**, because `e.selection` is a getter nothing built-in reads |
 | **Teardown** | 100 create/destroy cycles leak **0 DOM nodes** and leave **100/100 grids collectable**, at 6.5 ms a cycle |
 
@@ -45,7 +46,8 @@ Each subsystem has its own gate, and each is about the shape of the cost rather 
 ## The grid itself
 
 `AVGrid.create(el, { rows })` renders a real grid — columns, header labels, widths, row keys and
-data types all inferred — with header sorting, column resize and reorder, custom cell renderers, a
+data types all inferred — with header sorting, column resize and reorder (`disableColumnReorder`
+turns the drag off by the host's choice), custom cell renderers, a
 search filter, cell focus, full keyboard navigation, range selection by drag or by shift, row
 selection through a checkbox column, in-cell editing, Excel-compatible clipboard copy/cut/paste,
 rows and columns added and deleted by button, keyboard or API, column filters, and a stylesheet
@@ -205,6 +207,34 @@ Measured on 100,000 rows (`measureMultiSort` on AVGridBoard): a two-level sort c
 against 66.4 ms single-level (1.5×)**, the gesture verified end to end through the real header,
 and the 100k gate re-run on the same bundle is unmoved (first paint 2.3 ms, 0.84×, 60/60 fps,
 0-mutation full repaint).
+
+---
+
+## Tree column
+
+**`treeColumn` is the gutter, not the engine.** One column gets `depth` indent guides and a
+chevron or an equally wide stub in front of its ordinary content — the default text, `formatValue`,
+or the host's `render` (string or element) with its icon, label and action buttons. The host's rows
+are already flat and in display order; the grid reads three values off each row and never decides
+which rows exist. That keeps *"the host owns the row set"* intact and keeps tree-aware sort and
+filter semantics — a phase, not a task — out of the library; the docs say to pass `disableSorting`
+and pair with `externalFilter`.
+
+**The gesture follows the callback.** With `onTreeToggle`, a chevron press (resolved on
+`pointerdown`, the third invariant) and `→` / `←` on the focused tree cell ask the host for the
+other state and repaint that row; without it the chevrons are inert and the arrows navigate as on
+any cell — they never go dead. `chevrons` removes the slot for the grid or per row, which is how an
+always-expanded first level starts flush at the cell edge. A tree cell copies its `path`, never
+indentation; the editor mounts over the content zone and the gutter stays.
+
+**Pooling-safe by construction.** The gutter is synced in place — a cell recycled from depth 8 to
+depth 2 loses six guides, the slot is swapped, nothing is rebuilt — and the content host follows the
+same rules every cell follows (`written` skips an unchanged `render` string). Measured on
+AVGridBoard (`measureTree`, 10,520 rows fully expanded, a pinned-left tree column beside grouped
+columns): first paint 8.1 ms, scroll paint **0.121 ms at the top against 0.121 ms without the
+gutter (1.01×)**, **0 mutation records inside a row's gutter across a full repaint**, a real chevron
+press 0.9 ms with the host's re-flatten of 10k rows inside it, and all 14 shape, gesture, keyboard,
+copy and static-shape checks pass.
 
 ---
 

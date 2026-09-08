@@ -24,11 +24,12 @@ import type { RenderCellParams, RenderedCell } from "../render/types";
 import type { AVGridModel } from "../model/AVGridModel";
 import type { CellContext, Column } from "../types";
 import { columnDisplayValue, formatDisplayValue, gridBoolean } from "../gridUtils";
-import { checkedIcon, checkIcon, uncheckedIcon } from "./icons";
+import { checkedIcon, checkIcon, chevronRightIcon, uncheckedIcon } from "./icons";
+import type { TreeGutter } from "../model/TreeColumnModel";
 import { appendClass, applyCellStyle, setText } from "./cellDom";
 import { highlightMarkup } from "../highlight";
 
-type ContentMode = "text" | "bool" | "html" | "node" | "editor" | "match";
+type ContentMode = "text" | "bool" | "html" | "node" | "editor" | "match" | "tree";
 
 /**
  * The shapes a boolean cell takes, as constant markup.
@@ -119,9 +120,107 @@ function setMode(el: HTMLElement, next: ContentMode, dataType = "data-cell"): bo
     if (current === next && el.getAttribute("data-type") === dataType) {
         return false;
     }
+    // A pooled element leaving tree mode drops the gutter's record and its ARIA state with it;
+    // everything else about a tree cell is reassembled on every paint (`className`) or lives in
+    // the children the clear below removes.
+    if (current === "tree") {
+        treeState.delete(el);
+        el.removeAttribute("aria-expanded");
+    }
     el.textContent = "";
     mode.set(el, next);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// The tree gutter (task 59)
+// ---------------------------------------------------------------------------
+
+/**
+ * What a tree cell's element currently holds, so an unchanged row does zero DOM writes. The
+ * children are, in order: `depth` indent guides, the chevron slot (unless `none`), then the
+ * content host that the ordinary content branches write into.
+ */
+interface TreeCellState {
+    depth: number;
+    chevron: TreeGutter["chevron"];
+    interactive: boolean;
+    indentSize: number;
+    host: HTMLElement;
+}
+
+const treeState = new WeakMap<HTMLElement, TreeCellState>();
+
+/**
+ * Bring a tree cell's gutter to `g` in place — grow or shrink the guide list, swap the slot —
+ * and return the content host. The pattern is Persephone's `TreeIndents.sync`: a cell recycled
+ * from depth 8 to depth 2 loses six guides rather than hiding them, and nothing is rebuilt
+ * wholesale, which is what keeps the second invariant's repaint skip true for the part av-grid
+ * controls. The consumer's content, one level down, costs what every `render` column costs.
+ */
+function syncTreeGutter(el: HTMLElement, g: TreeGutter, indentSize: number): HTMLElement {
+    let state = treeState.get(el);
+    if (setMode(el, "tree") || !state) {
+        const host = document.createElement("div");
+        host.className = "avg-tree-content";
+        el.appendChild(host);
+        state = { depth: 0, chevron: "none", interactive: false, indentSize, host };
+        treeState.set(el, state);
+    }
+
+    // Guides. The first keeps `data-first` for the stylesheet; removal takes the last, so the
+    // marker never drifts.
+    while (state.depth > g.depth) {
+        el.children[state.depth - 1]?.remove();
+        state.depth--;
+    }
+    while (state.depth < g.depth) {
+        const guide = document.createElement("div");
+        guide.className = "avg-tree-indent";
+        guide.setAttribute("data-part", "tree-indent");
+        if (state.depth === 0) guide.setAttribute("data-first", "");
+        guide.style.width = `${indentSize}px`;
+        el.insertBefore(guide, el.children[state.depth] ?? null);
+        state.depth++;
+    }
+    if (state.indentSize !== indentSize) {
+        state.indentSize = indentSize;
+        for (let i = 0; i < state.depth; i++) {
+            (el.children[i] as HTMLElement).style.width = `${indentSize}px`;
+        }
+    }
+
+    // The slot: a chevron (open / closed), a stub, or nothing at all.
+    if (state.chevron !== g.chevron || state.interactive !== g.interactive) {
+        let slot = state.chevron === "none" ? null : (el.children[state.depth] as HTMLElement);
+        if (g.chevron === "none") {
+            slot?.remove();
+        } else {
+            if (!slot) {
+                slot = document.createElement("span");
+                slot.setAttribute("data-part", "tree-chevron");
+                el.insertBefore(slot, state.host);
+            }
+            if (g.chevron === "stub") {
+                slot.className = "avg-tree-stub";
+                if (slot.firstChild) slot.textContent = "";
+                slot.removeAttribute("data-expanded");
+                slot.removeAttribute("data-inert");
+            } else {
+                slot.className = "avg-tree-chevron";
+                if (state.chevron === "none" || state.chevron === "stub") {
+                    slot.innerHTML = chevronRightIcon;
+                }
+                if (g.chevron === "open") slot.setAttribute("data-expanded", "true");
+                else slot.removeAttribute("data-expanded");
+                if (g.interactive) slot.removeAttribute("data-inert");
+                else slot.setAttribute("data-inert", "");
+            }
+        }
+        state.chevron = g.chevron;
+        state.interactive = g.interactive;
+    }
+    return state.host;
 }
 
 /**
@@ -159,6 +258,9 @@ export function renderDataCell<R>(
 
     // --- classes -----------------------------------------------------------
     let className = "avg-data-cell" + alignClass(column, value);
+    if (model.options.treeColumn && model.models.tree.isTreeColumn(column)) {
+        className += " avg-tree-cell";
+    }
     if (model.data.hovered.row === dataRow) className += " avg-row-hovered";
     // Two integer comparisons per cell, so a grid with no open editor — every grid, nearly all
     // the time — pays almost nothing for the feature.
@@ -230,15 +332,32 @@ export function renderDataCell<R>(
     el.setAttribute("aria-colindex", String(p.col + 1));
 
     // --- content -----------------------------------------------------------
+    // The tree column (task 59): the gutter is av-grid's and is synced in place; everything
+    // below writes into the content host it returns instead of into the cell — the consumer's
+    // content renders exactly as it would in any other column, one level down.
+    const tree = model.models.tree;
+    let target = el;
+    if (tree.isTreeColumn(column)) {
+        const gutter = tree.gutter(row);
+        target = syncTreeGutter(el, gutter, tree.indentSize);
+        // On the gridcell, where the role allows it; there is no `treeitem` here.
+        if (gutter.chevron === "open" || gutter.chevron === "closed") {
+            el.setAttribute("aria-expanded", gutter.chevron === "open" ? "true" : "false");
+        } else if (el.hasAttribute("aria-expanded")) {
+            el.removeAttribute("aria-expanded");
+        }
+    }
+
     if (isEditing) {
         const editor = editing.editorElement();
         if (editor) {
             // Only when it is not already here: re-parenting an input is what would destroy
             // the caret, the text selection and any IME composition in flight. A repaint of
-            // the editing cell — a hover, a selection change — must be free.
-            if (editor.parentElement !== el) {
-                setMode(el, "editor");
-                el.appendChild(editor);
+            // the editing cell — a hover, a selection change — must be free. On a tree cell the
+            // editor mounts over the content zone, so the gutter stays visible while typing.
+            if (editor.parentElement !== target) {
+                setMode(target, "editor");
+                target.appendChild(editor);
                 editing.editorMounted();
             }
             applyCellStyle(el, p.style);
@@ -257,22 +376,22 @@ export function renderDataCell<R>(
             // Through the wrapper like every other text write, so that "the element is in `text`
             // mode" always means "the element holds a wrapper" — one fewer state for the next
             // reader, and for the branch below, to have to know about.
-            setCellText(el, "", setMode(el, "text"));
+            setCellText(target, "", setMode(target, "text"));
         } else if (typeof rendered === "string") {
             // `setMode` returning true means it cleared the element, so the record of what was
             // written no longer describes it.
-            if (setMode(el, "html")) written.delete(el);
-            if (written.get(el) !== rendered) {
-                el.innerHTML = rendered;
-                written.set(el, rendered);
+            if (setMode(target, "html")) written.delete(target);
+            if (written.get(target) !== rendered) {
+                target.innerHTML = rendered;
+                written.set(target, rendered);
             }
         } else {
-            setMode(el, "node");
-            el.textContent = "";
-            el.appendChild(rendered);
+            setMode(target, "node");
+            target.textContent = "";
+            target.appendChild(rendered);
         }
     } else if (column.dataType === "boolean") {
-        setMode(el, "bool");
+        setMode(target, "bool");
         const checked = gridBoolean(value);
         // The glyph is chosen per *cell*, not per row: a row-wide swap would frame a box in every
         // boolean column at once when only one of them is under the pointer. `hovered.col` is
@@ -293,7 +412,7 @@ export function renderDataCell<R>(
         } else {
             wanted = checked ? BOX_ON : BOX_OFF;
         }
-        if (el.innerHTML !== wanted) el.innerHTML = wanted;
+        if (target.innerHTML !== wanted) target.innerHTML = wanted;
     } else {
         const text = displayText(column, row, value);
         // The search words are already split and lowercased on `data` — this is a length check
@@ -301,14 +420,14 @@ export function renderDataCell<R>(
         const words = model.data.searchWords;
         const markup = words.length ? highlightMarkup(text, words) : null;
         if (markup === null) {
-            setCellText(el, text, setMode(el, "text"));
+            setCellText(target, text, setMode(target, "text"));
         } else {
             // See `written` for why this compares against the last assignment rather than
             // against `innerHTML`.
-            if (setMode(el, "match")) written.delete(el);
-            if (written.get(el) !== markup) {
-                el.innerHTML = markup;
-                written.set(el, markup);
+            if (setMode(target, "match")) written.delete(target);
+            if (written.get(target) !== markup) {
+                target.innerHTML = markup;
+                written.set(target, markup);
             }
         }
     }

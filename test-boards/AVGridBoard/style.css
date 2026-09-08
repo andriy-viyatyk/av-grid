@@ -54,6 +54,28 @@ input {
 }
 
 input[type="number"] { width: 90px; }
+.field.check { gap: 6px; cursor: pointer; }
+
+/*
+ * Task 59. The tree column's *content* is the host's — this is the icon, the label and the
+ * action button the board's `render` puts after the grid's gutter. The gutter itself (guides,
+ * chevron) is styled by the library; nothing here touches it.
+ */
+.grid-host .tree-ico { flex: 0 0 auto; width: 14px; margin-right: 4px; opacity: 0.6; text-align: center; }
+.grid-host .tree-act {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 0 4px;
+    font-size: 11px;
+    line-height: 16px;
+    border: 1px solid var(--avg-border-color, #999);
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0;
+}
+.grid-host .avg-row-hovered .tree-act, .grid-host .avg-focused .tree-act { opacity: 0.8; }
 
 button {
     font: inherit;

@@ -25,7 +25,9 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-09.md`](tasks/plan-done-09.md) | The finished plan for phase 13, task 53: `pinned: "left"` as a data column — sticky split from chrome. **Its decision log applies too** — it supersedes the phase-10 equivalence rule |
 | [`tasks/plan-done-10.md`](tasks/plan-done-10.md) | The finished plan for phase 14, tasks 54–55: `blank` / `notBlank` on the built-in `"text"` filter (opt-in chips via `textFilterOps`) and `filterLabel`. **Its decision log applies too** |
 | [`tasks/plan-done-11.md`](tasks/plan-done-11.md) | The finished plan for phase 15, task 56: the text filter's input read-only and cleared under a text-free operator, and `avg-text-filter-text-unused` into the DOM contract. **Its decision log applies too** — it refines `plan-done-10.md` decision 5 |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 16, task 57: a filter or a sort on a `hidden` column must survive the column being hidden (a defect — `FiltersModel` and `setSort` validate against the visible column set). Read the archived decision logs before starting anything |
+| [`tasks/plan-done-12.md`](tasks/plan-done-12.md) | The finished plan for phase 16, task 57: a filter or a sort on a `hidden` column survives the column being hidden — identity resolves over the full column set (`ColumnsModel.columnByKey`), geometry over the visible one. **Its decision log applies too** |
+| [`tasks/plan-done-13.md`](tasks/plan-done-13.md) | The finished plan for phase 17, tasks 58–59: `disableColumnReorder` (header drag-reorder off by host choice, one predicate for the three reorder gates) and `treeColumn` (the tree *gutter* on one column in front of the column's ordinary content, over a host-derived flat row list; the gesture exists only with `onTreeToggle`). **Its decision log applies too** — including the review claims it corrects |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 18, no open tasks yet: the standing rules and the five open questions. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -35,13 +37,10 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 16, holding **task 57**: a filter or
-a sort on a `hidden` column must survive the column being hidden. Today `FiltersModel` and `setSort`
-validate against the *visible* column set while construction validates against the full one, so a
-host echoing `{ columns, filters }` back after hiding a filtered column gets
-``Unknown column "…" in `filters[0]` `` — under React a render-phase throw. The plan also carries
-the standing rules and three open questions (control-size tokens for the popovers' inputs; a
-grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips).
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 18, with no task written yet. It
+carries the standing rules and five open questions (control-size tokens for the popovers' inputs; a
+grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips; a runtime
+setter that degrades instead of throwing; a tree row engine in the library).
 (Plan 09's earlier open questions 1–5 were removed at a consumer's request, 2026-09-01 —
 handled consumer-side; the git history and the archived logs keep them if re-asked.)
 A plan is archived as `plan-done-<nn>.md` once
@@ -162,13 +161,25 @@ at 100k: the state operators cost at or under `contains`; no render-path file ch
 **Phase 15 is done** (task 56, shipped as **2.9.1** — see
 [`tasks/plan-done-11.md`](tasks/plan-done-11.md)): the text filter's input is `readOnly` and cleared
 under *is empty* / *is not empty*, and `avg-text-filter-text-unused` is styled and in the DOM contract.
-**Phase 16 is done** (task 57, shipping as **2.9.2** — see [`tasks/plan.md`](tasks/plan.md)): **a
-filter or a sort on a `hidden` column survives the column being hidden.** A filter's or a sort's
+**Phase 16 is done** (task 57, shipped as **2.9.2** — see
+[`tasks/plan-done-12.md`](tasks/plan-done-12.md)): **a filter or a sort on a `hidden` column
+survives the column being hidden.** A filter's or a sort's
 *identity* now resolves over the full column set through `ColumnsModel.columnByKey` — `FiltersModel`,
 `setSort`, `SortColumnModel` and `describeFilter` — while `data.columns` stays the geometry; a hidden
 column matches and sorts exactly as a shown one (its `formatValue` / `filter` definition, its
 `sortValue` / `rowCompare`), and `searchString` stays over the visible columns, which is why
 `filterRows` gained an optional trailing `filterColumns`. The unknown-column error is unchanged.
+**Phase 17 is done** (tasks 58–59, shipped as **2.10.0** on 2026-09-08 — see
+[`tasks/plan-done-13.md`](tasks/plan-done-13.md)). **`disableColumnReorder`** takes header
+drag-reorder off by the host's choice through one model predicate the three reorder gates share;
+sort, filter, resize and `hidden` are untouched and it flips live. **`treeColumn`** is the tree
+*gutter* on one column — indent guides and a chevron or stub, synced in place on the pooled cell —
+in front of the column's **ordinary content** (`render`, `formatValue`, the default text) in an
+`avg-tree-content` host; the host owns the flat row list and the expanded state, the gesture exists
+only with `onTreeToggle` (a presence-sensitive option, lane 3 under React), `chevrons` removes the
+slot for the grid or per row, `→` / `←` toggle only where that changes state and otherwise navigate,
+and a tree cell copies its `path`. Measured: the gutter costs 1.01× per scroll frame, 0 gutter
+mutations on repaint. The tree *engine* stays a non-goal (`goal.md`, open question 5).
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

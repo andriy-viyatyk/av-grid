@@ -177,6 +177,56 @@ export interface GridCellParams<R = any> extends RenderCellParams {
 // Columns
 // ---------------------------------------------------------------------------
 
+/**
+ * The tree gutter on one column — `AVGridOptions.treeColumn`.
+ *
+ * av-grid draws the **gutter**: `depth` indent guides, then a chevron (a row with children) or an
+ * equally wide stub (a leaf, so labels align), driven by three values read off the row. The
+ * **content** after the gutter is the column's ordinary rendering — the default text with search
+ * highlighting, `formatValue`, or `render` returning a string or an element — so the icon, the
+ * label and any action buttons are yours, through the hooks every column already has.
+ *
+ * The host's rows are already flat and in display order; the grid changes nothing about which rows
+ * exist. Expand / collapse is a gesture only when `onTreeToggle` is set — without it the tree is a
+ * static, indented view whose chevrons show open / closed and do nothing.
+ *
+ * ```js
+ * treeColumn: {
+ *     key: "dimension",
+ *     depth: (r) => r.depth,
+ *     hasChildren: (r) => r.children > 0,
+ *     expanded: (r) => expanded[r.id],
+ *     chevrons: (r) => r.depth > 0,      // roots always open: no chevron, no slot
+ * },
+ * onTreeToggle: (row, open) => { expanded[row.id] = open; grid.setRows(flatten()); },
+ * ```
+ */
+export interface TreeColumnOptions<R = any> {
+    /** Which column gets the gutter. Must name a column in `columns`; not the select column. */
+    key: string;
+    /** 0 for a root row. One indent guide per level. */
+    depth: (row: R) => number;
+    /** `true` draws a chevron; `false` an equally wide stub, so leaves align under folders. */
+    hasChildren: (row: R) => boolean;
+    /** Which way the chevron points. The host owns the state; the grid only reads it. */
+    expanded: (row: R) => boolean;
+    /** Pixels per level. Default 16. */
+    indentSize?: number;
+    /**
+     * Whether the chevron slot exists — for the grid (`false`: guides only, labels move left by
+     * the slot's width) or per row. A row without a slot has no gesture either: its state is not
+     * the user's to change. Default `true`.
+     *
+     * The common per-row case is a first level that is always expanded: `(r) => depth(r) > 0`.
+     */
+    chevrons?: boolean | ((row: R) => boolean);
+    /**
+     * What a tree cell copies — `PENN › AETNA`, never indentation. Default: the cell's displayed
+     * text. A `copyValue` on the column wins over this, as it does everywhere.
+     */
+    path?: (row: R) => string;
+}
+
 export interface Column<R = any> {
     /** Property name on the row object. Also the column's identity everywhere in the API. */
     key: keyof R | string;

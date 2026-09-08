@@ -313,6 +313,7 @@ you need it.
 | `injectStyles` | `boolean` | `true` | Inject the stylesheet on first use. `false` if you link `av-grid.css` yourself. |
 | `extraElement` | `HTMLElement \| null` | — | One host element placed after the last row, scrolling with the content. See [An element after the last row](#an-element-after-the-last-row). |
 | `footerRows` | `readonly R[]` | — | Rows pinned to the bottom — a grand total, a subtotal band. See [Rows pinned to the bottom](#rows-pinned-to-the-bottom--footerrows). |
+| `treeColumn` | `TreeColumnOptions<R>` | — | A tree gutter — indent guides and a chevron or stub — in front of one column's ordinary content, over rows the host has already flattened. See [Tree column](#tree-column--treecolumn). |
 | `footerRowClass` | `(row: RowContext<R>) => ClassValue` | — | Extra class names for footer-row cells, alongside `avg-footer-cell`. `rowIndex` is the index into `footerRows`. |
 | `onCellClass` | `(cell: CellContext<R>) => ClassValue` | — | Extra class names for a cell, on top of the built-in state classes. The grid-wide arm of `Column.cellClass`. Data cells only — never a footer cell. |
 | `rowClass` | `(row: RowContext<R>) => ClassValue` | — | Extra class names for every cell of a row — how a whole row is highlighted. Data rows only; footer rows have `footerRowClass`. |
@@ -382,6 +383,7 @@ once per row, so keep it a property read rather than a search.
 | `externalSort` | `boolean` | `false` | The host owns sorting: header clicks, arrows and `onSortChange` keep working, but the grid never reorders the rows. Independent of `externalFilter`. See [Host-owned filtering and sorting](#host-owned-filtering-and-sorting). |
 | `disableSorting` | `boolean` | `false` | |
 | `disableFiltering` | `boolean` | `false` | Take the funnel off every header. One column opts out with `filterType: null`. |
+| `disableColumnReorder` | `boolean` | `false` | Take header drag-reorder off every column. The gesture only: sort, filter, resize and `hidden` keep working, `onColumnsReorder` never fires, `setColumns()` still reorders. For a grid whose column order *is* the data's order — a pivot with one column per period. Flips live. |
 | `filterBar` | `boolean` | `false` | A bar of removable filter chips directly above the grid. Read at `create()`. |
 
 ### Multi-column sort — `multiSort`
@@ -414,6 +416,91 @@ primary column only, per the ARIA recommendation.
 tuple per row), and a level with a `rowCompare` compares rows pairwise as always. Ties at every
 level keep source order — the composite sort is stable.
 
+### Tree column — `treeColumn`
+
+One column gets a **tree gutter**: `depth` indent guides, then a chevron (a row with children) or an
+equally wide stub (a leaf, so labels align under folders). Everything after the gutter is the
+column's **ordinary content** — the default text with search marking, `formatValue`, or `render`
+returning a string or an element — so the icon, the label and any action buttons are yours, through
+the hooks every column already has.
+
+```js
+const expanded = new Set(["north"]);
+const grid = AVGrid.create(el, {
+    rows: flatten(),                       // the host's rows: already flat, already in display order
+    columns: [
+        { key: "label", name: "Dimension", pinned: "left", render: (c) => c.highlight(c.row.label) },
+        { key: "q1" }, { key: "q2" },
+    ],
+    treeColumn: {
+        key: "label",
+        depth: (r) => r.depth,             // 0 for a root row
+        hasChildren: (r) => r.children.length > 0,
+        expanded: (r) => expanded.has(r.id),
+        path: (r) => r.path,               // what a tree cell copies: "North › Aetna", never indentation
+    },
+    // Optional. Leave it out and the tree is a static, indented view.
+    onTreeToggle: (row, open) => {
+        if (open) expanded.add(row.id); else expanded.delete(row.id);
+        grid.setRows(flatten());
+    },
+    disableSorting: true,                  // see below
+});
+```
+
+**The host owns the rows.** `flatten()` above is the host's: walk the source tree, emit a row for
+every node whose ancestors are all expanded. The grid never decides which rows exist; it reads three
+values off each row and draws the gutter. That is the same line `externalFilter` / `externalSort`
+draw — a tree *engine* (hierarchical input, an owned expanded map, sort within siblings, filters
+that keep a matched leaf's ancestors) is deliberately not in the library.
+
+| Field | Type | Notes |
+|---|---|---|
+| `key` | `string` | Which column. Must name a column in `columns` (a hidden one is legal and draws nothing); not the select column. |
+| `depth` | `(row) => number` | One indent guide per level; `0` for a root. |
+| `hasChildren` | `(row) => boolean` | `true`: a chevron. `false`: a stub of the same width, so leaves align with folders. |
+| `expanded` | `(row) => boolean` | Which way the chevron points. Read on every paint — the host's state, never the grid's. |
+| `indentSize` | `number` | Pixels per level. Default `16`. |
+| `chevrons` | `boolean \| (row) => boolean` | Whether the chevron **slot** exists. `false`: guides only, and labels move left by the slot's width. A function decides per row — a first level that is always expanded wants no chevron and no slot on its rows: `(r) => r.depth > 0`. A row without a slot has no gesture either. Default `true`. |
+| `path` | `(row) => string` | The copy value. Default: the cell's displayed text. A `copyValue` on the column wins over it, as everywhere. |
+
+**The gesture follows `onTreeToggle`.** With it, a chevron press calls `onTreeToggle(row,
+!expanded(row))` — on `pointerdown`, moving no focus and starting no drag, and it is not a cell
+click. On the focused tree cell, `→` expands a collapsed folder and `←` collapses an expanded one;
+in every other case — a leaf, the other direction — the arrow moves the focus as on any cell, so
+the keys never go dead on a tree. Without `onTreeToggle` the chevrons still show open / closed (and
+`aria-expanded` still reports it), they are just inert, and both arrows navigate. After calling
+`onTreeToggle` the grid repaints that row itself, so a toggle the host answers with no row change
+(collapsing a folder whose children are all filtered out) still turns the chevron. The precedent is
+`disableSorting`: state shown, affordance off.
+
+**Your content, your affordances.** A `render` on the tree column may put a `<button>` in the
+content zone; it keeps today's rules for every `render` column — a real button holds focus, and
+the click reaches `onCellClick` with the event for you to resolve from `e.target`. Only the chevron
+slot is the grid's. Search marking reaches your markup through `c.highlight()` as usual, and
+`formatValue` is what the search box and the `"text"` filter read — there is deliberately no
+separate tree `label`.
+
+**Sorting and filtering are not tree-aware.** A header sort over a flat tree list would interleave
+levels, so a tree host passes `disableSorting` or sorts within siblings itself; a local filter that
+drops a parent but keeps a child leaves the child orphaned, so tree hosts pair with `externalFilter`
+and filter in their engine. Editing works: an editor on a tree cell mounts over the content zone,
+the gutter stays visible.
+
+**Markup and hooks.** The cell carries `avg-tree-cell`; inside, in order: `depth` ×
+`div.avg-tree-indent[data-part="tree-indent"]` (the first with `data-first`), then — unless the row
+has no slot — `span[data-part="tree-chevron"]` classed `avg-tree-chevron` (with `data-expanded`
+when open and `data-inert` when there is no gesture) or `avg-tree-stub`, then `div.avg-tree-content`
+holding what the column would have rendered on its own. `aria-expanded` sits on the gridcell of a
+row with children. Tokens: `--avg-tree-indent` (the default guide width), `--avg-tree-guide` (the
+guide line, default the grid line), `--avg-tree-chevron` (the chevron colour, default muted text).
+The gutter of an unchanged row is never rewritten: a pooled cell grows or shrinks its guides in
+place.
+
+Under `av-grid/react`, `treeColumn` is a lane-3 prop (a new object repaints, which a toggle needs
+anyway) and `onTreeToggle` is **presence-sensitive**, so it goes through lane 3 too — give it a
+stable identity. See [react-api.md](react-api.md#which-props-are-callbacks).
+
 ### Context menu
 
 | Option | Type | Notes |
@@ -444,6 +531,7 @@ See [The context menu](#the-context-menu).
 | `onColumnsChange` | `(columns: Column<R>[]) => void` | Any change to the column set, whatever caused it. |
 | `onVisibleRowsChange` | `(rows: readonly R[]) => void` | The displayed row set changed — a sort, a filter, or `setRows()`. |
 | `onFocusChange` | `(focus: CellFocus<R> \| undefined) => void` | The focused cell or the range around it changed. Once per cell during a drag, not once per pointer move. |
+| `onTreeToggle` | `(row: R, expanded: boolean) => void` | A tree row's chevron was pressed, or `→` / `←` on its focused tree cell. **Its presence turns the gesture on**; without it the tree is static. See [Tree column](#tree-column--treecolumn). |
 
 `onFocusChange` is named for *cell* focus deliberately: `onSelectionChange` is reserved for row
 selection, which is a different thing.
@@ -728,7 +816,8 @@ takes away is **drag-reorder**: a left-pinned column is fixed in place and no ot
 can be dropped before it (which is what makes "the identity column stays first" free); a
 right-pinned column can be reordered **within its band only** — a drop that would cross a
 band boundary shows no indicator and is refused. A right-pinned column's resize grip sits on
-its **left** edge, because its right edge is anchored to the viewport.
+its **left** edge, because its right edge is anchored to the viewport. To take drag-reorder off
+*every* column by choice rather than by pinning, set `disableColumnReorder: true`.
 
 The typical left case is an identity column — a name, an id — that stays visible while 200
 columns scroll under it:
@@ -793,7 +882,7 @@ The rules, all chosen so the option cannot be half-applied:
 | | |
 |---|---|
 | **Order is normalized** | Columns of one group are gathered together if the array interleaves them — stable, each group anchored where it first appears. `getColumns()` returns the normalized order. |
-| **Reorder is off** | While groups are shown, no header is draggable: a grouped order is a prepared view. Sort, filter, resize and `hidden` all still work — a filter or sort on a hidden column stays applied, see [`hidden`](#hidden); a hidden column just shrinks its group, and hiding all of a group's columns removes its cell. |
+| **Reorder is off** | While groups are shown, no header is draggable: a grouped order is a prepared view (`disableColumnReorder: true` makes that state the host's choice as well as the library's, groups or not). Sort, filter, resize and `hidden` all still work — a filter or sort on a hidden column stays applied, see [`hidden`](#hidden); a hidden column just shrinks its group, and hiding all of a group's columns removes its cell. |
 | **Pinned columns cannot be grouped** | `pinned` (either edge, either spelling) plus `group` is a validation error — the sticky corners keep their plain tall headers. |
 | **Groups do not nest** | Two levels, full stop. |
 | **Affordances stay on the leaf header** | A group cell has no sort, no funnel, no resize grip. It shows its `group` string, or what the hooks below return. |
@@ -1963,6 +2052,7 @@ library's own items from yours.
 | `Shift+` any of the above (not `Tab`) | Extend the range selection |
 | `Ctrl+A` | Select every cell |
 | `Alt+↓` | Open the focused column's filter popover, anchored at its header — the Excel gesture |
+| `→` / `←` on a tree cell | With `onTreeToggle`: expand a collapsed folder / collapse an expanded one. Otherwise, and on a leaf, move one cell as usual — see [Tree column](#tree-column--treecolumn) |
 | Menu key (`≣`) | Open the context menu at the focused cell — the browser fires `contextmenu` on the focused element, and the grid resolves that to the focus |
 
 `↓` on the last row, `Tab` off the last cell, and `Ctrl+→` off the last column each grow the grid
@@ -2116,6 +2206,7 @@ positioned, and their nesting can change.
 | `data-pinned="left" \| "right"` | A pinned column's header cell. On `"right"`, the resize grip moves to the cell's left edge. |
 | `data-type="filter-button"` | The funnel inside a header cell |
 | `data-type="cell-editor"` | The open editor |
+| `data-part="tree-indent"` / `data-part="tree-chevron"` | The tree gutter's guides and chevron slot inside a `treeColumn` cell (classed `avg-tree-cell`); the content follows in `avg-tree-content`. The first guide carries `data-first`; the slot is `avg-tree-chevron` (`data-expanded` when open, `data-inert` when there is no gesture) or `avg-tree-stub`. `aria-expanded` rides on the gridcell. See [Tree column](#tree-column--treecolumn). |
 | `data-avg-action="add-row" \| "add-column"` | The two `+` buttons |
 | `data-avg-slot="content-end"` | The host's `extraElement`, which also carries `avg-extra` |
 | `data-cell-borders="off"` | The root, with `cellBorders: false` |

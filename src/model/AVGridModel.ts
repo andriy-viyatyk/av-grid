@@ -31,6 +31,7 @@ import { RowsModel } from "./RowsModel";
 import { SelectedModel } from "./SelectedModel";
 import { SortColumnModel } from "./SortColumnModel";
 import { StructureModel } from "./StructureModel";
+import { TreeColumnModel } from "./TreeColumnModel";
 
 export interface AVGridState<R = any> {
     /**
@@ -55,6 +56,7 @@ export class AVGridModels<R> {
     readonly editing: EditingModel<R>;
     readonly copyPaste: CopyPasteModel<R>;
     readonly structure: StructureModel<R>;
+    readonly tree: TreeColumnModel<R>;
 
     constructor(model: AVGridModel<R>) {
         // Order matters: `columns` must exist before `rows`, because the first
@@ -76,6 +78,8 @@ export class AVGridModels<R> {
         this.editing = new EditingModel<R>(model);
         this.copyPaste = new CopyPasteModel<R>(model);
         this.structure = new StructureModel<R>(model);
+        // Reads options only; no ordering constraint.
+        this.tree = new TreeColumnModel<R>(model);
     }
 }
 
@@ -133,6 +137,16 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
     requestRepaint = (): void => {
         this.renderModel?.requestRepaint();
     };
+
+    /**
+     * May the user drag headers into a new order? The one answer for the three places that
+     * ask — `HeaderCell` (`draggable`), `GridInteractions.onDragStart` (a drag already primed)
+     * and `GridInteractions.reorderAllowed` (the drop) — so the conditions cannot drift apart.
+     * Off by the host's choice (`disableColumnReorder`) or by the library's rule (a grouped
+     * order is a prepared view). Pinning is a per-column condition and stays with the callers.
+     */
+    reorderEnabled = (): boolean =>
+        !this.options.disableColumnReorder && !this.data.hasGroups;
 
     /**
      * Give the grid keyboard focus.

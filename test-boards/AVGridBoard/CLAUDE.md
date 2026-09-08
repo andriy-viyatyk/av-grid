@@ -71,6 +71,8 @@ await window.avg.measureFooter()          // the task-46 gate: a two-row footer 
 await window.avg.measureGroups()          // the task-47 gate: the two-row header — alignment, once-per-group, 0 band mutations
 await window.avg.measureMultiSort()       // the task-48 gate: two-level sort cost, Ctrl+click gesture, position numbers
 await window.avg.measureKeyboard()        // the task-49 gate: 17 keyboard/ARIA claims; quote allPass
+await window.avg.measureTree()            // the task-59 gate: gutter cost vs no gutter, 0 gutter mutations, chevron press, keys, copy, static shapes; quote allPass
+window.avg.treeGrid({ collapsible, rootsOpen, expandAll })  // the 3-level tree over the host-side engine (`window.avg.tree`)
 window.avg.showPopover({ anchor, tall })  // task 14a: open one; returns its resolved geometry
 window.avg.popoverGeometry()              // placement, rect, insideViewport, contentScrolls
 window.avg.closePopover(result)           // resolves the show() promise with `result`
@@ -110,6 +112,12 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   when it returns, which is the pool trap and is invisible to happy-dom. Note it strips and
   restores the hooks by `setOptions`, so a script that stops halfway leaves the grid unstyled;
   `board_refresh` puts it back.
+- **Task 58 / 59** — the *Reorder off* checkbox flips `disableColumnReorder` live on whichever grid
+  is up (headers lose `draggable`, a `dragstart` is cancelled). *Tree 10k* builds a
+  market › payer › measure tree over a thirty-line host-side engine (`buildTreeEngine`: the source
+  tree, an `expanded` set, `flatten()`), pinned-left tree column with the host's own icon, label and
+  hover action button in the content zone, grouped quarter columns, `disableSorting`. *Tree static*
+  is the same tree with roots always open — no chevron, no slot on depth 0 — and no `onTreeToggle`.
 - **The minimum call** — the *Minimum call* button drops to `AVGrid.create(el, { rows })` and
   shows what inference produces: humanized labels (`firstName` → *First Name*, `id` → *ID*),
   content-based widths, `dataType` and `displayFormat` guesses, inferred row keys.

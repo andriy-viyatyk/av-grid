@@ -763,6 +763,29 @@ export class FocusModel<R> {
         if (!NAVIGATION_KEYS.has(e.key)) return;
         if (!rows.length || !columns.length) return;
 
+        // On the focused tree cell, with the gesture on: `→` expands a collapsed folder and `←`
+        // collapses an expanded one. Every other case — a leaf, the other direction, no
+        // `onTreeToggle` — falls through and the key moves the focus as on any cell.
+        if (
+            (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+            !e.ctrlKey &&
+            !e.shiftKey &&
+            !e.altKey &&
+            this.model.options.treeColumn
+        ) {
+            const row = rows[this.ranges.focusRow];
+            const column = columns[this.ranges.focusCol];
+            if (
+                row !== undefined &&
+                column &&
+                this.model.models.tree.onArrow(row, this.ranges.focusRow, column, e.key)
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+        }
+
         e.preventDefault();
         e.stopPropagation();
 

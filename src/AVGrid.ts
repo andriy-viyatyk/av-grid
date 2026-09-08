@@ -59,6 +59,7 @@ import {
     resolveOptions,
     validateColumns,
     validateSort,
+    validateTreeColumn,
 } from "./validate";
 import type {
     Alignment,
@@ -936,6 +937,18 @@ export class AVGrid<R = any> {
                 this.model.options.externalSort = next;
                 externalChanged = true;
             }
+        }
+
+        // The tree gutter and its gesture, checked against the columns as they will be after
+        // this call — before anything is applied, so a bad option leaves the grid as it was.
+        if ("treeColumn" in options || "onTreeToggle" in options) {
+            validateTreeColumn(
+                "treeColumn" in options ? options.treeColumn : this.model.options.treeColumn,
+                options.columns ?? this.model.options.columns,
+                "onTreeToggle" in options
+                    ? options.onTreeToggle
+                    : this.model.options.onTreeToggle,
+            );
         }
 
         // Order matters: columns first, because row filtering matches against them.

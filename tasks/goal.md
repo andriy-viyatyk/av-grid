@@ -432,8 +432,10 @@ is the deferred item above arriving as the extension point rather than as more b
 hooks on top of behaviour that already works; none of them lets a host reach a state the grid
 could not reach on its own.
 
-**Non-goals:** row grouping, tree/hierarchical data, frozen row groups, pagination, aggregation
-rows, server-side data models. Tabulator covers these; av-grid's differentiator is raw scale,
+**Non-goals:** row grouping, a **tree row engine** (hierarchical input, an owned `expanded` map,
+tree-aware sort and filter — the *gutter* on one column over a host-derived flat row list is in, as
+`treeColumn`, phase 17; the engine stays the host's, see `plan.md` open question 5), frozen row
+groups, pagination, aggregation rows, server-side data models. Tabulator covers these; av-grid's differentiator is raw scale,
 and every feature added is a chance to reintroduce a full-viewport repaint.
 
 ---

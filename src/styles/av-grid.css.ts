@@ -252,11 +252,79 @@ export const css = `
  * unmarked cell beside it — which it does, because now they have the same box. Anything given to
  * this rule must stay layout-neutral for the same reason: no colour, no padding, no font.
  */
-.avg-grid .avg-data-cell > .avg-cell-text {
+.avg-grid .avg-data-cell > .avg-cell-text,
+.avg-grid .avg-tree-content > .avg-cell-text {
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------- tree column */
+
+/*
+ * The tree gutter (treeColumn): depth guides, a chevron or stub slot, then the content host
+ * the column's ordinary content renders into. The guide is drawn centred in its indent rather
+ * than on one edge, so it runs under the parent's chevron; the reference drew a left border on
+ * every guide after the first, at a height that resolved to zero — never seen, not ported.
+ * --avg-tree-indent is the default width only; treeColumn.indentSize writes the width inline.
+ */
+.avg-grid .avg-tree-indent {
+    position: relative;
+    flex: 0 0 auto;
+    width: var(--avg-tree-indent, 16px);
+    height: 100%;
+}
+
+.avg-grid .avg-tree-indent::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    border-left: 1px solid var(--avg-tree-guide, var(--avg-grid-line));
+}
+
+.avg-grid .avg-tree-chevron,
+.avg-grid .avg-tree-stub {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    color: var(--avg-tree-chevron, var(--avg-text-muted));
+}
+
+.avg-grid .avg-tree-chevron:not([data-inert]) {
+    cursor: pointer;
+}
+
+.avg-grid .avg-tree-chevron:not([data-inert]):hover {
+    color: var(--avg-text);
+}
+
+.avg-grid .avg-tree-chevron > svg {
+    transition: transform 120ms ease;
+}
+
+.avg-grid .avg-tree-chevron[data-expanded="true"] > svg {
+    transform: rotate(90deg);
+}
+
+/*
+ * The content zone: a flex item that takes the rest of the cell, positioned so an editor's
+ * inset covers it and not the gutter, and clipping so the text wrapper's ellipsis has a box.
+ */
+.avg-grid .avg-tree-content {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
+    white-space: nowrap;
 }
 
 /*

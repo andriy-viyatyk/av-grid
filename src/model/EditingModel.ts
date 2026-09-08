@@ -539,9 +539,14 @@ export class EditingModel<R> {
         });
     }
 
-    /** Does this cell element currently hold the open editor? One reference comparison. */
+    /**
+     * Does this cell element currently hold the open editor? One reference comparison — two for
+     * a tree cell, whose editor mounts in the content host one level down (`DataCell`).
+     */
     ownsCell(el: HTMLElement): boolean {
-        return this.editor !== undefined && this.editor.element.parentElement === el;
+        if (this.editor === undefined) return false;
+        const parent = this.editor.element.parentElement;
+        return parent === el || (parent !== null && parent.parentElement === el);
     }
 
     /**
