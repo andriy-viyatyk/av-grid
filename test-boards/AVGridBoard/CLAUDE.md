@@ -112,6 +112,12 @@ the grid looks wrong here the bug is in `src/styles/av-grid.css.ts` — which is
   when it returns, which is the pool trap and is invisible to happy-dom. Note it strips and
   restores the hooks by `setOptions`, so a script that stops halfway leaves the grid unstyled;
   `board_refresh` puts it back.
+- **Task 60** — the *Row h* / *Header h* fields apply `rowHeight` / `headerHeight` live to whichever
+  grid is up (a blank header field sends `undefined` = follow the rows); `createGrid` and `treeGrid`
+  read them at build. `measureHeaderHeight()` is the gate: 100k rows at 56px with a three-line
+  `render`, header 26 — flat, then grouped (52 = 2 × 26, the band's bottom edge against the leaf
+  header's top at 0.0px), then the option removed live; plus the scroll cost of the per-row height
+  function against the plain-number baseline.
 - **Task 58 / 59** — the *Reorder off* checkbox flips `disableColumnReorder` live on whichever grid
   is up (headers lose `draggable`, a `dragstart` is cancelled). *Tree 10k* builds a
   market › payer › measure tree over a thirty-line host-side engine (`buildTreeEngine`: the source

@@ -101,7 +101,7 @@ export class GroupHeader<R> {
             this.contentDirty = true;
         }
 
-        const bandHeight = this.model.options.rowHeight;
+        const bandHeight = this.model.headerBand();
         const active = new Set<string>();
         let i = 0;
         while (i < columns.length) {

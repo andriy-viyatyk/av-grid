@@ -183,6 +183,8 @@ export interface AVGridStateSnapshot<R = any> {
     /** The applied column filters, normalized. Empty when nothing is filtered. */
     filters: Filter[];
     rowHeight: number;
+    /** The resolved height of one header band — `headerHeight`, or `rowHeight` when unset. */
+    headerHeight: number;
     /** The focused cell and its range selection. Keys and indices, not rows. */
     focus?: CellFocus<R>;
     /**
@@ -209,8 +211,8 @@ export class AVGrid<R = any> {
     private readonly groupHeader: GroupHeader<R>;
     private readonly dataSubscription: { unsubscribe: () => void };
     /** The cached per-row height function for the two-row header — see `engineRowHeight`. */
-    private groupRowHeightFn?: (row: number) => number;
-    private groupRowHeightBase?: number;
+    private rowHeightFn?: (row: number) => number;
+    private rowHeightFnKey?: string;
     private destroyed = false;
     /** Warn once per grid, not once per stale call — a dead timer can fire a lot. */
     private warnedAfterDestroy = false;
@@ -988,6 +990,9 @@ export class AVGrid<R = any> {
         if ("rowHeight" in rest && rest.rowHeight === undefined) {
             rest.rowHeight = defaultRowHeight;
         }
+        // `headerHeight` deliberately gets no such line: its default is "follow `rowHeight`",
+        // which is what an `undefined` written by `Object.assign` already means — the opposite
+        // of `rowHeight` just above, whose default is a literal.
         Object.assign(this.model.options, rest);
 
         // Showing or hiding the checkbox column changes what the render layer sees, which
@@ -1033,7 +1038,7 @@ export class AVGrid<R = any> {
                 className: ["avg-grid", rest.className].filter(Boolean).join(" "),
             });
         }
-        if ("rowHeight" in rest) {
+        if ("rowHeight" in rest || "headerHeight" in rest) {
             this.render.setOptions({ rowHeight: this.engineRowHeight() });
         }
         if ("fitToWidth" in rest) {
@@ -1130,6 +1135,7 @@ export class AVGrid<R = any> {
             searchString: this.model.options.searchString,
             filters: this.model.models.filters.getFilters(),
             rowHeight: this.model.options.rowHeight,
+            headerHeight: this.model.headerBand(),
             focus: this.model.models.focus.focus,
             selectedCount: this.model.models.selected.count,
             allSelected: this.model.models.selected.allSelected,
@@ -1450,20 +1456,26 @@ export class AVGrid<R = any> {
     }
 
     /**
-     * What the engine gets as `rowHeight`: the plain number, or — while column groups are
-     * shown — a per-row function that doubles row 0 so the group band (`GroupHeader`) has its
-     * upper half. Identity-cached: the engine detects a rowHeight change by identity, so the
-     * same (base, groups-on) pair must resolve to the same function across calls.
+     * What the engine gets as `rowHeight`: the plain number, or a per-row function whenever
+     * row 0 — the header — differs from the data rows: the host set `headerHeight`, or column
+     * groups are shown and row 0 doubles so the group band (`GroupHeader`) has its upper half.
+     * Footers are render rows past the data and keep `rowHeight`. Identity-cached: the engine
+     * detects a rowHeight change by identity, so the same (rowHeight, band, groups-on) triple
+     * must resolve to the same function across calls. A grid that sets neither gets the plain
+     * number, exactly as before `headerHeight` existed.
      */
     private engineRowHeight(): number | ((row: number) => number) {
-        const base = this.model.options.rowHeight;
-        if (!this.model.data.hasGroups) return base;
-        if (!this.groupRowHeightFn || this.groupRowHeightBase !== base) {
-            this.groupRowHeightBase = base;
-            this.groupRowHeightFn = (row: number) =>
-                row === 0 ? base * 2 : base;
+        const rowHeight = this.model.options.rowHeight;
+        const band = this.model.headerBand();
+        const hasGroups = this.model.data.hasGroups;
+        if (band === rowHeight && !hasGroups) return rowHeight;
+        const header = band * (hasGroups ? 2 : 1);
+        const key = `${rowHeight}:${header}`;
+        if (!this.rowHeightFn || this.rowHeightFnKey !== key) {
+            this.rowHeightFnKey = key;
+            this.rowHeightFn = (row: number) => (row === 0 ? header : rowHeight);
         }
-        return this.groupRowHeightFn;
+        return this.rowHeightFn;
     }
 
     private onDataChange = (e: AVGridDataChangeEvent): void => {

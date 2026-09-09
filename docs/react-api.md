@@ -205,6 +205,10 @@ so a proxy standing in for an absent one would change behaviour:
 | `onGridContextMenu` | The grid draws its own context menu |
 | `onTreeToggle` | A static tree: the chevrons show open / closed and do nothing, `→` / `←` navigate |
 
+Every other option is a plain lane-3 prop — `headerHeight`, say, is diffed by value and sent
+through one `setOptions` when it changes, and removing the prop sends `undefined`, which puts the
+header back on `rowHeight`.
+
 Give those six a **stable identity** — a module-level function, or `useCallback` — or lane 3 will
 send a `setOptions` on every render. The same applies to `columns` **and to `footerRows`**: define
 them outside the component or memoize them, exactly as you would for any array prop — a footer

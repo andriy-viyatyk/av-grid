@@ -27,7 +27,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-11.md`](tasks/plan-done-11.md) | The finished plan for phase 15, task 56: the text filter's input read-only and cleared under a text-free operator, and `avg-text-filter-text-unused` into the DOM contract. **Its decision log applies too** — it refines `plan-done-10.md` decision 5 |
 | [`tasks/plan-done-12.md`](tasks/plan-done-12.md) | The finished plan for phase 16, task 57: a filter or a sort on a `hidden` column survives the column being hidden — identity resolves over the full column set (`ColumnsModel.columnByKey`), geometry over the visible one. **Its decision log applies too** |
 | [`tasks/plan-done-13.md`](tasks/plan-done-13.md) | The finished plan for phase 17, tasks 58–59: `disableColumnReorder` (header drag-reorder off by host choice, one predicate for the three reorder gates) and `treeColumn` (the tree *gutter* on one column in front of the column's ordinary content, over a host-derived flat row list; the gesture exists only with `onTreeToggle`). **Its decision log applies too** — including the review claims it corrects |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 18, no open tasks yet: the standing rules and the five open questions. Read the archived decision logs before starting anything |
+| [`tasks/plan-done-14.md`](tasks/plan-done-14.md) | The finished plan for phase 18, task 60: `headerHeight` — the header *band* sized on its own, defaulting to `rowHeight`, read through `AVGridModel.headerBand()` by the engine's row 0, `HeaderCell` and `GroupHeader`. **Its decision log applies too** — including the two plan claims it corrects |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 19, no open tasks yet: the standing rules and the five open questions. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -37,7 +38,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 18, with no task written yet. It
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 19, with no task written yet. It
 carries the standing rules and five open questions (control-size tokens for the popovers' inputs; a
 grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips; a runtime
 setter that degrades instead of throwing; a tree row engine in the library).
@@ -180,6 +181,13 @@ only with `onTreeToggle` (a presence-sensitive option, lane 3 under React), `che
 slot for the grid or per row, `→` / `←` toggle only where that changes state and otherwise navigate,
 and a tree cell copies its `path`. Measured: the gutter costs 1.01× per scroll frame, 0 gutter
 mutations on repaint. The tree *engine* stays a non-goal (`goal.md`, open question 5).
+**Phase 18 is done** (task 60, shipped as **2.11.0** on 2026-09-09 — see
+[`tasks/plan-done-14.md`](tasks/plan-done-14.md)): **`headerHeight`**, the header's own height.
+It defaults to `rowHeight` — live, not frozen at create — and is one header *band*, so with
+`Column.group` the header is `headerHeight * 2`; footers keep `rowHeight`. One accessor,
+`AVGridModel.headerBand()`, feeds the engine's row 0, `HeaderCell`'s two-row offset and
+`GroupHeader`'s band, and a grid that never sets it still hands the engine a plain number.
+Measured: the band-to-leaf seam 0.00 px at 100k, the per-row height function within frame noise.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

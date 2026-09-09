@@ -193,7 +193,7 @@ export function renderHeaderCell<R>(
     // wants anyway.
     let style = p.style;
     if (model.data.hasGroups && column.group !== undefined) {
-        const band = model.options.rowHeight;
+        const band = model.headerBand();
         style = { ...style, top: style.top + band, height: style.height - band };
     }
     applyCellStyle(el, style);

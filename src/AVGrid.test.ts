@@ -2581,3 +2581,140 @@ describe("destroy", () => {
         expect([...listeners].filter(([, n]) => n !== 0)).toEqual([]);
     });
 });
+
+/**
+ * Task 60 — `headerHeight`: the header band sized on its own, not by the rows. What a test can
+ * pin: the per-row function the engine receives (row 0 against the data rows and a footer row),
+ * the two-row split reading the band rather than `rowHeight` (the regression net for the whole
+ * task), the identity cache, the live paths through `setOptions`, and the validation. Alignment
+ * at every zoom is the board's question (`measureGroups`).
+ */
+describe("headerHeight — a header that does not grow with the rows", () => {
+    const columns = [
+        { key: "id", name: "ID", width: 50 },
+        { key: "name", name: "Name", width: 100 },
+        { key: "active", name: "Active", width: 100 },
+    ];
+    const groupedColumns = [
+        { key: "id", name: "ID", width: 50 },
+        { key: "name", name: "Name", width: 100, group: "Who" },
+        { key: "active", name: "Active", width: 100, group: "Who" },
+    ];
+    const engineRowHeight = (grid: AVGrid<any>) =>
+        grid.render.model.getOptions().rowHeight as number | ((r: number) => number);
+    const header = (grid: AVGrid<any>, key: string) =>
+        grid.element.querySelector(
+            `[data-type="header-cell"][data-column-key="${key}"]`,
+        ) as HTMLElement;
+    const band = (grid: AVGrid<any>) =>
+        grid.element.querySelector('[data-type="group-cell"]') as HTMLElement;
+
+    it("no groups: row 0 is the header height, data rows and a footer row keep rowHeight", async () => {
+        const grid = create({
+            rows: people,
+            columns,
+            rowHeight: 56,
+            headerHeight: 26,
+            footerRows: [{ id: 0, name: "Total", active: true }],
+        });
+        await settle();
+        const fn = engineRowHeight(grid);
+        expect(typeof fn).toBe("function");
+        const rh = fn as (r: number) => number;
+        expect(rh(0)).toBe(26);
+        expect(rh(1)).toBe(56);
+        expect(rh(people.length)).toBe(56);
+        expect(rh(people.length + 1)).toBe(56); // the footer row
+        expect(header(grid, "name").style.height).toBe("26px");
+        expect(grid.getState().headerHeight).toBe(26);
+        expect(grid.getState().rowHeight).toBe(56);
+    });
+
+    it("with groups: row 0 is the band doubled, the split and the band read the band, not rowHeight", async () => {
+        const grid = create({
+            rows: people,
+            columns: groupedColumns,
+            rowHeight: 56,
+            headerHeight: 26,
+        });
+        await settle();
+        const rh = engineRowHeight(grid) as (r: number) => number;
+        expect(rh(0)).toBe(52);
+        expect(rh(1)).toBe(56);
+        // Grouped: the lower band. Ungrouped: the whole doubled slot. The band overlay is one
+        // band tall. Each of these is 56-based if either reader still reads `rowHeight`.
+        expect(header(grid, "name").style.top).toBe("26px");
+        expect(header(grid, "name").style.height).toBe("26px");
+        expect(header(grid, "id").style.top).toBe("0px");
+        expect(header(grid, "id").style.height).toBe("52px");
+        expect(band(grid).style.height).toBe("26px");
+    });
+
+    it("unset: the engine gets the plain number and the header follows rowHeight", async () => {
+        const grid = create({ rows: people, columns, rowHeight: 30 });
+        await settle();
+        expect(engineRowHeight(grid)).toBe(30);
+        expect(header(grid, "name").style.height).toBe("30px");
+        expect(grid.getState().headerHeight).toBe(30);
+
+        // A later rowHeight moves the header too — the default is live, not frozen at create.
+        grid.setOptions({ rowHeight: 40 });
+        await settle();
+        expect(engineRowHeight(grid)).toBe(40);
+        expect(header(grid, "name").style.height).toBe("40px");
+        expect(grid.getState().headerHeight).toBe(40);
+    });
+
+    it("setOptions({ headerHeight }) re-lays out the band; undefined puts it back on rowHeight", async () => {
+        const grid = create({ rows: people, columns, rowHeight: 40 });
+        await settle();
+        grid.setOptions({ headerHeight: 24 });
+        // Unlike a header *repaint* (task 58 item 5), a row-height change is *geometry*: the
+        // engine's `setOptions` re-lays out synchronously, so the new band is visible at once.
+        expect(header(grid, "name").style.height).toBe("24px");
+        await settle();
+        expect(header(grid, "name").style.height).toBe("24px");
+        expect((engineRowHeight(grid) as (r: number) => number)(0)).toBe(24);
+
+        grid.setOptions({ headerHeight: undefined });
+        await settle();
+        expect(engineRowHeight(grid)).toBe(40);
+        expect(header(grid, "name").style.height).toBe("40px");
+    });
+
+    it("identity: the same (rowHeight, band, groups) triple resolves to the same function", async () => {
+        const grid = create({ rows: people, columns, rowHeight: 40, headerHeight: 24 });
+        await settle();
+        const before = engineRowHeight(grid);
+        // A data change that touches neither height is not a geometry change.
+        grid.setRows(people.slice(0, 2));
+        grid.setOptions({ searchString: "a" });
+        await settle();
+        expect(engineRowHeight(grid)).toBe(before);
+        // A height change is.
+        grid.setOptions({ headerHeight: 28 });
+        await settle();
+        expect(engineRowHeight(grid)).not.toBe(before);
+    });
+
+    it("toggling groups live keeps the band the header's own", async () => {
+        const grid = create({ rows: people, columns, rowHeight: 56, headerHeight: 26 });
+        await settle();
+        grid.setColumns(groupedColumns);
+        await settle();
+        expect((engineRowHeight(grid) as (r: number) => number)(0)).toBe(52);
+        expect(band(grid).style.height).toBe("26px");
+        grid.setColumns(columns);
+        await settle();
+        expect((engineRowHeight(grid) as (r: number) => number)(0)).toBe(26);
+    });
+
+    it("rejects 0, a negative, a string and a function with the rowHeight wording", () => {
+        for (const bad of [0, -5, "26", () => 26]) {
+            expect(() =>
+                create({ rows: people, columns, headerHeight: bad as any }),
+            ).toThrow(/`headerHeight` must be a positive number of pixels/);
+        }
+        // At create time only — `setOptions` does not validate `rowHeight` either; parity.
+    });
+});

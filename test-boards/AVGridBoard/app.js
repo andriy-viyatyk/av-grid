@@ -249,6 +249,13 @@ function columns() {
     ];
 }
 
+/** Task 60 — the two heights from the toolbar. Blank header = `undefined` = follow `rowHeight`. */
+function heightOptions() {
+    const rowHeight = Number(el("rowh").value) || 24;
+    const h = el("headerh").value.trim();
+    return { rowHeight, headerHeight: h === "" ? undefined : Number(h) };
+}
+
 function createGrid(count = Number(el("rows").value) || 1000, useColumns = true) {
     grid?.destroy();
     const host = el("grid-host");
@@ -273,6 +280,7 @@ function createGrid(count = Number(el("rows").value) || 1000, useColumns = true)
         onColumnsReorder: (from, to) => live(`reorder: ${from} → ${to}`),
         selectColumn: true,
         disableColumnReorder: el("noreorder").checked,
+        ...heightOptions(),
         onSelectionChange: (keys) => live(`selected: ${keys.length} rows`),
         // Task 17. Takes no space until something is filtered, so it costs the other checks
         // nothing to leave it on.
@@ -2553,6 +2561,128 @@ async function measureFooter(count = 100000) {
  * adds **zero** DOM mutations to a scroll frame, and the vertical gate stays where the plain
  * grid has it.
  */
+/**
+ * Task 60 — `headerHeight` in a real layout. The happy-dom suite pins the style numbers; what it
+ * cannot see is whether the band's bottom edge meets the leaf header's top edge to the pixel,
+ * and what a per-row height function for a header-only difference costs the scroll frame. Both
+ * shapes: no groups (header 26 over 56px rows), then groups (52 = 2 × 26 over the same rows),
+ * then the option removed live (the header follows the rows again).
+ */
+async function measureHeaderHeight(count = 100000, rowHeight = 56, headerHeight = 26) {
+    status(`headerHeight gate: ${count} rows at ${rowHeight}px, header ${headerHeight}px…`);
+    const built = buildRows(count);
+    const flat = [
+        { key: "id", name: "ID", width: 70 },
+        { key: "firstName", name: "First", width: 120 },
+        { key: "lastName", name: "Last", width: 120 },
+        { key: "team", name: "Team", width: 100 },
+        { key: "status", name: "Status", width: 100 },
+        { key: "active", name: "Active", width: 80 },
+    ];
+    const grouped = flat.map((c, i) =>
+        i === 0 ? c : { ...c, group: i < 3 ? "Name" : "Facts" },
+    );
+    // Three lines in a cell, which is the consumer's shape and why the rows are 56px.
+    const render = (c) =>
+        `<div style="line-height:16px"><b>${c.value}</b><br><small>vs ${c.row.score}</small><br><small>${c.row.id} / 100</small></div>`;
+    const withRender = (cols) => cols.map((c) => (c.key === "firstName" ? { ...c, render } : c));
+
+    const headers = () => [...grid.element.querySelectorAll('[data-type="header-cell"]')];
+    const headOf = (key) =>
+        grid.element.querySelector(`[data-type="header-cell"][data-column-key="${key}"]`);
+    const bandCells = () => [...grid.element.querySelectorAll('[data-type="group-cell"]')];
+    const scrollCost = async () => {
+        const sc = scrollEl();
+        grid.render.resetStats();
+        const t0 = performance.now();
+        const frames = 120;
+        for (let i = 0; i < frames; i++) {
+            sc.scrollTop = 200 + i * rowHeight;
+            await nextFrame();
+        }
+        const ms = (performance.now() - t0) / frames;
+        sc.scrollTop = 0;
+        await settle(3);
+        return ms;
+    };
+
+    const build = (cols, opts) => {
+        grid?.destroy();
+        const host = el("grid-host");
+        host.textContent = "";
+        const t = performance.now();
+        grid = AVGrid.create(host, { rows: built.rows, columns: cols, rowHeight, ...opts });
+        window.avg.grid = grid;
+        return performance.now() - t;
+    };
+
+    // Baseline: no headerHeight, the engine gets a plain number.
+    build(withRender(flat), {});
+    await settle(3);
+    const baselineHeader = headOf("id").getBoundingClientRect().height;
+    const baselineScrollMs = await scrollCost();
+
+    // No groups: the header is its own height, the rows theirs.
+    const firstPaintMs = build(withRender(flat), { headerHeight });
+    await settle(3);
+    const flatHeaderPx = headOf("id").getBoundingClientRect().height;
+    const firstCell = grid.element.querySelector('[data-type="data-cell"]');
+    const flatRowPx = firstCell?.getBoundingClientRect().height ?? NaN;
+    const flatScrollMs = await scrollCost();
+
+    // Groups: 2 × band. The leaf header's top must meet the band's bottom at 0.0px.
+    build(withRender(grouped), { headerHeight });
+    await settle(3);
+    const bandRect = bandCells()[0]?.getBoundingClientRect();
+    const leafRect = headOf("firstName").getBoundingClientRect();
+    const tallRect = headOf("id").getBoundingClientRect();
+    const seam = bandRect && leafRect ? Math.abs(leafRect.top - bandRect.bottom) : NaN;
+    const groupedScrollMs = await scrollCost();
+
+    // Removed live: the header follows the rows again (2 × rowHeight with groups on).
+    grid.setOptions({ headerHeight: undefined });
+    await settle(3);
+    const restoredTall = headOf("id").getBoundingClientRect().height;
+    grid.setOptions({ headerHeight });
+    await settle(3);
+
+    const near = (a, b) => Math.abs(a - b) < 0.51;
+    const checks = {
+        baselineHeaderIsRowHeight: near(baselineHeader, rowHeight),
+        flatHeaderIsHeaderHeight: near(flatHeaderPx, headerHeight),
+        flatRowsKeepRowHeight: near(flatRowPx, rowHeight),
+        groupedBandIsHeaderHeight: !!bandRect && near(bandRect.height, headerHeight),
+        groupedLeafIsHeaderHeight: near(leafRect.height, headerHeight),
+        groupedUngroupedIsDouble: near(tallRect.height, headerHeight * 2),
+        seamIsZero: seam < 0.51,
+        restoredFollowsRows: near(restoredTall, rowHeight * 2),
+        stateReports: grid.getState().headerHeight === headerHeight,
+    };
+    const allPass = Object.values(checks).every(Boolean);
+    const result = {
+        count,
+        rowHeight,
+        headerHeight,
+        firstPaintMs: +firstPaintMs.toFixed(1),
+        baselineHeaderPx: +baselineHeader.toFixed(2),
+        flatHeaderPx: +flatHeaderPx.toFixed(2),
+        flatRowPx: +flatRowPx.toFixed(2),
+        bandPx: bandRect ? +bandRect.height.toFixed(2) : null,
+        leafPx: +leafRect.height.toFixed(2),
+        tallPx: +tallRect.height.toFixed(2),
+        seamPx: +seam.toFixed(2),
+        restoredTallPx: +restoredTall.toFixed(2),
+        baselineScrollMs: +baselineScrollMs.toFixed(3),
+        flatScrollMs: +flatScrollMs.toFixed(3),
+        groupedScrollMs: +groupedScrollMs.toFixed(3),
+        functionCostRatio: +(flatScrollMs / baselineScrollMs).toFixed(2),
+        checks,
+        allPass,
+    };
+    status(allPass ? "headerHeight gate: all checks pass" : "headerHeight gate: FAILED — see results");
+    return result;
+}
+
 async function measureGroups(count = 100000, colGroups = 8, colsPerGroup = 3) {
     status(`group gate: ${count} rows, ${colGroups} groups × ${colsPerGroup} columns…`);
     const built = buildRows(count);
@@ -3095,6 +3225,7 @@ function treeGrid({ collapsible = true, rootsOpen = false, expandAll = false } =
         name: "avgrid-board-tree",
         disableSorting: true,
         disableColumnReorder: el("noreorder").checked,
+        ...heightOptions(),
         selectColumn: true,
         filterBar: true,
         treeColumn: {
@@ -3379,6 +3510,14 @@ el("noreorder").addEventListener("change", (e) => {
     grid?.setOptions({ disableColumnReorder: e.target.checked });
     live(`disableColumnReorder: ${e.target.checked}`);
 });
+// Task 60: both heights apply live; a blank header field sends `undefined` = follow the rows.
+for (const id of ["rowh", "headerh"]) {
+    el(id).addEventListener("change", () => {
+        grid?.setOptions(heightOptions());
+        const s = grid?.getState();
+        live(`rowHeight: ${s?.rowHeight}, headerHeight: ${s?.headerHeight}`);
+    });
+}
 el("search").addEventListener("input", (e) => grid?.setSearchString(e.target.value));
 
 /**
@@ -3581,6 +3720,7 @@ window.avg = {
     measurePinned,
     measureFooter,
     measureGroups,
+    measureHeaderHeight,
     measureMultiSort,
     measureKeyboard,
     treeGrid,

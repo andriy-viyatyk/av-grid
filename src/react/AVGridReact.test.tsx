@@ -316,6 +316,29 @@ describe("the option diff lane", () => {
         expect(made).toHaveLength(1);
     });
 
+    it("carries the phase-18 option — headerHeight — on lane 3 with no wrapper change", async () => {
+        const made = spyOnCreate();
+        const view = render(
+            <AVGridReact<Row> rows={rows} columns={columns} rowHeight={48} headerHeight={24} />,
+        );
+        const grid = made.at(-1)!;
+        await settle();
+        const header = () =>
+            grid.element.querySelector('[data-type="header-cell"]') as HTMLElement;
+        expect(header().style.height).toBe("24px");
+        expect(grid.getState().headerHeight).toBe(24);
+
+        const setOptions = vi.spyOn(grid, "setOptions");
+        view.rerender(<AVGridReact<Row> rows={rows} columns={columns} rowHeight={48} />);
+        // The prop disappeared: lane 3 sends `undefined`, and the header follows rowHeight again.
+        expect(setOptions).toHaveBeenCalledTimes(1);
+        expect(setOptions).toHaveBeenCalledWith({ headerHeight: undefined });
+        await settle();
+        expect(header().style.height).toBe("48px");
+        expect(grid.getState().headerHeight).toBe(48);
+        expect(made).toHaveLength(1);
+    });
+
     it("carries treeColumn on lane 3 and onTreeToggle as a presence-sensitive option", async () => {
         const made = spyOnCreate();
         type Node = Row & { depth: number; kids: number };

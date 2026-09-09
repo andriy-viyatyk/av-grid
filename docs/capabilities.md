@@ -172,7 +172,8 @@ grouped order is a prepared view), and a pinned column cannot carry a group — 
 the option cannot be half-applied.
 
 **The engine was not touched.** `stickyTop` stays 1: while groups are active, row 0 is doubled by
-a per-row `rowHeight` function, grouped headers shrink to its lower half with one style adjustment
+a per-row `rowHeight` function — doubling the *header band* (`headerHeight`, which is `rowHeight`
+unless the host sets it; task 60) — grouped headers shrink to its lower half with one style adjustment
 in the renderer, and the band itself is a **header overlay** (`addOverlay(el, "header")`) — one
 absolutely positioned div per group in content-x coordinates, invisible to the cell pool and to
 `syncRegion`, positioned from the engine's own `columnStarts` / `columnLength` so percentage

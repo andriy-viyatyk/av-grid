@@ -384,6 +384,18 @@ describe("resolveOptions", () => {
         );
     });
 
+    it("rejects a non-positive headerHeight and leaves it unresolved when unset", () => {
+        expect(() => resolveOptions({ rows: [], headerHeight: 0 })).toThrow(
+            /`headerHeight` must be a positive number/,
+        );
+        expect(() => resolveOptions({ rows: [], headerHeight: "26" as any })).toThrow(
+            /`headerHeight` must be a positive number/,
+        );
+        // Its default is `rowHeight`'s *current* value, so it is not filled in here.
+        expect(resolveOptions({ rows: [] }).headerHeight).toBeUndefined();
+        expect(resolveOptions({ rows: [], headerHeight: 26 }).headerHeight).toBe(26);
+    });
+
     it("shows the expected shape when getRowKey is not a function", () => {
         expect(() =>
             resolveOptions({ rows: people, getRowKey: "id" as any }),

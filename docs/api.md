@@ -290,7 +290,8 @@ clears, on an `editable` grid. A paste writes through the same path as typing, s
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
-| `rowHeight` | `number` | `24` | Uniform. Variable row heights are not supported. |
+| `rowHeight` | `number` | `24` | Uniform over the data rows and the footer rows. Variable data-row heights are not supported. The header follows it unless `headerHeight` is set. |
+| `headerHeight` | `number` | `rowHeight` | The header's own height — one header *band*, so with [`group`](#group--two-level-headers) shown the header is `headerHeight * 2`. Set it when tall rows (multi-line cell content) should not drag a one-line header up with them. The default is live: a grid that never sets it follows every later `rowHeight`. Footer rows keep `rowHeight`. |
 | `fitToWidth` | `boolean` | `false` | Stretch the columns to fill the width instead of scrolling horizontally. Not needed when a column has a percentage [`width`](#width) — that fills the width on its own. |
 | `cellBorders` | `boolean` | `true` | `false` gives a borderless list look. |
 | `growToHeight` | `string` | — | CSS height cap: the grid grows to its content up to this, instead of filling its parent. |
@@ -875,7 +876,9 @@ Put the same `group` string on the columns that belong together and the header b
 a group cell spanning those columns on top, the column headers below. **There is no switch to
 remember** — the band appears as soon as any visible column carries a `group`, and goes away with
 the last one. A column without a `group` spans both rows as one tall cell, which is what a label
-column wants anyway.
+column wants anyway. Each row of the header is one *band*, `headerHeight` tall (`rowHeight` when
+unset), so the two-row header is `headerHeight * 2` — set `headerHeight` when the data rows are
+tall and the header should not double a height it never needed.
 
 The rules, all chosen so the option cannot be half-applied:
 
@@ -1405,6 +1408,7 @@ interface AVGridStateSnapshot<R = any> {
     searchString?: string;
     filters: Filter[];        // normalized
     rowHeight: number;
+    headerHeight: number;     // the resolved band — `headerHeight`, or `rowHeight` when unset
     focus?: CellFocus<R>;
     selectedCount: number;    // checkbox selection
     allSelected: boolean;
@@ -2289,7 +2293,8 @@ And they are **only rendered** — invisible to everything that treats a row as 
 - **`getRowKey`** — never called for one. Footer rows are keyed `avg-footer-<n>` internally, so
   a key reading a field your totals row does not have cannot throw.
 
-`rowHeight` applies to footer rows and the grid's height accounts for them. With a footer the
+`rowHeight` applies to footer rows and the grid's height accounts for them (`headerHeight` sizes
+the header only — a footer row is as tall as a data row). With a footer the
 trailing slack defaults to `0` — the band itself is what the last data row scrolls clear of —
 but an explicit `whiteSpaceY` still buys room *between* the last data row and the band, which is
 where an `extraElement` sits: content, slack (with the `extraElement` in it), band.
@@ -2499,6 +2504,7 @@ interface VirtualListOptions {
     selectAllLabel?: string;
     emptyLabel?: string;
     rowHeight?: number;
+    headerHeight?: number;       // default: rowHeight
     overscanRow?: number;        // default 4
     className?: string;
     onChange?: (values: VirtualListValue[], items: VirtualListItem[]) => void;

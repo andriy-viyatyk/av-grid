@@ -908,6 +908,15 @@ export function resolveOptions<R>(options: unknown): ResolvedOptions<R> {
         }
     }
 
+    if (o.headerHeight !== undefined) {
+        if (typeof o.headerHeight !== "number" || !(o.headerHeight > 0)) {
+            fail(
+                `\`headerHeight\` must be a positive number of pixels, but was ${describe(o.headerHeight)}. ` +
+                    `Omit it to follow \`rowHeight\`.`,
+            );
+        }
+    }
+
     if (o.getRowKey !== undefined && typeof o.getRowKey !== "function") {
         fail(
             `\`getRowKey\` must be a function taking a row and returning a string, but was ${describe(o.getRowKey)}. ` +

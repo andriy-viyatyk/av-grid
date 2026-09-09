@@ -149,6 +149,15 @@ export class AVGridModel<R = any> extends Model<AVGridState<R>> {
         !this.options.disableColumnReorder && !this.data.hasGroups;
 
     /**
+     * The height of one header band: `headerHeight`, or `rowHeight` when the host did not set
+     * it. The one number the engine's row 0, `HeaderCell`'s two-row offset and `GroupHeader`'s
+     * band read, so the three cannot drift. Not resolved into the options at create time
+     * because its default is another option's *current* value.
+     */
+    headerBand = (): number =>
+        this.options.headerHeight ?? this.options.rowHeight;
+
+    /**
      * Give the grid keyboard focus.
      *
      * Keys are handled on the root — see `GridInteractions` — so this is what a handler calls

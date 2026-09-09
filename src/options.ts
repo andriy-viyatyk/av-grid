@@ -258,8 +258,16 @@ export interface AVGridOptions<R = any> {
     // Layout
     // -----------------------------------------------------------------------
 
-    /** Row height in pixels. Default 24. Uniform — variable row heights are not supported. */
+    /** Row height in pixels. Default 24. Uniform — variable data-row heights are not supported. */
     rowHeight?: number;
+    /**
+     * The header's own height in pixels. Defaults to `rowHeight`, so a grid that never sets it
+     * behaves as before. Set it when the rows are tall for the sake of multi-line cell content
+     * and the header — one line of text — should not grow with them. This is the height of one
+     * header *band*: with `Column.group` in play the header is `headerHeight * 2`, the same
+     * relationship `rowHeight` had. Footer rows keep `rowHeight`.
+     */
+    headerHeight?: number;
     /** Stretch the columns to fill the width, instead of scrolling horizontally. */
     fitToWidth?: boolean;
     /** Draw the static cell borders. Default `true`; `false` gives a borderless list look. */
