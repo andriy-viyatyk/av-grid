@@ -18,6 +18,14 @@
  * the inner structure, which is most of what makes reuse worth doing — so a cell renderer
  * that recycles is responsible for overwriting everything it sets.
  *
+ * When several renderers draw from one pool without reuse keys — the grid's header and data
+ * cells do — the obligation is wider: **an attribute set by any renderer must be set or
+ * removed by every other renderer that draws from the same pool.** A data cell that never
+ * mentions `title` still has to remove it, because a header cell it was recycled from set
+ * one; a footer cell that stands for no row still has to remove `data-row`. The pool cannot
+ * do this for them without enumerating every renderer's attributes, which is the wrong place
+ * for that knowledge (task 61 records the case that found this).
+ *
  * ## Ordering
  *
  * Acquisition happens during `calcRenderInfo` (frame N) and release happens during the paint

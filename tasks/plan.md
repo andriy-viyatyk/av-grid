@@ -1,8 +1,8 @@
-# av-grid — Implementation Plan 15: no open tasks
+# av-grid — Implementation Plan 16: no open tasks
 
-**Phases 1–18 have shipped, through 2.11.0 (2026-09-09).** This plan holds the standing rules and
+**Phases 1–19 have shipped, through 2.11.1 (2026-09-11).** This plan holds the standing rules and
 the open questions, and is where the next task is written. **Before starting anything, read the
-decision logs in `plan-done-01.md` … `plan-done-14.md`** — every one of them still applies.
+decision logs in `plan-done-01.md` … `plan-done-15.md`** — every one of them still applies.
 
 ## Ground rules (standing, carried forward)
 
@@ -17,11 +17,12 @@ decision logs in `plan-done-01.md` … `plan-done-14.md`** — every one of them
 
 
 
+
 ## Task tracker
 
 | # | Task | Status |
 |---|------|--------|
-| 1–60 | Phases 1–18 | see `plan-done-01.md` … `plan-done-14.md` — ✅ Done |
+| 1–61 | Phases 1–19 | see `plan-done-01.md` … `plan-done-15.md` — ✅ Done |
 
 ## Decision log
 
@@ -72,3 +73,8 @@ decision logs in `plan-done-01.md` … `plan-done-14.md`** — every one of them
    tree-aware sort and filter semantics for every consumer. Persephone's `TreeModel` is the
    reference if it is taken up. The signal to take it up: a second consumer writing the same
    thirty lines. Not committed — ask before adding.
+6. **A `title` hook on data cells?** Raised with task 61 (2026-09-11). Nothing in the public surface
+   sets a native tooltip on a data cell — `cellClass` / `onCellClass` give classes, `render` gives
+   contents — so a host that wants one has no way to ask. If added, it lands on the same line as
+   task 61's `removeAttribute("title")` and the fix becomes *set or remove*, exactly as the header
+   does it. Not asked for — ask before adding.

@@ -243,6 +243,22 @@ function alignClass<R>(column: Column<R>, value: unknown): string {
     return "";
 }
 
+/**
+ * The pool is shared with the header, and `CellPool.release()` hands an element on as it was
+ * left — so **an attribute set by any renderer that draws from the pool must be set or removed
+ * by every other renderer that draws from it.** These three are the header's: a native tooltip
+ * (`title`, the column name), the sort announcement, and the reorder handle. A data cell sets
+ * none of them, so each has to be removed here or it names the column whose header last held
+ * this element (task 61 — the stale tooltip). `data-sort`, `data-resizable` and `data-pinned`
+ * also survive the recycle and are deliberately left: every rule and every reader of them is
+ * qualified on the header, so on a data cell they are inert.
+ */
+function clearForeignHeaderState(el: HTMLElement): void {
+    el.removeAttribute("title");
+    el.removeAttribute("aria-sort");
+    if (el.draggable) el.draggable = false;
+}
+
 export function renderDataCell<R>(
     model: AVGridModel<R>,
     p: RenderCellParams,
@@ -330,6 +346,7 @@ export function renderDataCell<R>(
     el.setAttribute("role", "gridcell");
     el.setAttribute("aria-rowindex", String(dataRow + 2));
     el.setAttribute("aria-colindex", String(p.col + 1));
+    clearForeignHeaderState(el);
 
     // --- content -----------------------------------------------------------
     // The tree column (task 59): the gutter is av-grid's and is synced in place; everything
@@ -528,6 +545,7 @@ export function renderFooterCell<R>(
     // A pooled element may arrive carrying a data cell's row — a footer cell stands for no
     // data coordinate, and a stale `data-row` would make it one to every selector.
     el.removeAttribute("data-row");
+    clearForeignHeaderState(el);
 
     if (column.render && context) {
         const rendered = column.render(context);

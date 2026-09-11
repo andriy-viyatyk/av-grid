@@ -28,7 +28,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-12.md`](tasks/plan-done-12.md) | The finished plan for phase 16, task 57: a filter or a sort on a `hidden` column survives the column being hidden — identity resolves over the full column set (`ColumnsModel.columnByKey`), geometry over the visible one. **Its decision log applies too** |
 | [`tasks/plan-done-13.md`](tasks/plan-done-13.md) | The finished plan for phase 17, tasks 58–59: `disableColumnReorder` (header drag-reorder off by host choice, one predicate for the three reorder gates) and `treeColumn` (the tree *gutter* on one column in front of the column's ordinary content, over a host-derived flat row list; the gesture exists only with `onTreeToggle`). **Its decision log applies too** — including the review claims it corrects |
 | [`tasks/plan-done-14.md`](tasks/plan-done-14.md) | The finished plan for phase 18, task 60: `headerHeight` — the header *band* sized on its own, defaulting to `rowHeight`, read through `AVGridModel.headerBand()` by the engine's row 0, `HeaderCell` and `GroupHeader`. **Its decision log applies too** — including the two plan claims it corrects |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 19, no open tasks yet: the standing rules and the five open questions. Read the archived decision logs before starting anything |
+| [`tasks/plan-done-15.md`](tasks/plan-done-15.md) | The finished plan for phase 19, task 61: a cell recycled from the header no longer carries the header's `title`, `aria-sort` or `draggable` — the shared-pool rule, *an attribute set by any renderer that draws from the pool must be set or removed by every other renderer that draws from it*, stated in `CellPool` and `DataCell`. **Its decision log applies too** |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 20, no open tasks yet: the standing rules and the six open questions. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -38,10 +39,11 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 19, with no task written yet. It
-carries the standing rules and five open questions (control-size tokens for the popovers' inputs; a
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 20, with no task written yet. It
+carries the standing rules and six open questions (control-size tokens for the popovers' inputs; a
 grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips; a runtime
-setter that degrades instead of throwing; a tree row engine in the library).
+setter that degrades instead of throwing; a tree row engine in the library; a `title` hook on data
+cells).
 (Plan 09's earlier open questions 1–5 were removed at a consumer's request, 2026-09-01 —
 handled consumer-side; the git history and the archived logs keep them if re-asked.)
 A plan is archived as `plan-done-<nn>.md` once
@@ -188,6 +190,14 @@ It defaults to `rowHeight` — live, not frozen at create — and is one header 
 `AVGridModel.headerBand()`, feeds the engine's row 0, `HeaderCell`'s two-row offset and
 `GroupHeader`'s band, and a grid that never sets it still hands the engine a plain number.
 Measured: the band-to-leaf seam 0.00 px at 100k, the per-row height function within frame noise.
+**Phase 19 is done** (task 61, shipped as **2.11.1** on 2026-09-11 — see
+[`tasks/plan-done-15.md`](tasks/plan-done-15.md)): a data or footer cell recycled from a header
+cell no longer keeps the header's `title` (the stale native tooltip a consumer saw), `aria-sort` or
+`draggable`. The header and data cells share one unkeyed pool and `release()` hands an element on
+as it was left, so **an attribute set by any renderer that draws from the pool must be set or
+removed by every other renderer that draws from it** — the rule is now stated in `CellPool` and
+`DataCell`, and tested through the pool. Measured: 38 of 574 data cells stale before, 0 after; the
+100k gate unmoved.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

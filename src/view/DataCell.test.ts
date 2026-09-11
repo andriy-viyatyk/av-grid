@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { AVGrid } from "../AVGrid";
+import { CellPool } from "../render/CellPool";
+import { renderDataCell, renderFooterCell } from "./DataCell";
+import { renderHeaderCell } from "./HeaderCell";
+import type { RenderCellParams } from "../render/types";
 import { AVGRID_STYLE_ID } from "../styles/av-grid.css";
 import type { AVGridOptions } from "../options";
 
@@ -393,5 +397,117 @@ describe("renderDataCell — the text wrapper", () => {
 
         expect(cellAt(grid, 0, "icon").firstElementChild).toBe(svg);
         expect(cellAt(grid, 0, "icon").childElementCount).toBe(1);
+    });
+
+    /**
+     * Task 61 — a recycled cell keeps the header's `title`, `aria-sort` and `draggable`. The
+     * three renderers share one unkeyed pool, and `release()` hands an element on as it was
+     * left, so these go **through the pool**: a header rendered, released, then taken by a
+     * data or footer cell. Calling `renderDataCell` on a hand-built element would assert
+     * nothing about the bug.
+     */
+    describe("a cell recycled from the header carries none of the header's state (task 61)", () => {
+        const params = (
+            pool: CellPool,
+            row: number,
+            col: number,
+            previous?: HTMLElement,
+        ): RenderCellParams =>
+            ({
+                row,
+                col,
+                style: {},
+                key: `${row}:${col}`,
+                renderInfo: {},
+                recycle: pool.acquire,
+                setReuseKey: pool.setReuseKey,
+                previous,
+            }) as unknown as RenderCellParams;
+
+        const make = () =>
+            create({
+                rows: [{ id: 1, total: 5 }, { id: 2, total: 7 }],
+                columns: [
+                    { key: "id", name: "ID" },
+                    { key: "total", name: "Total" },
+                ],
+                footerRows: [{ id: 0, total: 12 }],
+                sort: { key: "total", direction: "asc" },
+            });
+
+        /** Render the `Total` header (sorted, reorderable) into a fresh element and pool it. */
+        const releasedHeader = (grid: AVGrid<any>, pool: CellPool): HTMLElement => {
+            const header = renderHeaderCell(grid.model, params(pool, 0, 1)) as HTMLElement;
+            expect(header.getAttribute("data-type")).toBe("header-cell");
+            expect(header.title).toBe("Total");
+            expect(header.getAttribute("aria-sort")).toBe("ascending");
+            expect(header.draggable).toBe(true);
+            expect(pool.release(header)).toBe(true);
+            return header;
+        };
+
+        it("a data cell taken from the pool has no title, no aria-sort and is not draggable", () => {
+            const grid = make();
+            const pool = new CellPool();
+            const header = releasedHeader(grid, pool);
+
+            const cell = renderDataCell(grid.model, params(pool, 1, 0)) as HTMLElement;
+            expect(cell).toBe(header); // through the pool, not a fresh element
+            expect(cell.getAttribute("data-type")).toBe("data-cell");
+            expect(cell.getAttribute("role")).toBe("gridcell");
+            expect(cell.hasAttribute("title")).toBe(false);
+            expect(cell.hasAttribute("aria-sort")).toBe(false);
+            expect(cell.draggable).toBe(false);
+        });
+
+        it("a footer cell taken from the pool is clean the same way", () => {
+            const grid = make();
+            const pool = new CellPool();
+            const header = releasedHeader(grid, pool);
+
+            // Footer rows sit after the data rows in the engine's row space; row 0 is the header.
+            const footerRow = 1 + grid.model.data.rows.length;
+            const cell = renderFooterCell(grid.model, params(pool, footerRow, 0)) as HTMLElement;
+            expect(cell).toBe(header);
+            expect(cell.getAttribute("data-type")).toBe("footer-cell");
+            expect(cell.hasAttribute("title")).toBe(false);
+            expect(cell.hasAttribute("aria-sort")).toBe(false);
+            expect(cell.hasAttribute("data-row")).toBe(false);
+            expect(cell.draggable).toBe(false);
+        });
+
+        it("the reverse direction: a data cell recycled into the header gets the header's own state", () => {
+            const grid = make();
+            const pool = new CellPool();
+            const data = renderDataCell(grid.model, params(pool, 1, 0)) as HTMLElement;
+            expect(pool.release(data)).toBe(true);
+
+            const header = renderHeaderCell(grid.model, params(pool, 0, 1)) as HTMLElement;
+            expect(header).toBe(data);
+            expect(header.title).toBe("Total");
+            expect(header.getAttribute("aria-sort")).toBe("ascending");
+            expect(header.draggable).toBe(true);
+        });
+
+        it("a header whose headerRender returns markup has no title, and a plain header keeps its own", () => {
+            const grid = create({
+                rows: [{ id: 1, m: 1 }],
+                columns: [
+                    { key: "id", name: "Plain" },
+                    { key: "m", name: "Markup", headerRender: () => "<b>M</b>" } as any,
+                ],
+            });
+            const pool = new CellPool();
+            const plain = renderHeaderCell(grid.model, params(pool, 0, 0)) as HTMLElement;
+            expect(plain.title).toBe("Plain");
+            // Not recycled — re-rendered in place — and still carrying its title: the guard
+            // against fixing task 61 by clearing too widely.
+            const again = renderHeaderCell(grid.model, params(pool, 0, 0, plain)) as HTMLElement;
+            expect(again).toBe(plain);
+            expect(again.title).toBe("Plain");
+
+            const markup = renderHeaderCell(grid.model, params(pool, 0, 1)) as HTMLElement;
+            expect(markup.hasAttribute("title")).toBe(false);
+        });
     });
 });
