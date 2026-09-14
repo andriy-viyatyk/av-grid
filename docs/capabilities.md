@@ -230,7 +230,8 @@ indentation; the editor mounts over the content zone and the gutter stays.
 
 **Pooling-safe by construction.** The gutter is synced in place — a cell recycled from depth 8 to
 depth 2 loses six guides, the slot is swapped, nothing is rebuilt — and the content host follows the
-same rules every cell follows (`written` skips an unchanged `render` string). Measured on
+same rules every cell follows (`written` skips an unchanged `render` string — true since 2.11.2;
+before task 62 the host was emptied and rebuilt on every paint, see `plan-done-16.md`). Measured on
 AVGridBoard (`measureTree`, 10,520 rows fully expanded, a pinned-left tree column beside grouped
 columns): first paint 8.1 ms, scroll paint **0.121 ms at the top against 0.121 ms without the
 gutter (1.01×)**, **0 mutation records inside a row's gutter across a full repaint**, a real chevron

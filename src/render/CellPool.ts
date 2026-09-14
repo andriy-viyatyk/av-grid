@@ -26,6 +26,13 @@
  * do this for them without enumerating every renderer's attributes, which is the wrong place
  * for that knowledge (task 61 records the case that found this).
  *
+ * The same holds for anything a renderer *remembers* about an element — a `WeakMap` of what it
+ * last wrote, used to skip a write. After another renderer has had the element, that memory
+ * describes children that no longer exist, and a skip on it leaves the other renderer's
+ * children showing (task 62). The evidence of who held an element last is the `data-type` the
+ * renderers stamp on it, so a renderer reads it **before** overwriting it and drops its records
+ * when the kind changed — `HeaderCell` and `DataCell` both do.
+ *
  * ## Ordering
  *
  * Acquisition happens during `calcRenderInfo` (frame N) and release happens during the paint

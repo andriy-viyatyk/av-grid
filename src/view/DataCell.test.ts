@@ -510,4 +510,194 @@ describe("renderDataCell — the text wrapper", () => {
             expect(markup.hasAttribute("title")).toBe(false);
         });
     });
+
+    /**
+     * Task 62 — the element-keyed caches (`mode`, `written`, `treeState`) survive a foreign
+     * occupant. Driven through the pool like task 61's: a data cell painted, released, taken by a
+     * header, released, taken by a data cell again whose markup renders to the *same* string —
+     * the case where the `written` check would skip the write and leave the header's children.
+     */
+    describe("a cell recycled from the header holds its own contents (task 62)", () => {
+        const params = (
+            pool: CellPool,
+            row: number,
+            col: number,
+            previous?: HTMLElement,
+        ): RenderCellParams =>
+            ({
+                row,
+                col,
+                style: {},
+                key: `${row}:${col}`,
+                renderInfo: {},
+                recycle: pool.acquire,
+                setReuseKey: pool.setReuseKey,
+                previous,
+            }) as unknown as RenderCellParams;
+        const kids = (el: HTMLElement) =>
+            Array.from(el.children).map((c) => c.className.split(" ")[0]);
+        const HEADER_KIDS = ["avg-sort-icon", "avg-header-title", "avg-flex-space", "avg-filter-button"];
+
+        const make = (render: (c: any) => any) =>
+            create({
+                rows: [{ id: 1, v: "same" }, { id: 2, v: "same" }],
+                columns: [
+                    { key: "id", name: "ID" },
+                    { key: "v", name: "Value", render },
+                ],
+                footerRows: [{ id: 0, v: "same" }],
+            });
+
+        /** Paint the header of column 0 into the released `el` and release it again. */
+        const throughHeader = (grid: AVGrid<any>, pool: CellPool, el: HTMLElement) => {
+            expect(pool.release(el)).toBe(true);
+            const header = renderHeaderCell(grid.model, params(pool, 0, 0)) as HTMLElement;
+            expect(header).toBe(el);
+            expect(kids(header)).toEqual(HEADER_KIDS);
+            expect(pool.release(header)).toBe(true);
+        };
+
+        it("data → header → data with byte-identical markup ends holding the markup, not the header", () => {
+            const grid = make(() => '<b class="val">V</b>');
+            const pool = new CellPool();
+            const first = renderDataCell(grid.model, params(pool, 1, 1)) as HTMLElement;
+            expect(kids(first)).toEqual(["val"]);
+            throughHeader(grid, pool, first);
+
+            const second = renderDataCell(grid.model, params(pool, 2, 1)) as HTMLElement;
+            expect(second).toBe(first);
+            expect(kids(second)).toEqual(["val"]);
+            expect(second.textContent).toBe("V");
+        });
+
+        it("footer → header → footer, the same way", () => {
+            const grid = make(() => '<b class="val">V</b>');
+            const pool = new CellPool();
+            const footerRow = 1 + grid.model.data.rows.length;
+            const first = renderFooterCell(grid.model, params(pool, footerRow, 1)) as HTMLElement;
+            expect(kids(first)).toEqual(["val"]);
+            throughHeader(grid, pool, first);
+
+            const second = renderFooterCell(grid.model, params(pool, footerRow, 1)) as HTMLElement;
+            expect(second).toBe(first);
+            expect(kids(second)).toEqual(["val"]);
+        });
+
+        it("the null and node arms of `render` stay clean across the header too", () => {
+            const nullGrid = make(() => null);
+            const pool = new CellPool();
+            const a = renderDataCell(nullGrid.model, params(pool, 1, 1)) as HTMLElement;
+            throughHeader(nullGrid, pool, a);
+            const b = renderDataCell(nullGrid.model, params(pool, 2, 1)) as HTMLElement;
+            expect(b).toBe(a);
+            expect(kids(b)).toEqual(["avg-cell-text"]);
+            expect(b.textContent).toBe("");
+
+            const node = document.createElement("i");
+            node.className = "own";
+            const nodeGrid = make(() => node);
+            const pool2 = new CellPool();
+            const c = renderDataCell(nodeGrid.model, params(pool2, 1, 1)) as HTMLElement;
+            throughHeader(nodeGrid, pool2, c);
+            const d = renderDataCell(nodeGrid.model, params(pool2, 2, 1)) as HTMLElement;
+            expect(d).toBe(c);
+            expect(kids(d)).toEqual(["own"]);
+        });
+
+        it("a plain text cell and a searched cell recycled from the header show their own text", () => {
+            const grid = create({
+                rows: [{ id: 1, v: "alpha" }, { id: 2, v: "alpha" }],
+                columns: [{ key: "id", name: "ID" }, { key: "v", name: "Value" }],
+            });
+            const pool = new CellPool();
+            const a = renderDataCell(grid.model, params(pool, 1, 1)) as HTMLElement;
+            throughHeader(grid, pool, a);
+            const b = renderDataCell(grid.model, params(pool, 2, 1)) as HTMLElement;
+            expect(b).toBe(a);
+            expect(kids(b)).toEqual(["avg-cell-text"]);
+            expect(b.textContent).toBe("alpha");
+
+            grid.setSearchString("alp");
+            const c = renderDataCell(grid.model, params(pool, 1, 1, b)) as HTMLElement;
+            expect(c.querySelector(".avg-search-match")?.textContent).toBe("alp");
+            throughHeader(grid, pool, c);
+            const d = renderDataCell(grid.model, params(pool, 2, 1)) as HTMLElement;
+            expect(d).toBe(c);
+            expect(d.querySelector(".avg-search-match")?.textContent).toBe("alp");
+            expect(d.querySelector(".avg-header-title")).toBeNull();
+        });
+
+        describe("the tree column", () => {
+            type Node = { id: string; label: string; depth: number; kids: number };
+            const treeGrid = () =>
+                create<Node>({
+                    rows: [
+                        { id: "m1", label: "Market 1", depth: 0, kids: 1 },
+                        { id: "p1", label: "Payer A", depth: 1, kids: 0 },
+                    ],
+                    columns: [{ key: "id" }, { key: "label" }],
+                    treeColumn: {
+                        key: "label",
+                        depth: (r) => r.depth,
+                        hasChildren: (r) => r.kids > 0,
+                        expanded: () => true,
+                    },
+                });
+
+            it("recycled through the header, rebuilds its gutter and content host", () => {
+                const grid = treeGrid();
+                const pool = new CellPool();
+                const a = renderDataCell(grid.model, params(pool, 1, 1)) as HTMLElement;
+                expect(kids(a)).toEqual(["avg-tree-chevron", "avg-tree-content"]);
+                expect(a.getAttribute("aria-expanded")).toBe("true");
+                throughHeader(grid, pool, a);
+
+                const b = renderDataCell(grid.model, params(pool, 2, 1)) as HTMLElement;
+                expect(b).toBe(a);
+                expect(kids(b)).toEqual(["avg-tree-indent", "avg-tree-stub", "avg-tree-content"]);
+                expect(b.querySelector(".avg-tree-content .avg-cell-text")?.textContent).toBe("Payer A");
+                expect(b.hasAttribute("aria-expanded")).toBe(false);
+            });
+
+            it("repainted in place, keeps its content host and its text span", () => {
+                // Before task 62 the content host was emptied and its span recreated on every
+                // paint — `setMode` compared a `data-type` the host never carries.
+                const grid = treeGrid();
+                const pool = new CellPool();
+                const cell = renderDataCell(grid.model, params(pool, 1, 1)) as HTMLElement;
+                const host = cell.querySelector(".avg-tree-content")!;
+                const span = host.firstElementChild!;
+                expect(span.className).toBe("avg-cell-text");
+
+                const again = renderDataCell(grid.model, params(pool, 1, 1, cell)) as HTMLElement;
+                expect(again).toBe(cell);
+                expect(cell.querySelector(".avg-tree-content")).toBe(host);
+                expect(host.firstElementChild).toBe(span);
+                expect(span.textContent).toBe("Market 1");
+            });
+
+            it("a tree cell's element taken by a footer cell drops the gutter and aria-expanded", () => {
+                const grid = create<Node>({
+                    rows: [{ id: "m1", label: "Market 1", depth: 0, kids: 1 }],
+                    columns: [{ key: "id" }, { key: "label" }],
+                    footerRows: [{ id: "f", label: "Total", depth: 0, kids: 0 }],
+                    treeColumn: {
+                        key: "label",
+                        depth: (r) => r.depth,
+                        hasChildren: (r) => r.kids > 0,
+                        expanded: () => true,
+                    },
+                });
+                const pool = new CellPool();
+                const a = renderDataCell(grid.model, params(pool, 1, 1)) as HTMLElement;
+                expect(a.getAttribute("aria-expanded")).toBe("true");
+                expect(pool.release(a)).toBe(true);
+                const f = renderFooterCell(grid.model, params(pool, 2, 1)) as HTMLElement;
+                expect(f).toBe(a);
+                expect(kids(f)).toEqual(["avg-cell-text"]);
+                expect(f.textContent).toBe("Total");
+                expect(f.hasAttribute("aria-expanded")).toBe(false);
+            });
+        });
+    });
 });

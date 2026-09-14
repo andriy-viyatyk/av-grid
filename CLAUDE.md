@@ -29,7 +29,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-13.md`](tasks/plan-done-13.md) | The finished plan for phase 17, tasks 58–59: `disableColumnReorder` (header drag-reorder off by host choice, one predicate for the three reorder gates) and `treeColumn` (the tree *gutter* on one column in front of the column's ordinary content, over a host-derived flat row list; the gesture exists only with `onTreeToggle`). **Its decision log applies too** — including the review claims it corrects |
 | [`tasks/plan-done-14.md`](tasks/plan-done-14.md) | The finished plan for phase 18, task 60: `headerHeight` — the header *band* sized on its own, defaulting to `rowHeight`, read through `AVGridModel.headerBand()` by the engine's row 0, `HeaderCell` and `GroupHeader`. **Its decision log applies too** — including the two plan claims it corrects |
 | [`tasks/plan-done-15.md`](tasks/plan-done-15.md) | The finished plan for phase 19, task 61: a cell recycled from the header no longer carries the header's `title`, `aria-sort` or `draggable` — the shared-pool rule, *an attribute set by any renderer that draws from the pool must be set or removed by every other renderer that draws from it*, stated in `CellPool` and `DataCell`. **Its decision log applies too** |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 20, no open tasks yet: the standing rules and the six open questions. Read the archived decision logs before starting anything |
+| [`tasks/plan-done-16.md`](tasks/plan-done-16.md) | The finished plan for phase 20, task 62: a cell recycled from the header no longer keeps the header's *children* — `claim(el, kind)` reads `data-type` before the renderer overwrites it and drops the element-keyed caches (`mode`, `written`, `treeState`) on a kind change; `setMode` trusts `mode`. **Its decision log applies too** — it corrects plan-done-13 decision 59 (the tree content host was rebuilt on every paint until now) |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 21, no open tasks yet: the standing rules and the six open questions. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -39,7 +40,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 20, with no task written yet. It
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 21, with no task written yet. It
 carries the standing rules and six open questions (control-size tokens for the popovers' inputs; a
 grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips; a runtime
 setter that degrades instead of throwing; a tree row engine in the library; a `title` hook on data
@@ -198,6 +199,16 @@ as it was left, so **an attribute set by any renderer that draws from the pool m
 removed by every other renderer that draws from it** — the rule is now stated in `CellPool` and
 `DataCell`, and tested through the pool. Measured: 38 of 574 data cells stale before, 0 after; the
 100k gate unmoved.
+**Phase 20 is done** (task 62, shipped as **2.11.2** on 2026-09-14 — see
+[`tasks/plan-done-16.md`](tasks/plan-done-16.md)): the same defect one layer in — a data, footer or
+tree cell recycled from a header kept the header's *children* whenever its own markup rendered to
+the same string as before, because `DataCell`'s element-keyed caches (`mode`, `written`,
+`treeState`) outlived the header's visit and `renderDataCell` overwrote `data-type`, the only
+evidence of it, before checking. Now `claim(el, kind)` reads the attribute first, the way
+`HeaderCell` always has, and drops the caches on a kind change. The same change fixed a second
+defect it exposed: the tree content host has no `data-type`, so it had been emptied and rebuilt on
+every paint. Measured: 70 of 275 data cells showing header children before, 0 after; a tree
+`refresh()` 48 child-list mutations before, 0 after; the 100k gate unmoved.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

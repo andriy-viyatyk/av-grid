@@ -114,12 +114,18 @@ function setCellText(el: HTMLElement, text: string, cleared: boolean): void {
     setText(inner, text);
 }
 
-/** Reset an element's children when the content shape changes under it. */
-function setMode(el: HTMLElement, next: ContentMode, dataType = "data-cell"): boolean {
+/**
+ * Reset an element's children when the content shape changes under it.
+ *
+ * `mode` is trusted here: `claim()` has already dropped it if the element arrived from another
+ * renderer, so a match means the children really are this shape's. (Until task 62 this also
+ * compared `data-type`, which was doubly wrong — the renderer had rewritten the attribute before
+ * calling, so a header's visit was invisible; and the tree content host has no `data-type`, so
+ * that host was emptied and rebuilt on every paint.)
+ */
+function setMode(el: HTMLElement, next: ContentMode): boolean {
     const current = mode.get(el);
-    if (current === next && el.getAttribute("data-type") === dataType) {
-        return false;
-    }
+    if (current === next) return false;
     // A pooled element leaving tree mode drops the gutter's record and its ARIA state with it;
     // everything else about a tree cell is reassembled on every paint (`className`) or lives in
     // the children the clear below removes.
@@ -243,17 +249,37 @@ function alignClass<R>(column: Column<R>, value: unknown): string {
     return "";
 }
 
+type CellKind = "data-cell" | "footer-cell";
+
 /**
+ * Take over a pooled element for this renderer. **Called before anything on the element is
+ * written**, because the one piece of evidence of who held it last is its `data-type`, and this
+ * renderer is about to overwrite it — `HeaderCell` reads the attribute first for the same reason.
+ *
  * The pool is shared with the header, and `CellPool.release()` hands an element on as it was
- * left — so **an attribute set by any renderer that draws from the pool must be set or removed
- * by every other renderer that draws from it.** These three are the header's: a native tooltip
- * (`title`, the column name), the sort announcement, and the reorder handle. A data cell sets
- * none of them, so each has to be removed here or it names the column whose header last held
- * this element (task 61 — the stale tooltip). `data-sort`, `data-resizable` and `data-pinned`
- * also survive the recycle and are deliberately left: every rule and every reader of them is
- * qualified on the header, so on a data cell they are inert.
+ * left — so **everything a renderer leaves on an element, on it or about it, must be set or
+ * reset by every other renderer that draws from the pool.** Two kinds of leftovers:
+ *
+ * 1. **This file's own records of the element** — `mode`, `written`, `treeState` — describe
+ *    children that a foreign occupant has since replaced. Kept, they make the cache checks below
+ *    lie: a data cell whose markup last rendered to the same string skips its `innerHTML` write
+ *    and shows the header's children instead (task 62 — a data cell reading `All`). Dropped only
+ *    when the kind changed, so a repaint through `previous`, or a data cell taking another data
+ *    cell's element, costs one attribute read.
+ * 2. **The header's attributes**: a native tooltip (`title`, the column name), the sort
+ *    announcement, and the reorder handle. A data cell sets none of them, so each is removed
+ *    here or it names the column whose header last held this element (task 61 — the stale
+ *    tooltip). `data-sort`, `data-resizable` and `data-pinned` also survive the recycle and are
+ *    deliberately left: every rule and every reader of them is qualified on the header, so on a
+ *    data cell they are inert.
  */
-function clearForeignHeaderState(el: HTMLElement): void {
+function claim(el: HTMLElement, kind: CellKind): void {
+    if (el.getAttribute("data-type") !== kind) {
+        mode.delete(el);
+        written.delete(el);
+        treeState.delete(el);
+        el.removeAttribute("aria-expanded");
+    }
     el.removeAttribute("title");
     el.removeAttribute("aria-sort");
     if (el.draggable) el.draggable = false;
@@ -269,6 +295,7 @@ export function renderDataCell<R>(
     if (!column || row === undefined) return undefined;
 
     const el = p.previous ?? p.recycle?.() ?? document.createElement("div");
+    claim(el, "data-cell");
 
     const value = (row as any)[column.key];
 
@@ -346,7 +373,6 @@ export function renderDataCell<R>(
     el.setAttribute("role", "gridcell");
     el.setAttribute("aria-rowindex", String(dataRow + 2));
     el.setAttribute("aria-colindex", String(p.col + 1));
-    clearForeignHeaderState(el);
 
     // --- content -----------------------------------------------------------
     // The tree column (task 59): the gutter is av-grid's and is synced in place; everything
@@ -479,8 +505,8 @@ function displayText<R>(column: Column<R>, row: R, value: unknown): string {
  * A boolean shows a tick and never a checkbox, and the search never marks here — a footer is
  * not a match, it is a summary.
  *
- * It shares this file so it shares the pooled-content discipline: `setMode` keyed to
- * `"footer-cell"`, the same text wrapper, the same written-markup map — so a repaint of an
+ * It shares this file so it shares the pooled-content discipline: `claim()` as `"footer-cell"`,
+ * the same `setMode`, the same text wrapper, the same written-markup map — so a repaint of an
  * unchanged footer cell touches nothing, exactly like a data cell.
  */
 export function renderFooterCell<R>(
@@ -494,6 +520,7 @@ export function renderFooterCell<R>(
     if (!column || row === undefined) return undefined;
 
     const el = p.previous ?? p.recycle?.() ?? document.createElement("div");
+    claim(el, "footer-cell");
 
     // A recycled element may have held the open editor when it was evicted; the edit is
     // committed rather than left around a detached element — the same guard the data cell has.
@@ -545,32 +572,31 @@ export function renderFooterCell<R>(
     // A pooled element may arrive carrying a data cell's row — a footer cell stands for no
     // data coordinate, and a stale `data-row` would make it one to every selector.
     el.removeAttribute("data-row");
-    clearForeignHeaderState(el);
 
     if (column.render && context) {
         const rendered = column.render(context);
         if (rendered === null || rendered === undefined) {
-            setCellText(el, "", setMode(el, "text", "footer-cell"));
+            setCellText(el, "", setMode(el, "text"));
         } else if (typeof rendered === "string") {
-            if (setMode(el, "html", "footer-cell")) written.delete(el);
+            if (setMode(el, "html")) written.delete(el);
             if (written.get(el) !== rendered) {
                 el.innerHTML = rendered;
                 written.set(el, rendered);
             }
         } else {
-            setMode(el, "node", "footer-cell");
+            setMode(el, "node");
             el.textContent = "";
             el.appendChild(rendered);
         }
     } else if (column.dataType === "boolean") {
-        setMode(el, "bool", "footer-cell");
+        setMode(el, "bool");
         const wanted = gridBoolean(value) ? TICK : "";
         if (el.innerHTML !== wanted) el.innerHTML = wanted;
     } else {
         setCellText(
             el,
             displayText(column, row, value),
-            setMode(el, "text", "footer-cell"),
+            setMode(el, "text"),
         );
     }
 
