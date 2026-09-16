@@ -192,6 +192,7 @@ the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of ea
 | [13-report](https://andriy-viyatyk.github.io/av-grid/examples/13-report.html) | pinned columns and a footer band — a report shape | [source](examples/13-report.html) |
 | [14-groups](https://andriy-viyatyk.github.io/av-grid/examples/14-groups.html) | column groups and multi-column sort | [source](examples/14-groups.html) |
 | [15-external-data](https://andriy-viyatyk.github.io/av-grid/examples/15-external-data.html) | host-owned filtering and sorting, and the text filter | [source](examples/15-external-data.html) |
+| [16-dialog](https://andriy-viyatyk.github.io/av-grid/examples/16-dialog.html) | a grid inside a modal `<dialog>` — popovers follow it into the top layer | [source](examples/16-dialog.html) |
 | [persephone-board](https://andriy-viyatyk.github.io/av-grid/examples/persephone-board/) | the grid inside a Persephone board | [source](examples/persephone-board/) |
 
 ## Documentation

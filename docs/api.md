@@ -2115,8 +2115,9 @@ does it, and nothing in the library reads a colour. A theme change costs **zero*
 Four elements define the whole `--avg-*` block **on themselves**, each from its `--p-*`
 counterpart with a neutral fallback: the grid root (`[data-type="render-grid"].avg-grid`), a
 popover (`.avg-popover`), a virtual list (`.avg-list`) and the filter bar (`.avg-filter-bar`).
-They have to — a popover is mounted on `document.body` and a filter bar can be mounted anywhere,
-so neither can rely on inheriting from a grid. The consequence is the one rule worth knowing:
+They have to — a popover is mounted outside the grid (on `document.body`, or inside the open
+`<dialog>` the grid is in — see [Where a popover mounts](#where-a-popover-mounts--and-a-grid-inside-a-dialog))
+and a filter bar can be mounted anywhere, so neither can rely on inheriting from a grid. The consequence is the one rule worth knowing:
 
 | Where you set it | Effect |
 |---|---|
@@ -2257,6 +2258,40 @@ empty, and this is the hook to dress that state.
 **If you write your own cell renderer returning an element, the stylesheet must position it
 absolutely.** The engine writes `top` and `left`; nothing writes `position`. A cell that lays out
 in flow looks correct at the top of a list and shows an empty band everywhere below.
+
+### Where a popover mounts — and a grid inside a `<dialog>`
+
+Everything the grid opens *over* itself — the context menu, a header funnel's filter popover, a
+filter-bar chip's editor, the cell dropdown — is mounted outside the grid's own DOM, because a
+panel inside a scrolling, pooled, `overflow: hidden` viewport would be clipped by it.
+
+**It mounts into the nearest open `<dialog>` above whatever it is anchored to, and onto
+`document.body` when there is none.** Nothing is asked of the host and there is no option: the
+grid works the same on an ordinary page and inside a modal dialog.
+
+The dialog case is the reason the rule is not simply *the body*. `dialog.showModal()` moves the
+dialog into the browser's **top layer** and makes the rest of the document **inert** — not
+hit-testable, and painted beneath the `::backdrop`. A menu on the body under an open modal dialog
+is therefore built correctly and is then invisible and unclickable, with no error to say so. Since
+**2.11.3** the popover follows the grid into the dialog. `examples/16-dialog.html` is a grid inside
+a `showModal()` dialog with a context menu, a submenu and a filter popover.
+
+Two consequences worth knowing:
+
+- **Escape closes the popover, not the dialog.** The popover handles Escape in the capture phase
+  and calls `preventDefault()`, which suppresses the dialog's own `cancel`. A second Escape, with
+  no popover open, closes the dialog as usual.
+- **A `transform` on the dialog moves the popover.** A popover is `position: fixed`, so it is
+  normally positioned against the viewport and is not clipped by an ancestor's `overflow: hidden`
+  — which is what lets it live inside a dialog shell at all. But `transform`, `filter`,
+  `perspective`, `backdrop-filter`, `will-change` or `contain` on the dialog, or on anything
+  between it and the popover, makes *that* element the containing block for its fixed descendants:
+  the coordinates stop meaning viewport coordinates and `overflow: hidden` starts clipping. This is
+  a property of fixed positioning rather than of the grid, and the usual way to meet it is a dialog
+  animated open with a transform — animate `opacity`, or drop the transform when the animation ends.
+
+A non-modal dialog (`dialog.show()`) matches the same rule. Nothing is inert there, so the popover
+would have worked from either parent.
 
 ### Rows pinned to the bottom — `footerRows`
 

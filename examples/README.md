@@ -32,6 +32,7 @@ need.
 | [`12-react.html`](12-react.html) | The React wrapper: `<AVGridReact>`, a detached `<AVGridFilterBar>`, the instance ref — React and ReactDOM from a CDN, no build step and no JSX |
 | [`13-report.html`](13-report.html) | A report shape: a label column `pinned: "left"`, a `pinned: "right"` Total column, and a grand-total row in `footerRows`, formatted by the same columns as the data |
 | [`14-groups.html`](14-groups.html) | Column groups (`group` on the column — the two-row header appears on its own) and `multiSort: true` — Ctrl+click adds a sort level |
+| [`16-dialog.html`](16-dialog.html) | A grid inside a modal `<dialog>`: `showModal()` puts the dialog in the browser's top layer and makes the rest of the document inert, so every popover the grid opens follows it there — context menu, submenu, header funnel. Escape closes the popover and leaves the dialog standing |
 | [`15-external-data.html`](15-external-data.html) | Host-owned filtering and sorting: `externalFilter` / `externalSort` over a fake async server, plus the built-in `filterType: "text"` (contains / equals / starts with) whose `{ op, text }` value becomes the server predicate |
 | [`persephone-board/`](persephone-board/) | The grid on a Persephone board, themed by `--p-*` with no theming code — **not on the demo site**: it needs the `persephone` API the app injects, see its README |
 
@@ -51,8 +52,8 @@ editing all use them so they survive a sort.
 
 **3. Theming is CSS, never JavaScript — and the token to set is `--p-*`.** The grid root, a
 popover, a virtual list and the filter bar each define the whole `--avg-*` block *on themselves*
-from the matching `--p-*`, because a popover lives on `document.body` and cannot inherit from a
-grid. So `--p-*` on any ancestor reaches everything, `--avg-*` on an ancestor is shadowed and
+from the matching `--p-*`, because a popover lives outside the grid — on `document.body`, or
+inside the open `<dialog>` the grid is in — and cannot inherit from it. So `--p-*` on any ancestor reaches everything, `--avg-*` on an ancestor is shadowed and
 does nothing, and `--avg-*` on the element itself wins — that last one is how you make a single
 grid deviate. [`08-theming.html`](08-theming.html) demonstrates all three.
 

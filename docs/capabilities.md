@@ -508,8 +508,8 @@ produced one spurious horizontal scrollbar, and nothing is asking for it.
 
 **⚠ `--avg-*` on an ancestor does nothing.** The grid root, `.avg-popover`, `.avg-list` and
 `.avg-filter-bar` each define the whole token block *on themselves* from `--p-*`, because a popover
-lives on `document.body` and cannot inherit from a grid, and an element's own definition shadows
-any ancestor's. So:
+lives outside the grid — on `document.body`, or inside the open `<dialog>` the grid is in — and
+cannot inherit from it, and an element's own definition shadows any ancestor's. So:
 
 - **`--p-*` on an ancestor reaches everything**
 - **`--avg-*` on an ancestor is shadowed**
@@ -813,7 +813,12 @@ Neither was ported from UIKit; both were built fresh for the filter UI.
 
 **`Popover`** anchors to an element or a point, flips instead of clipping, caps its height to the
 space available and scrolls, dismisses on Escape or an outside pointerdown, resizes by a corner
-grip, and resolves a promise when it closes.
+grip, and resolves a promise when it closes. It mounts into the **nearest open `<dialog>`** above
+its anchor and onto `document.body` when there is none — a modal dialog is in the browser's top
+layer and makes everything outside it inert, so a menu or a funnel popover left on the body under
+one is built and then unreachable (task 63, 2.11.3). Escape closes the popover and leaves the
+dialog standing: the handler runs in the capture phase and calls `preventDefault()`, which
+suppresses the dialog's `cancel`.
 
 **`VirtualList`** is a searchable checklist on its own `RenderGrid` instance: **100,000 options
 mount in 4.4 ms with 11 rows in the DOM, scroll at 60 fps with a flat-cost ratio of 1.00×, and
@@ -833,10 +838,11 @@ commits to the class names and `data-*` attributes as public while explicitly le
 was read out of the source rather than recalled; two of them (`filterRows`, `rowsToCsvText`) were
 not what the obvious guess would have been.
 
-**[`examples/`](../examples/) holds thirteen runnable files**, one topic each, every one standalone
+**[`examples/`](../examples/) holds sixteen runnable files**, one topic each, every one standalone
 and meant to be copied whole: minimal · columns · cell rendering · sorting and filtering ·
 selection and keyboard · editing · clipboard · theming · the 100k benchmark · customization ·
-host integration · a Persephone board. Each was opened in a real browser and driven, which is how three of them ended up
+host integration · React · a report shape · column groups · host-owned data · a modal dialog —
+and a Persephone board beside them. Each was opened in a real browser and driven, which is how three of them ended up
 different from how they were written. The benchmark reports **12.1 cells touched per paint at the
 top against 12.0 at row 99,000** — the exact number — next to the timing ratio, which swings
 0.8×–1.2× because a paint costs 0.1 ms. The board example was scaffolded, vendored and opened: it

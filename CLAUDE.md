@@ -30,7 +30,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-14.md`](tasks/plan-done-14.md) | The finished plan for phase 18, task 60: `headerHeight` — the header *band* sized on its own, defaulting to `rowHeight`, read through `AVGridModel.headerBand()` by the engine's row 0, `HeaderCell` and `GroupHeader`. **Its decision log applies too** — including the two plan claims it corrects |
 | [`tasks/plan-done-15.md`](tasks/plan-done-15.md) | The finished plan for phase 19, task 61: a cell recycled from the header no longer carries the header's `title`, `aria-sort` or `draggable` — the shared-pool rule, *an attribute set by any renderer that draws from the pool must be set or removed by every other renderer that draws from it*, stated in `CellPool` and `DataCell`. **Its decision log applies too** |
 | [`tasks/plan-done-16.md`](tasks/plan-done-16.md) | The finished plan for phase 20, task 62: a cell recycled from the header no longer keeps the header's *children* — `claim(el, kind)` reads `data-type` before the renderer overwrites it and drops the element-keyed caches (`mode`, `written`, `treeState`) on a kind change; `setMode` trusts `mode`. **Its decision log applies too** — it corrects plan-done-13 decision 59 (the tree content host was rebuilt on every paint until now) |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 21, no open tasks yet: the standing rules and the six open questions. Read the archived decision logs before starting anything |
+| [`tasks/plan-done-17.md`](tasks/plan-done-17.md) | The finished plan for phase 21, task 63: every popover was unreachable when the grid sat inside a modal `<dialog>` — `popoverHost()` mounts into the nearest open `<dialog>` above the anchor instead of always on `document.body`. **Its decision log applies too** — including the second point-anchored call site the plan missed |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 22, no open tasks yet: the standing rules and the six open questions. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -40,7 +41,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 21, with no task written yet. It
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 22, with no task written yet. It
 carries the standing rules and six open questions (control-size tokens for the popovers' inputs; a
 grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips; a runtime
 setter that degrades instead of throwing; a tree row engine in the library; a `title` hook on data
@@ -209,6 +210,18 @@ evidence of it, before checking. Now `claim(el, kind)` reads the attribute first
 defect it exposed: the tree content host has no `data-type`, so it had been emptied and rebuilt on
 every paint. Measured: 70 of 275 data cells showing header children before, 0 after; a tree
 `refresh()` 48 child-list mutations before, 0 after; the 100k gate unmoved.
+**Phase 21 is done** (task 63, shipped as **2.11.3** on 2026-09-16 — see
+[`tasks/plan-done-17.md`](tasks/plan-done-17.md)): a grid inside a `<dialog>` opened with
+`showModal()` had **no usable context menu and no reachable filter popover**. `Popover` mounted on
+`document.body`, and a modal dialog is in the browser's **top layer** and makes the rest of the
+document inert — so the popover was built correctly and was then invisible and unclickable, with
+no error. It now mounts into the **nearest open `<dialog>` above its anchor**, and on
+`document.body` when there is none: auto-detected, no new public option, nothing asked of the
+host. An element anchor answers for itself, so the funnel, the filter-bar chip and the cell
+dropdown needed no change; the two *point*-anchored callers — the context menu, and the point arm
+of the public `showFilterPopover` — pass the grid root's answer. Escape still closes the popover
+and leaves the dialog standing. Verified by hit-testing a real `showModal()` dialog
+(`examples/16-dialog.html`), because happy-dom has no top layer and no inertness.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

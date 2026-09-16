@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<!--
+    av-grid — a grid inside a modal <dialog>.
+
+    `dialog.showModal()` puts the dialog in the browser's top layer and makes the whole rest of
+    the document inert: not hit-testable, and painted under the ::backdrop. Anything the page
+    mounts on document.body while that dialog is open is therefore built correctly and is then
+    invisible and unclickable — no error, no warning.
+
+    Since 2.11.3 the grid's popovers find this on their own. A popover mounts into the nearest
+    open <dialog> above whatever it is anchored to, and onto document.body when there is none,
+    so the context menu, the header funnels, the filter-bar chip editors and the cell dropdown
+    all work inside a modal dialog with nothing asked of the host.
+
+    What to check on this page:
+      - right-click a cell: the menu appears, a row runs, Export opens a submenu;
+      - a funnel in the header: the filter popover opens, applies and dismisses;
+      - Escape with a popover open closes the popover and leaves the dialog standing;
+      - Escape again closes the dialog;
+      - the same grid outside the dialog is unchanged.
+
+    Known limit, and it is a property of `position: fixed` rather than of the grid: if the
+    dialog — or anything between it and the popover — carries `transform`, `filter`,
+    `perspective`, `backdrop-filter`, `will-change` or `contain`, that element becomes the
+    containing block for its fixed descendants, and the popover's viewport coordinates stop
+    meaning what they mean. A dialog animated open with a transform is the usual way to meet
+    this; animate `opacity` instead, or drop the transform once the animation ends.
+
+    Run: npm run build once, then serve this folder and open the file:
+        npx serve .          (or: python -m http.server)
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — inside a modal dialog</title>
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        button.open { font: inherit; padding: 6px 12px; cursor: pointer; }
+
+        dialog {
+            width: min(860px, 92vw);
+            height: min(520px, 80vh);
+            padding: 0;
+            border: none;
+            border-radius: 8px;
+            /* No `transform` here, deliberately — see the note at the top of the file. */
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+        }
+        dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+        /* A dialog shell commonly clips its own content; a popover is `position: fixed` and is
+           not clipped by an ancestor's overflow, so this is here to prove it. */
+        .shell { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+        .shell-head { padding: 10px 14px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+        .shell-head strong { font-size: 14px; }
+        #dialog-host { flex: 1 1 auto; min-height: 0; }
+        #page-host { height: 220px; margin: 16px; }
+        .sub { margin: 0 16px; color: #666; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>A grid inside a modal dialog</h1>
+        <p>Right-click a cell, open a header funnel, press Escape. Everything the grid mounts
+        outside its own DOM follows the dialog into the top layer.</p>
+        <button class="open" id="open">Open the dialog</button>
+    </header>
+
+    <p class="sub">The same grid on the ordinary page, for comparison — its popovers mount on
+    <code>document.body</code>, exactly as before.</p>
+    <div id="page-host"></div>
+
+    <dialog id="dialog">
+        <div class="shell">
+            <div class="shell-head">
+                <strong>Team</strong>
+                <button id="close">Close</button>
+            </div>
+            <div id="dialog-host"></div>
+        </div>
+    </dialog>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        const rows = [
+            { id: 1, name: "Ada Lovelace", team: "platform", status: "open", score: 98 },
+            { id: 2, name: "Alan Turing", team: "platform", status: "done", score: 95 },
+            { id: 3, name: "Grace Hopper", team: "data", status: "open", score: 91 },
+            { id: 4, name: "Edsger Dijkstra", team: "data", status: "blocked", score: 88 },
+            { id: 5, name: "Barbara Liskov", team: "runtime", status: "open", score: 94 },
+            { id: 6, name: "Donald Knuth", team: "runtime", status: "done", score: 97 },
+        ];
+
+        const options = {
+            rows,
+            editable: true,
+            canAddRows: true,
+            canDeleteRows: true,
+            // A submenu, so the inherited mount host is exercised too.
+            getContextMenuItems: () => [
+                {
+                    label: "Export",
+                    items: [
+                        { label: "CSV", onClick: () => console.log("export csv") },
+                        { label: "JSON", onClick: () => console.log("export json") },
+                    ],
+                },
+            ],
+        };
+
+        const dialog = document.getElementById("dialog");
+        const inDialog = AVGrid.create("#dialog-host", { ...options, rows: [...rows] });
+        const onPage = AVGrid.create("#page-host", { ...options, rows: [...rows] });
+
+        document.getElementById("open").onclick = () => {
+            dialog.showModal();
+            // The grid measures its own root, which had no size while the dialog was closed.
+            inDialog.refresh();
+        };
+        document.getElementById("close").onclick = () => dialog.close();
+
+        // Handy from the console: `grid.element.closest("dialog")` and, with a popover open,
+        // `document.querySelector(".avg-popover").parentElement`.
+        window.grid = inDialog;
+        window.pageGrid = onPage;
+    </script>
+</body>
+</html>

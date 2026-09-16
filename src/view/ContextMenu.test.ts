@@ -454,3 +454,39 @@ describe("host hooks", () => {
         expect(grid.getRows()).toHaveLength(2);
     });
 });
+
+/**
+ * Task 63 — the grid inside a modal `<dialog>`. The reported symptom was that right-click
+ * produced no usable menu: it was built on the body, which a modal dialog makes inert. See the
+ * note in `Popover.test.ts` about what happy-dom can and cannot show here.
+ */
+describe("a grid inside an open dialog", () => {
+    function createIn<R>(parent: HTMLElement, options: AVGridOptions<R>): AVGrid<R> {
+        const host = document.createElement("div");
+        parent.append(host);
+        const grid = withLayout(() => AVGrid.create<R>(host, options));
+        grids.push(grid);
+        return grid;
+    }
+
+    it("opens the context menu inside the dialog, not on the body", () => {
+        const dialog = document.createElement("dialog");
+        dialog.setAttribute("open", "");
+        document.body.append(dialog);
+
+        const grid = createIn(dialog, { rows });
+        rightClick(cell(grid, 0, 0));
+
+        const menu = document.querySelector(".avg-menu") as HTMLElement;
+        expect(menu).not.toBeNull();
+        expect(menu.parentElement).toBe(dialog);
+    });
+
+    it("leaves an ordinary grid's menu on the body", () => {
+        const grid = create({ rows });
+        rightClick(cell(grid, 0, 0));
+
+        const menu = document.querySelector(".avg-menu") as HTMLElement;
+        expect(menu.parentElement).toBe(document.body);
+    });
+});

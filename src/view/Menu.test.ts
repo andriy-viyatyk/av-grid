@@ -269,3 +269,41 @@ describe("showMenu", () => {
         expect(await closed).toEqual(expect.objectContaining({ label: "Only" }));
     });
 });
+
+/**
+ * Task 63 — a menu inside a modal `<dialog>`. See the note in `Popover.test.ts`: happy-dom
+ * cannot make anything inert, so this is the mounting decision only.
+ */
+describe("the mount host (task 63)", () => {
+    const nestedItems: MenuItem[] = [
+        { label: "Copy" },
+        { label: "Export", items: [{ label: "CSV" }, { label: "JSON" }] },
+    ];
+
+    it("mounts where its container says, and a submenu inherits it", () => {
+        const host = document.createElement("dialog");
+        host.setAttribute("open", "");
+        document.body.appendChild(host);
+
+        const menu = new Menu({ anchor: { x: 10, y: 10 }, items: nestedItems, container: host });
+        open.push(menu);
+        void menu.show();
+        const parent = document.querySelector(".avg-menu") as HTMLElement;
+        expect(parent.parentElement).toBe(host);
+
+        rows()[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        const both = Array.from(document.querySelectorAll<HTMLElement>(".avg-menu"));
+        expect(both).toHaveLength(2);
+        // The submenu is anchored to a row inside the parent, so `closest` would find the same
+        // dialog — it inherits rather than resolving again, and the answer must agree.
+        expect(both.every((el) => el.parentElement === host)).toBe(true);
+    });
+
+    it("mounts on the body with no container", () => {
+        const menu = make([{ label: "Copy" }]);
+        void menu.show();
+        expect((document.querySelector(".avg-menu") as HTMLElement).parentElement).toBe(
+            document.body,
+        );
+    });
+});

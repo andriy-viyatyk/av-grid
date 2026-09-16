@@ -38,6 +38,7 @@ import { isChromeColumn } from "../gridUtils";
 import type { AVGridModel } from "../model/AVGridModel";
 import type { GridContextMenuEvent, MenuItem } from "../types";
 import { copyIcon, deleteIcon, pasteIcon, plusIcon } from "./icons";
+import { popoverHost } from "./Popover";
 import { Menu } from "./Menu";
 
 /**
@@ -290,11 +291,20 @@ export function showGridContextMenu<R>(
 
     if (!items.length) return false;
 
-    // One at a time, and closed on `destroy()`: the menu lives on `document.body`, outside
-    // everything the grid's own teardown reaches. Structural rather than typed, like
-    // `flags.filterPopover`, so the model layer keeps not knowing about the view.
+    // One at a time, and closed on `destroy()`: the menu lives outside everything the grid's
+    // own teardown reaches. Structural rather than typed, like `flags.filterPopover`, so the
+    // model layer keeps not knowing about the view.
     model.flags.contextMenu?.close();
-    const menu = new Menu({ anchor: { x: event.x, y: event.y }, items });
+    // The only popover in the library anchored to a *point*, so the only one with no element to
+    // resolve a mount host from: the grid root answers for it. Without this, a grid inside a
+    // modal `<dialog>` opens its menu on the body, where the dialog's top layer makes it inert
+    // — the menu is built, and right-click looks like it does nothing (task 63).
+    const root = model.renderModel?.gridRef.current;
+    const menu = new Menu({
+        anchor: { x: event.x, y: event.y },
+        items,
+        container: popoverHost(root, root?.ownerDocument ?? document),
+    });
     model.flags.contextMenu = { close: menu.close };
     void menu.show().then(() => {
         if (model.flags.contextMenu?.close === menu.close) {

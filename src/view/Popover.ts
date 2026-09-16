@@ -24,6 +24,13 @@
  * defined on the grid root and `document.body` is not inside it. And it owns document-level
  * listeners, so every exit path — Escape, outside click, `close()`, `destroy()` — goes through
  * `close()`, which is the only place they come off.
+ *
+ * *Outside the grid's DOM* is not the same as *on the body*, and since task 63 it is not always
+ * the body: a grid inside a `<dialog>` opened with `showModal()` puts that dialog in the
+ * browser's **top layer** and makes the whole rest of the document inert, so a popover mounted
+ * on the body is built correctly and is then invisible and unclickable — a total, silent
+ * failure. `popoverHost()` answers where to mount, and the answer is the nearest open dialog
+ * above the anchor, or the body.
  */
 
 import { resizeHandleIcon } from "./icons";
@@ -82,6 +89,46 @@ export interface PopoverOptions {
     autoFocus?: boolean;
     /** Defaults to the anchor's document, or the global one. */
     document?: Document;
+    /**
+     * **Internal, not public API.** Where to mount. Defaults to `popoverHost()` of the anchor,
+     * which is what every element-anchored caller wants; a caller anchored to a *point* has no
+     * element to ask and passes the answer for the grid root instead.
+     *
+     * Deliberately undocumented: a host should not have to know where the library mounts its
+     * own popovers, and auto-detection is what makes task 63 a fix rather than a new surface.
+     * If a consumer ever needs to mount into something that is not a dialog — a shadow root, a
+     * portal — this is the option to publish, as a minor.
+     */
+    container?: HTMLElement;
+}
+
+/**
+ * Where a popover should mount: the nearest **open** `<dialog>` above `node`, or the body.
+ *
+ * `dialog.showModal()` moves the dialog into the top layer and makes everything outside it
+ * inert — not hit-testable, and painted under the `::backdrop`. A popover left on the body is
+ * therefore created, positioned and then unreachable, with no error to say so. Mounting inside
+ * the dialog puts it in the top layer with everything else that is live.
+ *
+ * The placement maths needs nothing: the root is `position: fixed`, which is resolved against
+ * the viewport and is not clipped by an ancestor's `overflow: hidden`, so the same coordinates
+ * mean the same thing inside the dialog. (The exception is a `transform`, `filter`,
+ * `perspective`, `backdrop-filter`, `will-change` or `contain` on the dialog or anything under
+ * it: that element becomes the containing block for its fixed descendants and the coordinates
+ * stop being viewport coordinates. That is a property of fixed positioning, not of this
+ * function — see the note in `docs/api.md`.)
+ *
+ * **`dialog[open]` rather than `:modal`** — `:modal` matches exactly the failing case and would
+ * be the more precise selector, but it is newer than the rest of this library's baseline.
+ * `dialog[open]` also matches a non-modal `show()` dialog, where mounting inside is harmless:
+ * nothing is inert there, so the popover works from either parent.
+ */
+export function popoverHost(
+    node: Element | null | undefined,
+    doc: Document,
+): HTMLElement {
+    const dialog = node?.closest?.("dialog[open]");
+    return dialog instanceof HTMLElement ? dialog : doc.body;
 }
 
 /** Distance kept between the popover and the edge of the viewport. */
@@ -152,6 +199,21 @@ export class Popover<T = void> {
     }
 
     /**
+     * What this popover is mounted in while it is open. A submenu inherits its parent's answer
+     * rather than resolving again — `closest` would find the same dialog, since the parent's
+     * root is already inside it, but inheriting states the intent and costs nothing.
+     */
+    get mountedIn(): HTMLElement | undefined {
+        return this.open ? (this.root.parentElement ?? undefined) : undefined;
+    }
+
+    private host(): HTMLElement {
+        if (this.options.container) return this.options.container;
+        const anchor = this.options.anchor;
+        return popoverHost(anchor instanceof Element ? anchor : null, this.doc);
+    }
+
+    /**
      * Mount, position, and resolve when the popover closes — with whatever `close()` was
      * given, or `undefined` if the user dismissed it. Calling `show()` on an open popover
      * returns the same promise rather than mounting a second time.
@@ -164,7 +226,9 @@ export class Popover<T = void> {
         });
 
         this.previousFocus = this.doc.activeElement;
-        this.doc.body.appendChild(this.root);
+        // Resolved here rather than in the constructor: a dialog can open or close between a
+        // popover being built and being shown, and the answer is only true at mount time.
+        this.host().appendChild(this.root);
         this.reposition();
 
         if (this.options.autoFocus !== false) this.root.focus({ preventScroll: true });

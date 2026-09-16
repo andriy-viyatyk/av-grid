@@ -9,8 +9,8 @@
 
         [data-type="render-grid"].avg-grid { --avg-bg: var(--p-bg, #ffffff); … }
 
-    Each of them may be mounted anywhere (a popover lives on document.body), which is why none
-    of them can rely on inheriting. The consequence is the thing to know:
+    Each of them may be mounted anywhere (a popover lives on document.body — or inside the open
+    <dialog> the grid is in), which is why none of them can rely on inheriting. The consequence is the thing to know:
 
       • `--p-*` on an ancestor  →  reaches everything. This is how you theme a page.
       • `--avg-*` on an ancestor →  does NOTHING. The element's own definition shadows it.

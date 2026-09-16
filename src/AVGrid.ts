@@ -1260,8 +1260,8 @@ export class AVGrid<R = any> {
         // Before the flag: an open editor commits on blur, and tearing the DOM down under it
         // would fire that blur with nothing left to write into.
         this.model.models.editing.cancelEdit();
-        // A popover lives on `document.body`, outside everything `render.destroy()` reaches, so
-        // it would outlive the grid it filters.
+        // A popover lives outside everything `render.destroy()` reaches — on `document.body`, or
+        // inside the open `<dialog>` the grid is in — so it would outlive the grid it filters.
         this.model.flags.filterPopover?.close();
         this.model.flags.contextMenu?.close();
         this.destroyed = true;

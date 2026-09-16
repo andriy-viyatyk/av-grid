@@ -19,7 +19,7 @@
 
 import type { AVGridModel } from "../model/AVGridModel";
 import type { Filter, Point } from "../types";
-import { Popover, type PopoverSize } from "./Popover";
+import { Popover, popoverHost, type PopoverSize } from "./Popover";
 import {
     OptionsFilterContent,
     OPTIONS_FILTER_MIN_WIDTH,
@@ -112,6 +112,7 @@ export function showFilterPopover<R>(
     // the second to apply would silently win.
     model.flags.filterPopover?.close();
 
+    const gridRoot = model.renderModel?.gridRef.current;
     const anchor = options.anchor ?? funnelFor(model, columnKey);
     if (!anchor) {
         console.warn(
@@ -133,6 +134,13 @@ export function showFilterPopover<R>(
 
     const popover = new Popover<Filter>({
         anchor,
+        // An element anchor resolves its own mount host; a *point* — `showFilterPopover` takes
+        // one, so a host can open a column's filter from its own UI — has nothing to ask, and
+        // the grid root answers instead. See `popoverHost` (task 63).
+        container:
+            anchor instanceof Element
+                ? undefined
+                : popoverHost(gridRoot, gridRoot?.ownerDocument ?? document),
         className: "avg-filter-popover",
         placement: "bottom-start",
         offset: options.offset,

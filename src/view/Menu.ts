@@ -56,6 +56,12 @@ export interface MenuOptions {
     /** Added to the popover root, on top of `avg-popover avg-menu`. */
     className?: string;
     document?: Document;
+    /**
+     * **Internal.** Passed through to `Popover` — see its `container`. A point-anchored menu
+     * (the context menu) has no element to resolve a host from and supplies it; a submenu
+     * inherits its parent's.
+     */
+    container?: HTMLElement;
 }
 
 interface PreparedItem {
@@ -105,6 +111,7 @@ export class Menu {
             // the parent out from under the submenu the user is aiming at.
             ignoreOutside: ".avg-menu",
             document: this.doc,
+            container: options.container,
         });
 
         const visible = options.items.filter((i) => !i.invisible);
@@ -290,6 +297,9 @@ export class Menu {
             placement: "right-start",
             offset: [-4, 0],
             document: this.doc,
+            // Inherited, not re-resolved: the row this hangs off is inside the parent's root,
+            // so `closest` would give the same answer — saying so is clearer than relying on it.
+            container: this.popover.mountedIn,
         });
         menu.submenuOf = this;
         this.submenu = { item, menu };

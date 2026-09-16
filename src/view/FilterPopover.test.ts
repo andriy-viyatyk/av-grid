@@ -481,3 +481,53 @@ describe("applying", () => {
         expect((grid.getVisibleRows()[0] as any).id).toBe(1);
     });
 });
+
+/**
+ * Task 63 — the filter popover inside a modal `<dialog>`. The funnel resolves its own host from
+ * the anchor; the *point* arm of `showFilterPopover`, which a host uses to reopen a filter from
+ * its own UI, has no element to ask and takes the grid root's answer.
+ */
+describe("the mount host (task 63)", () => {
+    function createIn<R>(parent: HTMLElement, options: AVGridOptions<R>): AVGrid<R> {
+        const host = document.createElement("div");
+        parent.append(host);
+        const grid = withLayout(() => AVGrid.create<R>(host, options));
+        grids.push(grid);
+        return grid;
+    }
+
+    function openDialog(): HTMLElement {
+        const el = document.createElement("dialog");
+        el.setAttribute("open", "");
+        document.body.append(el);
+        return el;
+    }
+
+    it("mounts inside the dialog when opened from the funnel", async () => {
+        const dialog = openDialog();
+        const grid = createIn(dialog, { rows });
+        void open(grid, "status");
+        await settle();
+
+        expect(popover()?.parentElement).toBe(dialog);
+    });
+
+    it("mounts inside the dialog when opened at a point", async () => {
+        const dialog = openDialog();
+        const grid = createIn(dialog, { rows });
+        void withLayout(() =>
+            grid.showFilterPopover("status", { anchor: { x: 20, y: 30 } }),
+        );
+        await settle();
+
+        expect(popover()?.parentElement).toBe(dialog);
+    });
+
+    it("mounts on the body on an ordinary page", async () => {
+        const grid = create({ rows });
+        void open(grid, "status");
+        await settle();
+
+        expect(popover()?.parentElement).toBe(document.body);
+    });
+});

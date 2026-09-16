@@ -306,3 +306,104 @@ describe("the resize handle", () => {
         expect(resizable.root.querySelector(".avg-popover-resize")).not.toBeNull();
     });
 });
+
+/**
+ * Task 63 — where a popover mounts.
+ *
+ * happy-dom has a `<dialog>` element but no `showModal()`, no top layer and no inertness, so
+ * nothing here reproduces the defect: these assert the *decision* (which element the root ends
+ * up in) and nothing about whether the popover can be seen or clicked. That is a board
+ * question, and `examples/16-dialog.html` is where it was answered.
+ */
+describe("the mount host (task 63)", () => {
+    function dialog(open = true): HTMLElement {
+        const el = document.createElement("dialog");
+        if (open) el.setAttribute("open", "");
+        document.body.appendChild(el);
+        return el;
+    }
+
+    it("mounts on the body for an anchor on an ordinary page", async () => {
+        const popover = make({ anchor: anchorAt(10, 10) });
+        void popover.show();
+        expect(popover.root.parentElement).toBe(document.body);
+    });
+
+    it("mounts inside the open dialog its anchor is in", async () => {
+        const host = dialog();
+        const anchor = anchorAt(10, 10);
+        host.appendChild(anchor);
+
+        const popover = make({ anchor });
+        void popover.show();
+        // A modal dialog is in the top layer and everything outside it is inert, so a popover
+        // left on the body would be built and then unreachable.
+        expect(popover.root.parentElement).toBe(host);
+    });
+
+    it("mounts several levels down from the dialog", async () => {
+        const host = dialog();
+        const panel = document.createElement("div");
+        host.appendChild(panel);
+        const anchor = anchorAt(10, 10);
+        panel.appendChild(anchor);
+
+        const popover = make({ anchor });
+        void popover.show();
+        expect(popover.root.parentElement).toBe(host);
+    });
+
+    it("ignores a dialog that is not open", async () => {
+        const host = dialog(false);
+        const anchor = anchorAt(10, 10);
+        host.appendChild(anchor);
+
+        const popover = make({ anchor });
+        void popover.show();
+        expect(popover.root.parentElement).toBe(document.body);
+    });
+
+    it("mounts on the body for a point anchor, which has nothing to ask", async () => {
+        // Why `ContextMenu` and the point arm of `showFilterPopover` pass `container`
+        // explicitly: a point carries no position in the tree.
+        const popover = make({ anchor: { x: 10, y: 10 } });
+        void popover.show();
+        expect(popover.root.parentElement).toBe(document.body);
+    });
+
+    it("takes an explicit container over anything it would resolve", async () => {
+        const host = dialog();
+        const anchor = anchorAt(10, 10);
+        document.body.appendChild(anchor);
+
+        const popover = make({ anchor, container: host });
+        void popover.show();
+        expect(popover.root.parentElement).toBe(host);
+    });
+
+    it("resolves at show time, not at construction", async () => {
+        const host = dialog(false);
+        const anchor = anchorAt(10, 10);
+        host.appendChild(anchor);
+
+        const popover = make({ anchor });
+        // The dialog opens between building the popover and showing it, which is the ordinary
+        // order when a host opens its dialog and the grid inside it is already alive.
+        host.setAttribute("open", "");
+        void popover.show();
+        expect(popover.root.parentElement).toBe(host);
+    });
+
+    it("reports where it mounted only while it is open", async () => {
+        const host = dialog();
+        const anchor = anchorAt(10, 10);
+        host.appendChild(anchor);
+
+        const popover = make({ anchor });
+        expect(popover.mountedIn).toBeUndefined();
+        void popover.show();
+        expect(popover.mountedIn).toBe(host);
+        popover.close();
+        expect(popover.mountedIn).toBeUndefined();
+    });
+});
