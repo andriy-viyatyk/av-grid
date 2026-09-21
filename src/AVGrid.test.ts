@@ -1830,6 +1830,192 @@ describe("treeColumn — the tree gutter on one column", () => {
         expect(cell.querySelector(".avg-tree-content .avg-cell-text")?.textContent).toBe("Measure");
     });
 
+    /**
+     * Task 64 — `busy`: the chevron replaced by a spinner in its own slot while the host fetches
+     * the node's children, with the gesture off for exactly as long.
+     */
+    describe("busy — children on their way", () => {
+        const busyGrid = (loading: Set<string>, extra: Partial<TreeColumnOptions<Node>> = {}) => {
+            const expanded: Record<string, boolean> = { m1: true, p1: true };
+            const toggles: Array<[string, boolean]> = [];
+            const grid = create({
+                rows: nodes(),
+                columns,
+                treeColumn: treeOf(expanded, { busy: (r: Node) => loading.has(r.id), ...extra }),
+                onTreeToggle: (row: Node, open: boolean) => {
+                    expanded[row.id] = open;
+                    toggles.push([row.id, open]);
+                },
+            });
+            return { grid, toggles, expanded };
+        };
+
+        it("replaces the chevron in the same slot, keeping the row's shape and its expanded state", async () => {
+            const { grid } = busyGrid(new Set(["p2"]));
+            await settle();
+
+            // Row 3 is Payer B: a collapsed folder, now loading.
+            const cell = labelCell(grid, 3);
+            expect(parts(cell)).toEqual(["avg-tree-indent", "avg-tree-busy", "avg-tree-content"]);
+            const slot = cell.children[1] as HTMLElement;
+            // The same slot, not a second part name: the box is what stops the row shifting as
+            // the fetch starts and ends.
+            expect(slot.getAttribute("data-part")).toBe("tree-chevron");
+            expect(slot.hasAttribute("data-expanded")).toBe(false);
+            expect(slot.hasAttribute("data-inert")).toBe(true);
+            expect(slot.querySelector("svg")).not.toBeNull();
+            expect(cell.getAttribute("aria-busy")).toBe("true");
+            // Loading is not expanding — the node is still the collapsed node it was.
+            expect(cell.getAttribute("aria-expanded")).toBe("false");
+            // The content is untouched: only the slot belongs to the wait.
+            expect(cell.querySelector(".avg-tree-content .avg-cell-text")?.textContent).toBe("Payer B");
+
+            const ordinary = labelCell(grid, 0);
+            expect(parts(ordinary)).toEqual(["avg-tree-chevron", "avg-tree-content"]);
+            expect(ordinary.hasAttribute("aria-busy")).toBe(false);
+        });
+
+        it("takes the gesture off: no toggle from a press, from a double press, or from the arrows", async () => {
+            const loading = new Set(["p2"]);
+            const { grid, toggles } = busyGrid(loading);
+            await settle();
+            const slot = labelCell(grid, 3).children[1] as HTMLElement;
+
+            press(slot);
+            press(slot, "click");
+            press(slot, "dblclick");
+            expect(toggles).toEqual([]);
+            // Loading, not disabled: the press still lands as an ordinary cell press.
+            expect(grid.getFocus()?.rowKey).toBe("p2");
+
+            grid.setFocus({ rowKey: "p2", columnKey: "label", isDragging: false });
+            key(grid, "ArrowRight");
+            expect(toggles).toEqual([]);
+            // The arrow navigates instead, exactly as it does on a leaf.
+            expect(String(grid.getFocus()?.columnKey)).toBe("kids");
+        });
+
+        it("gives the chevron back when the fetch ends — svg and all", async () => {
+            // The trap: the slot leaving `busy` holds the spinner's markup, and the branch that
+            // restores the chevron only rewrote it when the slot had been a stub or absent. A row
+            // would come back from its fetch still spinning (`plan-done-16.md`, one level in).
+            const loading = new Set(["p2"]);
+            const { grid, expanded } = busyGrid(loading);
+            await settle();
+            const cell = labelCell(grid, 3);
+            expect((cell.children[1] as HTMLElement).className).toBe("avg-tree-busy");
+
+            loading.delete("p2");
+            expanded.p2 = true;
+            grid.refresh();
+            await settle();
+
+            const slot = labelCell(grid, 3).children[1] as HTMLElement;
+            expect(slot.className).toBe("avg-tree-chevron");
+            expect(slot.getAttribute("data-expanded")).toBe("true");
+            expect(slot.hasAttribute("data-inert")).toBe(false);
+            expect(slot.innerHTML).toContain("<svg");
+            expect(slot.innerHTML).not.toContain("fill-opacity");
+            expect(labelCell(grid, 3).hasAttribute("aria-busy")).toBe(false);
+        });
+
+        it("a busy set inside onTreeToggle shows without the host asking for a repaint", async () => {
+            // The repaint `toggle()` does after the callback is what makes the common case work:
+            // press, and the spinner is there before the fetch has resolved.
+            const loading = new Set<string>();
+            const expanded: Record<string, boolean> = {};
+            const grid = create({
+                rows: nodes(),
+                columns,
+                treeColumn: treeOf(expanded, { busy: (r: Node) => loading.has(r.id) }),
+                onTreeToggle: (row: Node) => {
+                    loading.add(row.id); // and no setRows, no refresh
+                },
+            });
+            await settle();
+            press(labelCell(grid, 0).firstElementChild!);
+            await settle();
+
+            const cell = labelCell(grid, 0);
+            expect((cell.firstElementChild as HTMLElement).className).toBe("avg-tree-busy");
+            expect(cell.getAttribute("aria-busy")).toBe("true");
+        });
+
+        it("is asked only where there is a slot and children to wait for", async () => {
+            const asked: string[] = [];
+            const grid = create({
+                rows: nodes(),
+                columns,
+                treeColumn: treeOf(
+                    { m1: true, p1: true },
+                    {
+                        chevrons: (r: Node) => r.depth > 0,
+                        busy: (r: Node) => {
+                            asked.push(r.id);
+                            return false;
+                        },
+                    },
+                ),
+            });
+            await settle();
+            // Not the roots (no slot), not the leaf (a stub cannot be waiting for children it
+            // does not have) — only the two folders that could be loading.
+            expect([...new Set(asked)].sort()).toEqual(["p1", "p2"]);
+            expect(grid.element.querySelector(".avg-tree-busy")).toBeNull();
+        });
+
+        it("draws the host's spinner when it gives one, on entry only, and falls back on null", async () => {
+            const built: string[] = [];
+            const loading = new Set(["p2"]);
+            const { grid } = busyGrid(loading, {
+                spinner: (r: Node) => {
+                    built.push(r.id);
+                    // A fresh element per call: appending moves a node, so a cached one would
+                    // leave the first row and reappear in the second.
+                    const el = document.createElement("span");
+                    el.className = "mine";
+                    return el;
+                },
+            });
+            await settle();
+            const slot = labelCell(grid, 3).children[1] as HTMLElement;
+            expect(slot.className).toBe("avg-tree-busy");
+            expect(slot.firstElementChild?.className).toBe("mine");
+            expect(slot.querySelector("svg")).toBeNull();
+            expect(built).toEqual(["p2"]);
+
+            // A repaint that does not change the slot's kind does not rebuild the spinner, so a
+            // hover or a selection never restarts the animation.
+            grid.refresh();
+            await settle();
+            expect(built).toEqual(["p2"]);
+        });
+
+        it("keeps the built-in spinner when the host's returns nothing, and takes a string", async () => {
+            const loading = new Set(["p2"]);
+            const { grid } = busyGrid(loading, { spinner: () => undefined });
+            await settle();
+            expect((labelCell(grid, 3).children[1] as HTMLElement).innerHTML).toContain("fill-opacity");
+
+            const other = create({
+                rows: nodes(),
+                columns,
+                treeColumn: treeOf({}, { busy: (r: Node) => r.id === "p2", spinner: () => `<i class="dots"></i>` }),
+            });
+            await settle();
+            expect(labelCell(other, 3).querySelector(".avg-tree-busy > .dots")).not.toBeNull();
+        });
+
+        it("validates busy and spinner", () => {
+            expect(() =>
+                create({ rows: nodes(), columns, treeColumn: { ...treeOf({}), busy: true as any } }),
+            ).toThrow(/`treeColumn\.busy` must be a function of the row/);
+            expect(() =>
+                create({ rows: nodes(), columns, treeColumn: { ...treeOf({}), spinner: "<i/>" as any } }),
+            ).toThrow(/`treeColumn\.spinner` must be a function of the row/);
+        });
+    });
+
     it("validates at create() and at setOptions(), and leaves the grid as it was on a bad update", async () => {
         expect(() =>
             create({ rows: nodes(), columns, treeColumn: { ...treeOf({}), key: "nope" } }),

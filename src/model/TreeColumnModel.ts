@@ -15,10 +15,19 @@ import type { AVGridModel } from "./AVGridModel";
 /** What the renderer draws in front of a tree cell's content. */
 export interface TreeGutter {
     depth: number;
-    /** `none` — no slot at all (`chevrons` said so); `stub` — a leaf's alignment spacer. */
-    chevron: "open" | "closed" | "stub" | "none";
+    /**
+     * `none` — no slot at all (`chevrons` said so); `stub` — a leaf's alignment spacer;
+     * `busy` — the slot is the wait, its children are on their way (task 64).
+     */
+    chevron: "open" | "closed" | "stub" | "none" | "busy";
     /** May the user toggle this row — `onTreeToggle` set, a chevron shown, children present. */
     interactive: boolean;
+    /**
+     * Which way the chevron *would* point. Kept while `busy` replaces it, because the node's
+     * expanded state does not change just because the slot stopped showing it — `aria-expanded`
+     * is written from this, not from the slot's kind.
+     */
+    expanded: boolean;
 }
 
 export class TreeColumnModel<R> {
@@ -49,16 +58,33 @@ export class TreeColumnModel<R> {
     gutter(row: R): TreeGutter {
         const tree = this.model.options.treeColumn!;
         const depth = Math.max(0, tree.depth(row) | 0);
-        if (!this.hasSlot(tree, row)) return { depth, chevron: "none", interactive: false };
-        if (!tree.hasChildren(row)) return { depth, chevron: "stub", interactive: false };
+        if (!this.hasSlot(tree, row)) {
+            return { depth, chevron: "none", interactive: false, expanded: false };
+        }
+        if (!tree.hasChildren(row)) {
+            return { depth, chevron: "stub", interactive: false, expanded: false };
+        }
+        const expanded = tree.expanded(row);
+        // `busy` last, and only here: a stub cannot be waiting for children it does not have,
+        // and a row with no slot has nowhere to put the spinner. An absent predicate is never
+        // called, so the option costs a paint nothing until it is used.
+        if (tree.busy?.(row)) {
+            return { depth, chevron: "busy", interactive: false, expanded };
+        }
         return {
             depth,
-            chevron: tree.expanded(row) ? "open" : "closed",
+            chevron: expanded ? "open" : "closed",
             interactive: typeof this.model.options.onTreeToggle === "function",
+            expanded,
         };
     }
 
-    /** The gesture exists only with `onTreeToggle`, only on a chevron, only on a folder. */
+    /**
+     * The gesture exists only with `onTreeToggle`, only on a chevron, only on a folder — and
+     * not while the row is busy, which is `interactive: false` above. That one flag is what
+     * takes the click, the double-click and the arrow keys off together: every gate in
+     * `GridInteractions` and `onArrow` already reads it.
+     */
     canToggle(row: R): boolean {
         if (this.model.options.treeColumn === undefined) return false;
         return this.gutter(row).interactive;

@@ -221,6 +221,57 @@ export interface TreeColumnOptions<R = any> {
      */
     chevrons?: boolean | ((row: R) => boolean);
     /**
+     * Is this row's children *on their way*? While it holds, the chevron is replaced by a
+     * spinner in the same slot and the toggle gesture is off — a click on the slot does not
+     * call `onTreeToggle`, and `→` / `←` on the focused cell navigate instead of toggling. The
+     * row stays focusable, selectable and navigable: it is loading, not disabled.
+     *
+     * Replacing rather than accompanying the chevron is the point. A spinner *beside* a live
+     * chevron leaves the toggle armed during the fetch, so a reader whose rows have not moved
+     * yet clicks again, and again. Taking the affordance away for exactly as long as it would
+     * misbehave is the cheapest way to say *wait*.
+     *
+     * Only asked when there is a slot to draw into and `hasChildren(row)` is true — a leaf's
+     * stub cannot be busy, and a row with `chevrons: false` has no slot. Absent (the default) it
+     * is never called and costs a paint nothing.
+     *
+     * **A change to what this returns is not seen by itself.** Nothing polls the row; the grid
+     * repaints when it is told to. Set it synchronously inside `onTreeToggle` and the repaint
+     * that follows the toggle picks it up for free; start the fetch later and the host calls
+     * `refresh()` (or the `setRows` it was going to call anyway) to show, and to clear, the
+     * spinner.
+     *
+     * ```js
+     * busy: (r) => loading.has(r.id),
+     * onTreeToggle: async (row, open) => {
+     *     if (!open) { expanded.delete(row.id); grid.setRows(flatten()); return; }
+     *     loading.add(row.id);              // read by the repaint `toggle()` is about to do
+     *     const children = await fetchChildren(row.id);
+     *     loading.delete(row.id);
+     *     expanded.add(row.id);
+     *     grid.setRows(flatten(children));  // spinner gone, chevron back, rows in
+     * },
+     * ```
+     */
+    busy?: (row: R) => boolean;
+    /**
+     * The spinner to draw while `busy` holds. Default: the built-in one — ten spokes ticking
+     * once per spoke, tinted from `--avg-tree-spinner`, falling back to the chevron's colour.
+     *
+     * Same three arms as `Column.render`: a string of markup, an element, or `null` /
+     * `undefined` to keep the built-in. Two things follow from cell pooling, and only bite the
+     * element arm:
+     *
+     * - **Return a fresh element each call.** Appending a node *moves* it, so one cached element
+     *   handed out twice would leave the first row and reappear in the second.
+     * - It is called when a slot **enters** the busy state, not on every paint. A spinning row
+     *   that repaints for a hover or a selection does not call this and does not restart the
+     *   animation.
+     *
+     * The slot is a 16×16 flex box: what comes back is centred in it and sizes itself.
+     */
+    spinner?: (row: R) => string | Element | null | undefined;
+    /**
      * What a tree cell copies — `PENN › AETNA`, never indentation. Default: the cell's displayed
      * text. A `copyValue` on the column wins over this, as it does everywhere.
      */

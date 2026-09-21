@@ -286,7 +286,8 @@ export const css = `
 }
 
 .avg-grid .avg-tree-chevron,
-.avg-grid .avg-tree-stub {
+.avg-grid .avg-tree-stub,
+.avg-grid .avg-tree-busy {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -310,6 +311,42 @@ export const css = `
 
 .avg-grid .avg-tree-chevron[data-expanded="true"] > svg {
     transform: rotate(90deg);
+}
+
+/*
+ * The busy slot (task 64): the chevron replaced, in place, while a node's children load. Its own
+ * token falls back to the chevron's, so a host that has themed the chevron gets a matching
+ * spinner without asking.
+ *
+ * steps(10) is not a stylistic choice - the built-in spinner has ten spokes 36 degrees apart, so
+ * one step moves each spoke exactly onto the next one's place and the dial ticks. A custom
+ * spinner is sized and turned by whatever the host returns; this rule only reaches an svg child,
+ * which is what spinnerIcon is.
+ */
+.avg-grid .avg-tree-busy {
+    color: var(--avg-tree-spinner, var(--avg-tree-chevron, var(--avg-text-muted)));
+    cursor: default;
+}
+
+.avg-grid .avg-tree-busy > svg {
+    width: 100%;
+    height: 100%;
+    animation: avg-tree-spin 1.5s steps(10) infinite;
+}
+
+@keyframes avg-tree-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/*
+ * Ten spokes graded 0.1 to 1.0 still read as "working" standing still, which is why the fallback
+ * is simply to stop: there is no second static mark to swap in.
+ */
+@media (prefers-reduced-motion: reduce) {
+    .avg-grid .avg-tree-busy > svg {
+        animation: none;
+    }
 }
 
 /*

@@ -30,9 +30,15 @@ interface HeaderParts {
 const parts = new WeakMap<HTMLElement, HeaderParts>();
 
 function build(el: HTMLElement): HeaderParts {
-    // A recycled element arrives in whatever state its last occupant left it.
+    // A recycled element arrives in whatever state its last occupant left it. This runs exactly
+    // when the element changed hands, so it is the header's `claim()` — and the data cell's
+    // tree ARIA is state it left *about* the element rather than in it, which `textContent`
+    // cannot clear. Without this a header recycled from an expanded or loading tree cell
+    // announces itself as expanded, or as busy (tasks 61-62 and 64: the shared-pool rule).
     el.textContent = "";
     el.removeAttribute("style");
+    el.removeAttribute("aria-expanded");
+    el.removeAttribute("aria-busy");
 
     const sort = document.createElement("span");
     sort.className = "avg-sort-icon";

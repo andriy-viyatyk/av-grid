@@ -1,8 +1,8 @@
-# av-grid — Implementation Plan 18: no open tasks
+# av-grid — Implementation Plan 19: no open tasks
 
-**Phases 1–21 have shipped, through 2.11.3 (2026-09-16).** This plan holds the standing rules and
+**Phases 1–22 have shipped, through 2.12.0 (2026-09-21).** This plan holds the standing rules and
 the open questions, and is where the next task is written. **Before starting anything, read the
-decision logs in `plan-done-01.md` … `plan-done-17.md`** — every one of them still applies.
+decision logs in `plan-done-01.md` … `plan-done-18.md`** — every one of them still applies.
 
 ## Ground rules (standing, carried forward)
 
@@ -19,7 +19,7 @@ decision logs in `plan-done-01.md` … `plan-done-17.md`** — every one of them
 
 | # | Task | Status |
 |---|------|--------|
-| 1–63 | Phases 1–21 | see `plan-done-01.md` … `plan-done-17.md` — ✅ Done |
+| 1–64 | Phases 1–22 | see `plan-done-01.md` … `plan-done-18.md` — ✅ Done |
 
 ## Decision log
 

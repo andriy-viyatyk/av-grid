@@ -463,6 +463,8 @@ that keep a matched leaf's ancestors) is deliberately not in the library.
 | `expanded` | `(row) => boolean` | Which way the chevron points. Read on every paint — the host's state, never the grid's. |
 | `indentSize` | `number` | Pixels per level. Default `16`. |
 | `chevrons` | `boolean \| (row) => boolean` | Whether the chevron **slot** exists. `false`: guides only, and labels move left by the slot's width. A function decides per row — a first level that is always expanded wants no chevron and no slot on its rows: `(r) => r.depth > 0`. A row without a slot has no gesture either. Default `true`. |
+| `busy` | `(row) => boolean` | This row's children are **on their way**: the chevron is replaced by a spinner in the same slot and the gesture is off. Only asked where there is a slot and `hasChildren` is true. Absent by default, and an absent predicate is never called. See below. |
+| `spinner` | `(row) => string \| Element \| null \| undefined` | What to draw while `busy` holds. Default: the built-in spinner. `null` / `undefined` keeps it. Called when a slot **enters** the busy state, not per paint — and the element arm must return a *fresh* element each call, because cells are pooled and appending a node moves it. |
 | `path` | `(row) => string` | The copy value. Default: the cell's displayed text. A `copyValue` on the column wins over it, as everywhere. |
 
 **The gesture follows `onTreeToggle`.** With it, a chevron press calls `onTreeToggle(row,
@@ -474,6 +476,46 @@ the keys never go dead on a tree. Without `onTreeToggle` the chevrons still show
 `onTreeToggle` the grid repaints that row itself, so a toggle the host answers with no row change
 (collapsing a folder whose children are all filtered out) still turns the chevron. The precedent is
 `disableSorting`: state shown, affordance off.
+
+**Children that load on expand — `busy`.** A tree whose deepest level is fetched when its
+chevron is pressed has a state the other fields cannot say: *this row has children, they are on
+their way, and the slot belongs to the wait.* `busy` says it. The chevron is **replaced** by a
+spinner rather than joined by one, because a spinner beside a live chevron leaves the toggle armed
+during the fetch and a reader whose rows have not moved clicks again, and again. While it holds:
+the slot keeps its box (so nothing shifts), the press calls no `onTreeToggle`, `→` / `←` navigate
+instead of toggling, and the cell carries `aria-busy="true"`. `aria-expanded` keeps saying what the
+node is — loading is not expanding. The row stays focusable, selectable, editable and copyable: it
+is waiting, not disabled.
+
+**Nothing polls the row.** The grid repaints when it is told to, so a `busy` that starts returning
+`true` is seen when something repaints that row. Setting it *inside* `onTreeToggle` needs nothing
+extra — the grid repaints that row right after the callback returns. A fetch that starts later, or
+ends, is shown by the `setRows` the host was going to call anyway, or by `refresh()`:
+
+```js
+treeColumn: {
+    key: "name",
+    depth: (r) => r.depth,
+    hasChildren: (r) => r.hasChildren,
+    expanded: (r) => expanded.has(r.id),
+    busy: (r) => loading.has(r.id),
+},
+onTreeToggle: async (row, open) => {
+    if (!open) { expanded.delete(row.id); grid.setRows(flatten()); return; }
+    loading.add(row.id);                 // the repaint after this callback shows the spinner
+    try {
+        await load(row.id);
+        expanded.add(row.id);
+    } finally {
+        loading.delete(row.id);
+        grid.setRows(flatten());         // spinner out, chevron back, children in
+    }
+},
+```
+
+The built-in spinner is ten spokes ticking once per spoke, tinted from `--avg-tree-spinner` and
+falling back to `--avg-tree-chevron`; under `prefers-reduced-motion: reduce` it stops turning and
+stays legible. `spinner` replaces it — return markup or an element, sized to a 16×16 flex box.
 
 **Your content, your affordances.** A `render` on the tree column may put a `<button>` in the
 content zone; it keeps today's rules for every `render` column — a real button holds focus, and
@@ -492,9 +534,12 @@ the gutter stays visible.
 `div.avg-tree-indent[data-part="tree-indent"]` (the first with `data-first`), then — unless the row
 has no slot — `span[data-part="tree-chevron"]` classed `avg-tree-chevron` (with `data-expanded`
 when open and `data-inert` when there is no gesture) or `avg-tree-stub`, then `div.avg-tree-content`
-holding what the column would have rendered on its own. `aria-expanded` sits on the gridcell of a
-row with children. Tokens: `--avg-tree-indent` (the default guide width), `--avg-tree-guide` (the
-guide line, default the grid line), `--avg-tree-chevron` (the chevron colour, default muted text).
+holding what the column would have rendered on its own. A busy row's slot is `avg-tree-busy` instead — the
+same `data-part`, the same box, `data-inert`, no `data-expanded`. `aria-expanded` sits on the
+gridcell of a row with children, and `aria-busy="true"` joins it while `busy` holds. Tokens:
+`--avg-tree-indent` (the default guide width), `--avg-tree-guide` (the guide line, default the grid
+line), `--avg-tree-chevron` (the chevron colour, default muted text), `--avg-tree-spinner` (the
+spinner, default the chevron's colour).
 The gutter of an unchanged row is never rewritten: a pooled cell grows or shrinks its guides in
 place.
 
@@ -2211,7 +2256,7 @@ positioned, and their nesting can change.
 | `data-pinned="left" \| "right"` | A pinned column's header cell. On `"right"`, the resize grip moves to the cell's left edge. |
 | `data-type="filter-button"` | The funnel inside a header cell |
 | `data-type="cell-editor"` | The open editor |
-| `data-part="tree-indent"` / `data-part="tree-chevron"` | The tree gutter's guides and chevron slot inside a `treeColumn` cell (classed `avg-tree-cell`); the content follows in `avg-tree-content`. The first guide carries `data-first`; the slot is `avg-tree-chevron` (`data-expanded` when open, `data-inert` when there is no gesture) or `avg-tree-stub`. `aria-expanded` rides on the gridcell. See [Tree column](#tree-column--treecolumn). |
+| `data-part="tree-indent"` / `data-part="tree-chevron"` | The tree gutter's guides and chevron slot inside a `treeColumn` cell (classed `avg-tree-cell`); the content follows in `avg-tree-content`. The first guide carries `data-first`; the slot is `avg-tree-chevron` (`data-expanded` when open, `data-inert` when there is no gesture), `avg-tree-stub`, or `avg-tree-busy` while `treeColumn.busy` holds. `aria-expanded` rides on the gridcell, with `aria-busy` beside it while busy. See [Tree column](#tree-column--treecolumn). |
 | `data-avg-action="add-row" \| "add-column"` | The two `+` buttons |
 | `data-avg-slot="content-end"` | The host's `extraElement`, which also carries `avg-extra` |
 | `data-cell-borders="off"` | The root, with `cellBorders: false` |

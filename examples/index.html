@@ -143,6 +143,13 @@
             <code>filterType: "text"</code>: contains / equals / starts with.</p>
         </li>
         <li>
+            <a href="17-tree-lazy.html">A tree that loads on expand</a>
+            <p class="d">The deepest level is fetched when a node is expanded. While the request
+            is in flight <code>treeColumn.busy</code> puts a spinner in the chevron's own slot and
+            takes the gesture off — press as often as you like, nothing toggles, and the row does
+            not move. <code>treeColumn.spinner</code> replaces the built-in spinner with yours.</p>
+        </li>
+        <li>
             <a href="16-dialog.html">A grid inside a modal dialog</a>
             <p class="d">A native <code>&lt;dialog&gt;</code> opened with
             <code>showModal()</code> puts itself in the browser's top layer and makes the rest of

@@ -676,6 +676,44 @@ describe("renderDataCell — the text wrapper", () => {
                 expect(span.textContent).toBe("Market 1");
             });
 
+            it("a busy cell recycled through the header keeps nothing of the spinner (task 64)", () => {
+                const grid = create<Node>({
+                    rows: [
+                        { id: "m1", label: "Market 1", depth: 0, kids: 1 },
+                        { id: "p1", label: "Payer A", depth: 1, kids: 0 },
+                    ],
+                    columns: [{ key: "id" }, { key: "label" }],
+                    treeColumn: {
+                        key: "label",
+                        depth: (r) => r.depth,
+                        hasChildren: (r) => r.kids > 0,
+                        expanded: () => false,
+                        busy: (r) => r.id === "m1",
+                    },
+                });
+                const pool = new CellPool();
+                const a = renderDataCell(grid.model, params(pool, 1, 1)) as HTMLElement;
+                expect(kids(a)).toEqual(["avg-tree-busy", "avg-tree-content"]);
+                expect(a.getAttribute("aria-busy")).toBe("true");
+                expect(a.getAttribute("aria-expanded")).toBe("false");
+
+                // The header's own claim point: `aria-busy` and `aria-expanded` are state a data
+                // cell leaves *about* an element rather than in it, so `textContent = ""` cannot
+                // clear them and a header would announce itself as loading.
+                expect(pool.release(a)).toBe(true);
+                const header = renderHeaderCell(grid.model, params(pool, 0, 0)) as HTMLElement;
+                expect(header).toBe(a);
+                expect(header.hasAttribute("aria-busy")).toBe(false);
+                expect(header.hasAttribute("aria-expanded")).toBe(false);
+                expect(pool.release(header)).toBe(true);
+
+                const b = renderDataCell(grid.model, params(pool, 2, 1)) as HTMLElement;
+                expect(b).toBe(a);
+                expect(kids(b)).toEqual(["avg-tree-indent", "avg-tree-stub", "avg-tree-content"]);
+                expect(b.hasAttribute("aria-busy")).toBe(false);
+                expect(b.querySelector("svg")).toBeNull();
+            });
+
             it("a tree cell's element taken by a footer cell drops the gutter and aria-expanded", () => {
                 const grid = create<Node>({
                     rows: [{ id: "m1", label: "Market 1", depth: 0, kids: 1 }],

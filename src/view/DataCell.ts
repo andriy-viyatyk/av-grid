@@ -22,9 +22,9 @@
 
 import type { RenderCellParams, RenderedCell } from "../render/types";
 import type { AVGridModel } from "../model/AVGridModel";
-import type { CellContext, Column } from "../types";
+import type { CellContext, Column, TreeColumnOptions } from "../types";
 import { columnDisplayValue, formatDisplayValue, gridBoolean } from "../gridUtils";
-import { checkedIcon, checkIcon, chevronRightIcon, uncheckedIcon } from "./icons";
+import { checkedIcon, checkIcon, chevronRightIcon, spinnerIcon, uncheckedIcon } from "./icons";
 import type { TreeGutter } from "../model/TreeColumnModel";
 import { appendClass, applyCellStyle, setText } from "./cellDom";
 import { highlightMarkup } from "../highlight";
@@ -132,6 +132,7 @@ function setMode(el: HTMLElement, next: ContentMode): boolean {
     if (current === "tree") {
         treeState.delete(el);
         el.removeAttribute("aria-expanded");
+        el.removeAttribute("aria-busy");
     }
     el.textContent = "";
     mode.set(el, next);
@@ -164,7 +165,13 @@ const treeState = new WeakMap<HTMLElement, TreeCellState>();
  * wholesale, which is what keeps the second invariant's repaint skip true for the part av-grid
  * controls. The consumer's content, one level down, costs what every `render` column costs.
  */
-function syncTreeGutter(el: HTMLElement, g: TreeGutter, indentSize: number): HTMLElement {
+function syncTreeGutter<R>(
+    el: HTMLElement,
+    g: TreeGutter,
+    indentSize: number,
+    tree: TreeColumnOptions<R> | undefined,
+    row: R,
+): HTMLElement {
     let state = treeState.get(el);
     if (setMode(el, "tree") || !state) {
         const host = document.createElement("div");
@@ -212,9 +219,30 @@ function syncTreeGutter(el: HTMLElement, g: TreeGutter, indentSize: number): HTM
                 if (slot.firstChild) slot.textContent = "";
                 slot.removeAttribute("data-expanded");
                 slot.removeAttribute("data-inert");
+            } else if (g.chevron === "busy") {
+                // The slot keeps its `data-part` and its 16px box — it is the same slot in the
+                // same place, which is what stops the row jumping as the fetch starts and ends.
+                // `data-expanded` goes because the slot no longer shows a direction; the cell's
+                // `aria-expanded` keeps it, from `g.expanded`.
+                slot.className = "avg-tree-busy";
+                const custom = tree?.spinner?.(row);
+                slot.textContent = "";
+                if (typeof custom === "string") slot.innerHTML = custom;
+                else if (custom) slot.appendChild(custom);
+                else slot.innerHTML = spinnerIcon;
+                slot.removeAttribute("data-expanded");
+                slot.setAttribute("data-inert", "");
             } else {
                 slot.className = "avg-tree-chevron";
-                if (state.chevron === "none" || state.chevron === "stub") {
+                // `busy` belongs in this list: the slot leaving the spinner holds the spinner's
+                // markup, not the chevron's, so without it a row would come back from a fetch
+                // still spinning — the shared-pool rule (`plan-done-16.md`) one level in, where
+                // the "pool" is the slot and the two occupants are the two icons.
+                if (
+                    state.chevron === "none" ||
+                    state.chevron === "stub" ||
+                    state.chevron === "busy"
+                ) {
                     slot.innerHTML = chevronRightIcon;
                 }
                 if (g.chevron === "open") slot.setAttribute("data-expanded", "true");
@@ -279,6 +307,7 @@ function claim(el: HTMLElement, kind: CellKind): void {
         written.delete(el);
         treeState.delete(el);
         el.removeAttribute("aria-expanded");
+        el.removeAttribute("aria-busy");
     }
     el.removeAttribute("title");
     el.removeAttribute("aria-sort");
@@ -382,13 +411,20 @@ export function renderDataCell<R>(
     let target = el;
     if (tree.isTreeColumn(column)) {
         const gutter = tree.gutter(row);
-        target = syncTreeGutter(el, gutter, tree.indentSize);
-        // On the gridcell, where the role allows it; there is no `treeitem` here.
-        if (gutter.chevron === "open" || gutter.chevron === "closed") {
-            el.setAttribute("aria-expanded", gutter.chevron === "open" ? "true" : "false");
-        } else if (el.hasAttribute("aria-expanded")) {
-            el.removeAttribute("aria-expanded");
+        // The options and the row rather than a bound thunk: a closure built here would be one
+        // allocation per tree cell per paint, for a call the slot makes only when it enters the
+        // busy state.
+        target = syncTreeGutter(el, gutter, tree.indentSize, tree.options, row);
+        // On the gridcell, where the role allows it; there is no `treeitem` here. A busy node
+        // keeps the state it is in — it is not expanded until its children are there, and
+        // dropping the attribute mid-fetch would tell a reader the node stopped being a node.
+        if (gutter.chevron === "none" || gutter.chevron === "stub") {
+            if (el.hasAttribute("aria-expanded")) el.removeAttribute("aria-expanded");
+        } else {
+            el.setAttribute("aria-expanded", gutter.expanded ? "true" : "false");
         }
+        if (gutter.chevron === "busy") el.setAttribute("aria-busy", "true");
+        else if (el.hasAttribute("aria-busy")) el.removeAttribute("aria-busy");
     }
 
     if (isEditing) {

@@ -228,10 +228,24 @@ any cell — they never go dead. `chevrons` removes the slot for the grid or per
 always-expanded first level starts flush at the cell edge. A tree cell copies its `path`, never
 indentation; the editor mounts over the content zone and the gutter stays.
 
+**A node whose children load on expand — `busy` (task 64).** The chevron is *replaced* by a
+spinner in the same slot for as long as the host says the row is loading, and the gesture goes with
+it: no `onTreeToggle` from a press, no toggle from `→` / `←`, `aria-busy="true"` on the cell,
+`aria-expanded` still saying what the node is. Replaced rather than accompanied on purpose — a
+spinner beside a live chevron leaves the toggle armed, and a reader whose rows have not moved
+presses again. Nothing polls: a `busy` set inside `onTreeToggle` is picked up by the repaint that
+follows the callback, and anything later is shown by the host's own `setRows` or `refresh()`. The
+built-in spinner is Persephone's, ten spokes ticking once per spoke so the dial reads as mechanical
+rather than smooth, tinted from `--avg-tree-spinner` and stopped (not hidden) under
+`prefers-reduced-motion`; `treeColumn.spinner` replaces it with the host's own markup or element.
+
 **Pooling-safe by construction.** The gutter is synced in place — a cell recycled from depth 8 to
 depth 2 loses six guides, the slot is swapped, nothing is rebuilt — and the content host follows the
 same rules every cell follows (`written` skips an unchanged `render` string — true since 2.11.2;
-before task 62 the host was emptied and rebuilt on every paint, see `plan-done-16.md`). Measured on
+before task 62 the host was emptied and rebuilt on every paint, see `plan-done-16.md`). The slot is
+its own small pool with the same rule: the spinner's markup must be cleared by the branch that puts
+the chevron back, or a row returns from its fetch still spinning — and the header, which shares the
+cell pool, now clears the tree's `aria-expanded` and `aria-busy` when it takes an element over. Measured on
 AVGridBoard (`measureTree`, 10,520 rows fully expanded, a pinned-left tree column beside grouped
 columns): first paint 8.1 ms, scroll paint **0.121 ms at the top against 0.121 ms without the
 gutter (1.01×)**, **0 mutation records inside a row's gutter across a full repaint**, a real chevron
@@ -838,7 +852,7 @@ commits to the class names and `data-*` attributes as public while explicitly le
 was read out of the source rather than recalled; two of them (`filterRows`, `rowsToCsvText`) were
 not what the obvious guess would have been.
 
-**[`examples/`](../examples/) holds sixteen runnable files**, one topic each, every one standalone
+**[`examples/`](../examples/) holds seventeen runnable files**, one topic each, every one standalone
 and meant to be copied whole: minimal · columns · cell rendering · sorting and filtering ·
 selection and keyboard · editing · clipboard · theming · the 100k benchmark · customization ·
 host integration · React · a report shape · column groups · host-owned data · a modal dialog —

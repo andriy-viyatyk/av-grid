@@ -869,6 +869,18 @@ export function validateTreeColumn<R>(
                 `For example: chevrons: (r) => r.depth > 0 — no chevron slot on an always-expanded first level.`,
         );
     }
+    if (t.busy !== undefined && typeof t.busy !== "function") {
+        fail(
+            `\`treeColumn.busy\` must be a function of the row returning whether its children are loading, ` +
+                `but was ${describe(t.busy)}. For example: busy: (r) => loading.has(r.id).`,
+        );
+    }
+    if (t.spinner !== undefined && typeof t.spinner !== "function") {
+        fail(
+            `\`treeColumn.spinner\` must be a function of the row returning markup or an element, ` +
+                `but was ${describe(t.spinner)}. Omit it for the built-in spinner.`,
+        );
+    }
     if (t.path !== undefined && typeof t.path !== "function") {
         fail(`\`treeColumn.path\` must be a function of the row returning the text to copy, but was ${describe(t.path)}.`);
     }

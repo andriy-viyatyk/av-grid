@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<!--
+    av-grid — a tree whose children are fetched when a node is expanded.
+
+    The rows above the last level arrive in one query; pressing a chevron issues a request for
+    that node's children. While it is in flight, `treeColumn.busy` says so and the grid replaces
+    the chevron with a spinner in the same slot.
+
+    Replaced, not accompanied. A spinner beside a live chevron leaves the toggle armed, so a
+    reader whose rows have not moved presses again, and again, and ends up collapsing what they
+    just expanded. Taking the affordance away for exactly as long as it would misbehave is the
+    whole idea — and because the slot keeps its box, nothing in the row shifts as the fetch
+    starts or ends.
+
+    Nothing polls the row. The grid repaints when it is told to:
+      - `busy` set *inside* `onTreeToggle` needs nothing — the grid repaints that row right
+        after the callback returns, which is why the spinner appears on the press;
+      - the end of the fetch is shown by the `setRows` the host was going to call anyway.
+
+    What to check on this page:
+      - press a payer's chevron: it becomes a spinner, the row does not move;
+      - press the spinner repeatedly while it spins: the toggle count does not go up;
+      - `→` on the focused busy cell navigates instead of toggling;
+      - when the children land, the chevron is back and pointing down;
+      - "custom spinner" swaps in the host's own element through `treeColumn.spinner`.
+
+    Run: npm run build once, then serve this folder and open the file:
+        npx serve .          (or: python -m http.server)
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>av-grid — a tree that loads on expand</title>
+    <link rel="stylesheet" href="../dist/av-grid.css" />
+    <style>
+        body { margin: 0; font: 14px system-ui, sans-serif; }
+        header { padding: 12px 16px; border-bottom: 1px solid #ddd; }
+        h1 { margin: 0 0 4px; font-size: 15px; }
+        p { margin: 0 0 8px; color: #666; }
+        .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        label { display: inline-flex; gap: 5px; align-items: center; }
+        #host { height: 420px; margin: 16px; }
+        #log { margin: 0 16px 16px; color: #666; font: 12px ui-monospace, monospace; white-space: pre-line; }
+
+        /* The host's own spinner, for the `spinner` option: three pulsing dots. */
+        .dots { display: inline-flex; gap: 2px; align-items: center; }
+        .dots i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; animation: dot 1s infinite; }
+        .dots i:nth-child(2) { animation-delay: 0.15s; }
+        .dots i:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes dot { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .dots i { animation: none; } }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>A tree that loads on expand</h1>
+        <p>The measures under each payer are fetched when the payer is expanded. While the
+        request is in flight the chevron is a spinner and the gesture is off.</p>
+        <div class="row">
+            <label><input type="checkbox" id="slow" /> slow fetch (3s)</label>
+            <label><input type="checkbox" id="custom" /> custom spinner (the host's own)</label>
+            <span id="counts"></span>
+        </div>
+    </header>
+
+    <div id="host"></div>
+    <div id="log"></div>
+
+    <script type="module">
+        import { AVGrid } from "../dist/av-grid.js";
+
+        // ------------------------------------------------------------------ the host's engine
+        // The library draws the gutter; the row set, the expanded state and the fetch are all
+        // the host's, exactly as they are without `busy`.
+        const MEASURES = ["Members", "Visits", "Admits", "ER visits", "Cost PMPM", "Quality"];
+        let seq = 0;
+        const node = (label, depth, parent) => ({ id: `n${++seq}`, label, depth, parent, children: null, value: (seq * 7919) % 900 });
+
+        const roots = ["North", "South", "East"].map((m) => {
+            const market = node(m, 0, null);
+            // Payers are known up front; their measures are not — `children: null` means
+            // "there are some, they have not been fetched".
+            market.children = ["Aetna", "Cigna", "Humana"].map((p) => node(p, 1, market));
+            return market;
+        });
+
+        const expanded = new Set([roots[0].id]);
+        const loading = new Set();
+        let toggles = 0;
+
+        // A leaf has an empty array; an unfetched node has `null`, and still has children.
+        const hasChildren = (r) => r.children === null || r.children.length > 0;
+
+        function flatten() {
+            const out = [];
+            const walk = (n) => {
+                out.push(n);
+                if (expanded.has(n.id) && n.children) n.children.forEach(walk);
+            };
+            roots.forEach(walk);
+            return out;
+        }
+
+        const fetchChildren = (row) =>
+            new Promise((resolve) =>
+                setTimeout(
+                    () =>
+                        // `children: []` — a measure is a leaf. `null` would mean "it has
+                        // children nobody has fetched", and every measure would grow a chevron.
+                        resolve(
+                            MEASURES.map((m) =>
+                                Object.assign(node(m, row.depth + 1, row), { children: [] }),
+                            ),
+                        ),
+                    document.getElementById("slow").checked ? 3000 : 900,
+                ),
+            );
+
+        // ------------------------------------------------------------------ the grid
+        const grid = AVGrid.create("#host", {
+            rows: flatten(),
+            getRowKey: (r) => r.id,
+            disableSorting: true,
+            columns: [
+                { key: "label", name: "Dimension", width: 320 },
+                { key: "value", name: "Value", width: 120, align: "right" },
+            ],
+            treeColumn: {
+                key: "label",
+                depth: (r) => r.depth,
+                hasChildren,
+                expanded: (r) => expanded.has(r.id),
+                busy: (r) => loading.has(r.id),
+                // Swapped in live by the checkbox below, to show the option's shape. A fresh
+                // element every call: cells are pooled, and appending a node moves it.
+                spinner: (r) =>
+                    document.getElementById("custom").checked
+                        ? Object.assign(document.createElement("span"), {
+                              className: "dots",
+                              innerHTML: "<i></i><i></i><i></i>",
+                          })
+                        : null,
+                path: (r) => {
+                    const parts = [];
+                    for (let c = r; c; c = c.parent) parts.unshift(c.label);
+                    return parts.join(" › ");
+                },
+            },
+            onTreeToggle: async (row, open) => {
+                toggles++;
+                counts();
+                if (!open) {
+                    expanded.delete(row.id);
+                    grid.setRows(flatten());
+                    log(`collapsed ${row.label}`);
+                    return;
+                }
+                if (row.children) {
+                    expanded.add(row.id);
+                    grid.setRows(flatten());
+                    return;
+                }
+                // The spinner appears on this line: the grid repaints the row as soon as this
+                // callback returns, and `busy` is true by then. No `refresh()` needed.
+                loading.add(row.id);
+                log(`fetching ${row.label}…`);
+                try {
+                    row.children = await fetchChildren(row);
+                    expanded.add(row.id);
+                } finally {
+                    loading.delete(row.id);
+                    grid.setRows(flatten()); // spinner out, chevron back, children in
+                }
+                log(`loaded ${row.children.length} under ${row.label}`);
+            },
+        });
+
+        function log(line) {
+            const el = document.getElementById("log");
+            el.textContent = `${line}\n${el.textContent}`.split("\n").slice(0, 6).join("\n");
+        }
+        function counts() {
+            document.getElementById("counts").textContent =
+                `toggles: ${toggles} · loading: ${loading.size}`;
+        }
+        counts();
+
+        // Handy from the console, and what the browser check drives.
+        window.grid = grid;
+        window.tree = { roots, expanded, loading, flatten, toggleCount: () => toggles };
+    </script>
+</body>
+</html>
