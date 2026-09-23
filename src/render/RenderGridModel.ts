@@ -92,6 +92,17 @@ export interface RenderGridOptions {
     stickyBottom?: number;
     overscanColumn?: number;
     overscanRow?: number;
+    /**
+     * Report the scrollbar thickness instead of measuring it from the container.
+     *
+     * The thickness is normally `offsetWidth - clientWidth`, which is the only honest answer
+     * when the container is the scroller. When the *grid* owns its scroll position (task 65)
+     * the container has `overflow: hidden` and measures 0, while the space is taken by the
+     * shell's own scrollbar strips beside it. Everything downstream — the visible column
+     * range, the right-pinned band's left edge, the maximum offset a `scrollBy` may reach —
+     * has to reserve that space all the same, so the shell answers for it here.
+     */
+    scrollBarSize?: () => { width: number; height: number };
     fitToWidth?: boolean;
     whiteSpaceX?: number;
     whiteSpaceY?: number;
@@ -213,13 +224,17 @@ export class RenderGridModel extends Model<RenderGridState> {
             : this.options.columnCount;
     }
 
-    /** Thickness of the horizontal scrollbar, measured from the container. */
+    /** Thickness of the vertical scrollbar — measured from the container, or declared. */
     get scrollBarWidth(): number {
+        const declared = this.options.scrollBarSize;
+        if (declared) return declared().width;
         const c = this.containerRef.current;
         return c ? c.offsetWidth - c.clientWidth : 0;
     }
 
     get scrollBarHeight(): number {
+        const declared = this.options.scrollBarSize;
+        if (declared) return declared().height;
         const c = this.containerRef.current;
         return c ? c.offsetHeight - c.clientHeight : 0;
     }

@@ -17,6 +17,32 @@ which renders only the newly exposed cells.
 Adding the offset "for symmetry" would report a change on every scroll frame, force
 `updateRenderInfo({ all: true })`, and rebuild every visible cell 60 times a second.
 
+### The scrollbar the user drags is not the viewport
+
+Two elements can move the grid, and they are not equivalent.
+
+The **viewport** is a real scroller and carries the wheel, the trackpad and touch. The browser
+moves it on the compositor and delivers a scroll event afterwards, so for one frame the content
+has moved and the cells have not; `overscanRow` exists to cover that frame, and at wheel speed it
+does.
+
+The **strips** — one per axis, empty, holding a spacer and no cells — are the scrollbars the
+user sees. A drag of one is handled by writing the viewport's offset, recomputing and painting
+**in that one event**, because a drag can cross thousands of rows in a frame and no runway covers
+that. The grid used to go blank for the length of such a drag.
+
+Two things follow, and both have already been got wrong once:
+
+- **Do not move the thumb from inside the paint.** Writing `scrollTop` forces a synchronous
+  layout, and the paint has just dirtied boxes millions of pixels tall. Measured at 100,000 rows:
+  0.20 ms a paint became 1.00 ms, with the frame rate never moving — only the benchmark board
+  could see it. The write belongs on the next frame, where layout is clean.
+- **Do not reach for a transform instead of `scrollTop`.** It looks like the cheaper way to move
+  the content and it takes the pinned rows and columns with it: `position: sticky` resolves
+  against the scrollport and only responds to that scrollport scrolling. Measured, a sticky header
+  sat 500px above the viewport under a transform and stayed exactly in place under a written
+  `scrollTop`.
+
 ---
 
 ## 2. A cell renderer resolves its element in this order

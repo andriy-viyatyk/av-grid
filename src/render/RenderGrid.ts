@@ -18,6 +18,11 @@
  *    both coalesce into it. The model has usually already decided there is nothing to do —
  *    `calcRenderInfo` returns the identical object — in which case the paint returns early.
  *
+ *    **With one exception: a drag of the grid's own scrollbar.** That paints from the strip's
+ *    scroll event itself, so the viewport's offset and the cells belonging at it are written
+ *    before the handler yields — see {@link RenderGrid.onStripScroll}, which is the whole of
+ *    task 65.
+ *
  * Styling here is deliberately limited to *structure*: sizes and offsets that follow from the
  * geometry. Appearance belongs to the stylesheet introduced in task 9.
  */
@@ -118,6 +123,44 @@ export interface RenderGridShellOptions extends RenderGridOptions {
 
 const px = (n: number) => `${n}px`;
 
+/**
+ * How wide a strip is drawn when the platform's own scrollbars take no space — overlay
+ * scrollbars, which float over the content instead of displacing it (task 65).
+ */
+const OVERLAY_STRIP_PX = 12;
+
+/**
+ * How much room a native scrollbar takes from the content, measured once (task 65).
+ *
+ * **This is the space to reserve, not the width to draw**, and on an overlay-scrollbar platform
+ * the two differ: the honest answer there is 0, because that is what the browser itself
+ * reserves, and the strip floats over the content edge exactly as the platform's own bar does.
+ * Drawing follows {@link OVERLAY_STRIP_PX} in that case, so there is still something to grab.
+ *
+ * An earlier version applied that floor here instead, to the reserved space, and it was wrong
+ * twice over: it made every grid 12px narrower under a DOM that lays nothing out, and it would
+ * have displaced content on macOS that the platform does not displace.
+ */
+const barSizeByDocument = new WeakMap<Document, number>();
+
+function measureScrollBar(doc: Document): number {
+    const cached = barSizeByDocument.get(doc);
+    if (cached !== undefined) return cached;
+
+    const probe = doc.createElement("div");
+    probe.style.cssText =
+        "position:absolute;visibility:hidden;width:100px;height:100px;overflow:scroll;";
+    doc.body.appendChild(probe);
+    const size = probe.offsetWidth - probe.clientWidth;
+    probe.remove();
+
+    // Attaching a probe and measuring it costs a layout, and a page that builds several grids
+    // would pay it once each for an answer that cannot differ within one document.
+    const resolved = size > 0 ? size : 0;
+    barSizeByDocument.set(doc, resolved);
+    return resolved;
+}
+
 /** Write a style only when it actually differs — a redundant write can force layout. */
 function setStyle(el: HTMLElement, prop: string, value: string): void {
     if (el.style.getPropertyValue(prop) !== value) {
@@ -158,6 +201,12 @@ const INLINE_FLEX_REGIONS: ReadonlySet<RegionKey> = new Set<RegionKey>([
 
 export interface RenderGridStats {
     paints: number;
+    /**
+     * Of those paints, how many ran synchronously from a scroll handler rather than from the
+     * scheduler — i.e. how many were driven by a drag of the grid's own scrollbar, which paints
+     * inside the event so the offset and the cells cannot end up a frame apart.
+     */
+    syncPaints: number;
     cellsAppended: number;
     cellsRemoved: number;
     /** Wall time of the most recent paint, in milliseconds. */
@@ -187,6 +236,66 @@ export class RenderGrid {
     private rafId?: number;
     private paintScheduled = false;
     private destroyed = false;
+
+    /**
+     * **The grid's own scrollbars (task 65).** One per axis, at the right and bottom edges,
+     * each an *empty* box holding a single spacer and no cells.
+     *
+     * There are two scroll inputs and they are deliberately not treated alike:
+     *
+     * - **A strip** is the scrollbar the user drags. Its event writes the viewport's offset,
+     *   recomputes and paints **in one task**, so the offset and the cells that belong at it
+     *   can never be a frame apart. This is the case the whole task was about: a drag exposes a
+     *   viewport sharing no row with the last one, and no overscan can cover that. Because a
+     *   strip holds nothing, the browser scrolling it exposes nothing.
+     * - **The wheel and the trackpad** are left entirely alone. The viewport is still a real
+     *   scroller, so the browser scrolls it on the compositor with its own animation and the
+     *   grid follows through the ordinary scroll path. The frame of lag that leaves is what
+     *   `overscanRow` covers.
+     *
+     * **Taking the wheel was tried twice and was worse both times.** Forwarding a notch to a
+     * strip needs `preventDefault`, which throws away the browser's ~100ms easing; replacing it
+     * with a smooth `scrollTo` restores the motion on paper — measured: sixteen distinct
+     * positions in sixteen frames on a real ease-in curve — and still reads as sluggish beside
+     * the native scroll. The browser's wheel animation is not reproducible from script, so it
+     * is not reproduced.
+     *
+     * The viewport therefore stays `overflow: auto` with `scrollbar-width: none`, which also
+     * keeps `position: sticky` on the nine regions working untouched. Measured, because it
+     * decides the design: a written `scrollTop` keeps a sticky header at the top of the
+     * viewport, and a `transform` on the area takes it 500px off the top along with the footer
+     * band and the pinned columns.
+     *
+     * `growToHeight` / `growToWidth` are supported: the viewport sizes itself to its content
+     * there, so it is not narrowed to make room and the strip overlays its edge instead.
+     */
+    private readonly stripY: HTMLDivElement;
+    private readonly stripX: HTMLDivElement;
+    private readonly spacerY: HTMLDivElement;
+    private readonly spacerX: HTMLDivElement;
+    /** Native scrollbar thickness, measured once. */
+    private barSize = 0;
+    /** The thickness each axis currently reserves — 0 when that strip is not shown. */
+    private barW = 0;
+    private barH = 0;
+    /**
+     * True while this class is writing a strip's position, so the scroll event that write
+     * causes is not read back as a gesture. The echo arrives with the next frame's scroll
+     * steps, ahead of its animation callbacks, so a `requestAnimationFrame` clears it.
+     */
+    private writingStrip = false;
+    /**
+     * The offset the strips were last put on. Compared against the *model's* offset, which is a
+     * plain object — asking the DOM instead would force a layout inside every paint.
+     *
+     * Starts at the origin because that is where a fresh strip and a fresh model both are: a
+     * sentinel here would make the constructor's own first paint write the thumbs, and arm the
+     * echo guard, so the very first gesture after construction would be swallowed.
+     */
+    private syncedX = 0;
+    private syncedY = 0;
+    /** A queued thumb write, so a burst of paints moves the thumbs once. */
+    private syncRaf?: number;
 
     /** Watches the ancestors' child lists for the host moving the grid. See `watchHost`. */
     private hostObserver?: MutationObserver;
@@ -221,6 +330,7 @@ export class RenderGrid {
 
     private _stats = {
         paints: 0,
+        syncPaints: 0,
         cellsAppended: 0,
         cellsRemoved: 0,
         lastPaintMs: 0,
@@ -283,6 +393,15 @@ export class RenderGrid {
         this.container.append(this.area);
         this.root.append(this.container);
 
+        this.barSize = measureScrollBar(host.ownerDocument);
+        this.spacerY = div("render-grid-scrollbar-spacer");
+        this.stripY = div("render-grid-scrollbar-y", "avg-scrollbar-y");
+        this.stripY.append(this.spacerY);
+        this.spacerX = div("render-grid-scrollbar-spacer");
+        this.stripX = div("render-grid-scrollbar-x", "avg-scrollbar-x");
+        this.stripX.append(this.spacerX);
+        this.root.append(this.stripY, this.stripX);
+
         this.applyStaticStyles();
         this.host.append(this.root);
 
@@ -290,11 +409,17 @@ export class RenderGrid {
             ...options,
             recycle: this.acquireCell,
             setReuseKey: this.pool.setReuseKey,
+            // The viewport measures no scrollbar — it has none. The space is the strips',
+            // and the geometry still has to reserve it.
+            scrollBarSize: () => ({ width: this.barW, height: this.barH }),
         });
 
-        this.container.addEventListener("scroll", this.model.onScroll, {
+        // The viewport carries the wheel and the trackpad, which are left to the browser.
+        this.container.addEventListener("scroll", this.onScroll, {
             passive: true,
         });
+        this.stripY.addEventListener("scroll", this.onStripScroll, { passive: true });
+        this.stripX.addEventListener("scroll", this.onStripScroll, { passive: true });
 
         this.unsubscribe = this.model.state.subscribe(this.onModelChanged);
 
@@ -445,7 +570,9 @@ export class RenderGrid {
         if (this.destroyed) return;
         this.destroyed = true;
 
-        this.container.removeEventListener("scroll", this.model.onScroll);
+        this.container.removeEventListener("scroll", this.onScroll);
+        this.stripY.removeEventListener("scroll", this.onStripScroll);
+        this.stripX.removeEventListener("scroll", this.onStripScroll);
         this.hostObserver?.disconnect();
         this.hostObserver = undefined;
         this.observedAncestors = [];
@@ -455,6 +582,10 @@ export class RenderGrid {
         if (this.rafId !== undefined) {
             cancelAnimationFrame(this.rafId);
             this.rafId = undefined;
+        }
+        if (this.syncRaf !== undefined) {
+            cancelAnimationFrame(this.syncRaf);
+            this.syncRaf = undefined;
         }
 
         this.model.dispose();
@@ -486,6 +617,134 @@ export class RenderGrid {
             this.paint();
         });
     }
+
+    /**
+     * The container's scroll listener — the model's recompute, and then task 65's eager paint.
+     *
+     * **Why this is a wrapper and not `model.onScroll` directly.** The recompute is the model's
+     * and is unchanged; what is new is the decision that follows it, which is the *shell's*,
+     * because only the shell knows what it last painted.
+     *
+     * **The condition is coverage, not distance.** It fires when the rows and columns now visible
+     * are not inside the band the last paint rendered — which is exactly when a reader would
+     * otherwise be shown pixels nobody has drawn. The plan proposed the narrower "the ranges do
+     * not overlap at all", but that is the *pool's* condition rather than the reader's: at a
+     * quarter of a viewport per frame the ranges still overlap and a quarter of the probes still
+     * come back blank. Comparing windows rather than pixel deltas is also what keeps the answer
+     * right under measured row heights, where a delta means nothing.
+     *
+     * **Three things it must not do**, each a real trap rather than a precaution:
+     *
+     * - **Never take the early-return branch of `paint()`.** That branch calls `restoreScroll()`
+     *   and `flushPendingScroll()`, both of which write `scrollTop`; doing that from inside a
+     *   scroll handler is the "list that scrolls half the time" failure documented on
+     *   `RenderGridModel.restoreScroll`. Hence the `info === this.lastInfo` guard: this path
+     *   paints only when there is something new to draw, and leaves every other case to the
+     *   scheduler.
+     * - **At most one synchronous paint per frame.** A second scroll event in the same frame
+     *   falls back to the scheduled path. The frame is identified by a one-shot
+     *   `requestAnimationFrame`, not by a timestamp — a clock cannot tell two events in one
+     *   frame from two events in two.
+     * - **Leave the scheduler consistent.** A paint already queued for this frame is cancelled,
+     *   because it would otherwise repaint the same state. The notify that `model.onScroll`
+     *   raises is a *microtask*, so the `schedulePaint` it causes lands after this returns and
+     *   queues a paint that finds nothing to do — which is the ordinary no-op paint, in its
+     *   ordinary frame.
+     */
+    /**
+     * A strip moved — so move the content, recompute and paint, all in this one task.
+     *
+     * This is the half of the scrolling that this class owns: the drag. The viewport's offset and the
+     * cells that belong at that offset are written by the same code before it yields, so there
+     * is no frame in which one has moved and the other has not. `model.onScroll()` is called
+     * without an event on purpose: it reads the container, which the line above has already
+     * written, and a `scrollTop` write lands in layout synchronously.
+     *
+     * The container's own scroll event follows a frame later, carrying the offset this just
+     * wrote. It finds nothing to do, which is the cheapest paint there is.
+     */
+    private onStripScroll = (): void => {
+        if (this.writingStrip || this.destroyed) return;
+        const y = this.stripY.scrollTop;
+        const x = this.stripX.scrollLeft;
+        this.container.scrollTop = y;
+        this.container.scrollLeft = x;
+        // The thumbs are already here — the user put them here. Recording it keeps the paint
+        // that follows from writing them back.
+        this.syncedX = x;
+        this.syncedY = y;
+        this.model.onScroll();
+        this.paintNow();
+    };
+
+    /** Move the strips without hearing the echo as a gesture. */
+    private writeStrips(x: number, y: number): void {
+        this.syncedX = x;
+        this.syncedY = y;
+        this.writingStrip = true;
+        this.stripY.scrollTop = y;
+        this.stripX.scrollLeft = x;
+        requestAnimationFrame(() => {
+            this.writingStrip = false;
+        });
+    }
+
+    /**
+     * Put the strips back on the offset the container actually has.
+     *
+     * Everything that scrolls the grid without a gesture — `scrollToRow`, the queued scroll
+     * flushed after a paint, the repair of a position the browser discarded — writes the
+     * container, because that is where the model has always written. The thumbs follow from
+     * here rather than every one of those call sites learning about strips.
+     */
+    /**
+     * Put the thumbs where the content is — **on the next frame, never inside the paint**.
+     *
+     * Writing `scrollTop` forces a synchronous layout, and the paint has just dirtied the very
+     * boxes that layout has to do: the cell area and the strip's spacer are both a couple of
+     * million pixels tall at 100,000 rows. Measured on the gate, doing it inline took the paint
+     * from **0.20ms to 1.00ms** — a five-fold cost that nothing but the benchmark would have
+     * caught, since the frame rate never moved. Deferring it to a frame where layout is clean
+     * makes the same write cheap, and a thumb one frame behind the rows it describes is not
+     * something an eye can see.
+     *
+     * The guard is against the *model*, which is a plain object and answers for free. On a
+     * strip-driven scroll the thumb is already where the user put it, so the common case
+     * schedules nothing at all.
+     */
+    private syncStrips(): void {
+        if (this.syncRaf !== undefined) return;
+        const { x, y } = this.model.offset;
+        if (x === this.syncedX && y === this.syncedY) return;
+
+        this.syncRaf = requestAnimationFrame(() => {
+            this.syncRaf = undefined;
+            if (this.destroyed) return;
+            const now = this.model.offset;
+            if (now.x === this.syncedX && now.y === this.syncedY) return;
+            this.writeStrips(now.x, now.y);
+        });
+    }
+
+    /** Paint now, dropping a paint already queued for this frame. */
+    private paintNow(): void {
+        if (this.rafId !== undefined) {
+            cancelAnimationFrame(this.rafId);
+            this.rafId = undefined;
+            this.paintScheduled = false;
+        }
+        this._stats.syncPaints++;
+        this.paint();
+    }
+
+    /**
+     * The viewport scrolled — the wheel, the trackpad, touch, or a `scrollTop` written by the
+     * model. The browser moved the content and is telling us afterwards, so this takes the
+     * ordinary scheduled path; the frame of lag it leaves is what `overscanRow` covers.
+     */
+    private onScroll = (e: Event): void => {
+        this.model.onScroll(e);
+    };
 
     // -----------------------------------------------------------------------
     // Paint
@@ -519,6 +778,7 @@ export class RenderGrid {
             // queued scroll must not wait for a geometry change that may never come. A grid
             // that was laid out late reaches its first usable size on exactly this paint.
             this.model.flushPendingScroll();
+            this.syncStrips();
             return;
         }
 
@@ -583,6 +843,8 @@ export class RenderGrid {
         // written by `applyLayout` a few lines above.
         this.model.flushPendingScroll();
 
+        this.syncStrips();
+
         this._stats.lastPaintMs = performance.now() - startedAt;
         this._stats.totalPaintMs += this._stats.lastPaintMs;
     }
@@ -591,6 +853,7 @@ export class RenderGrid {
     resetStats(): void {
         this._stats = {
             paints: 0,
+            syncPaints: 0,
             cellsAppended: 0,
             cellsRemoved: 0,
             lastPaintMs: 0,
@@ -760,6 +1023,10 @@ export class RenderGrid {
 
         setStyle(this.container, "overflow-y", "auto");
         setStyle(this.container, "overflow-x", this.options.fitToWidth ? "hidden" : "auto");
+        // The viewport still scrolls — that is what keeps the wheel on the compositor and
+        // sticky working — but the bar the user sees and drags is the strip, so its own is
+        // hidden.
+        setStyle(this.container, "scrollbar-width", "none");
         setStyle(this.container, "outline", "none");
         // Scroll anchoring off, on both the scroller and the content it scrolls.
         //
@@ -775,6 +1042,24 @@ export class RenderGrid {
         setStyle(this.container, "max-width", growToWidth ?? "unset");
 
         setStyle(this.area, "position", "relative");
+
+        for (const strip of [this.stripY, this.stripX]) {
+            setStyle(strip, "position", "absolute");
+            setStyle(strip, "overflow-anchor", "none");
+            // Above the cells, below any popover the host mounts.
+            setStyle(strip, "z-index", "4");
+        }
+        setStyle(this.stripY, "top", "0px");
+        setStyle(this.stripY, "right", "0px");
+        setStyle(this.stripY, "overflow-x", "hidden");
+        setStyle(this.stripY, "overflow-y", "scroll");
+        setStyle(this.spacerY, "width", "1px");
+
+        setStyle(this.stripX, "left", "0px");
+        setStyle(this.stripX, "bottom", "0px");
+        setStyle(this.stripX, "overflow-y", "hidden");
+        setStyle(this.stripX, "overflow-x", "scroll");
+        setStyle(this.spacerX, "height", "1px");
 
         for (const key of ["stickyTop", "stickyBottom"] as const) {
             setStyle(this.regions[key], "position", "sticky");
@@ -809,8 +1094,33 @@ export class RenderGrid {
         const height = this.model.size.height ?? 0;
 
         const { growToHeight, growToWidth } = this.options;
-        setStyle(this.container, "width", growToWidth ? "unset" : px(width));
-        setStyle(this.container, "height", growToHeight ? "unset" : px(height));
+
+        // The strips take the edges the native scrollbars used to, and the viewport gets what
+        // is left. Two passes, because showing one bar shrinks the box the other has to fit in
+        // — the same decision `overflow: auto` makes internally.
+        let needY = innerSize.height > height;
+        const needX = innerSize.width > width - (needY ? this.barSize : 0);
+        if (needX) needY = innerSize.height > height - this.barSize;
+        this.barW = needY ? this.barSize : 0;
+        this.barH = needX ? this.barSize : 0;
+
+        // Drawn at least wide enough to grab, but only *reserving* what the platform reserves
+        // — so on an overlay-scrollbar platform the strip floats over the content edge, which
+        // is what the platform's own bars do there.
+        const drawn = px(Math.max(this.barSize, OVERLAY_STRIP_PX));
+
+        setStyle(this.stripY, "display", needY ? "block" : "none");
+        setStyle(this.stripY, "width", drawn);
+        setStyle(this.stripY, "height", px(height - this.barH));
+        setStyle(this.spacerY, "height", px(innerSize.height));
+
+        setStyle(this.stripX, "display", needX ? "block" : "none");
+        setStyle(this.stripX, "height", drawn);
+        setStyle(this.stripX, "width", px(width - this.barW));
+        setStyle(this.spacerX, "width", px(innerSize.width));
+
+        setStyle(this.container, "width", growToWidth ? "unset" : px(width - this.barW));
+        setStyle(this.container, "height", growToHeight ? "unset" : px(height - this.barH));
 
         setStyle(this.area, "width", px(innerSize.width));
         setStyle(this.area, "height", px(innerSize.height));

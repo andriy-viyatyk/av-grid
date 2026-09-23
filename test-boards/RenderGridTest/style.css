@@ -137,3 +137,49 @@ button.secondary {
 
 .avg-cell.num { justify-content: flex-end; }
 .avg-cell.odd { background: var(--p-panel, #232323); }
+
+/* --------------------------------------------------------------------------
+   The blank probe's cells (blank-probe.js).
+
+   A text-only cell is not what the three-grid comparison measured: cell *content* is most of
+   the paint, so the probe's grid draws a coloured status pill, a progress bar and a signed
+   number beside its text. These rules are what make those cost something.
+   -------------------------------------------------------------------------- */
+
+.avg-cell[data-kind] { display: flex; gap: 6px; }
+.avg-cell.bp-num { justify-content: flex-end; font-variant-numeric: tabular-nums; }
+.avg-cell.bp-num.pos { color: var(--p-success, #4ec9b0); }
+.avg-cell.bp-num.neg { color: var(--p-error, #f48771); }
+.avg-cell.bp-index { justify-content: flex-end; color: var(--p-text-muted, #888); }
+
+.bp-pill {
+    padding: 1px 8px;
+    border-radius: 9px;
+    font-size: 11px;
+    line-height: 16px;
+    color: #fff;
+    background: #555;
+}
+.bp-pill.s-open { background: #2d7d46; }
+.bp-pill.s-closed { background: #6e6e6e; }
+.bp-pill.s-pending { background: #9a6700; }
+.bp-pill.s-archived { background: #44506b; }
+.bp-pill.s-draft { background: #7a3e9d; }
+
+.bp-track {
+    flex: 1 1 auto;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--p-border, #3c3c3c);
+    overflow: hidden;
+}
+.bp-fill { display: block; height: 100%; border-radius: 4px; background: #4a8cff; }
+.bp-fill.b-low { background: #f48771; }
+.bp-fill.b-mid { background: #d7a400; }
+.bp-fill.b-high { background: #4ec9b0; }
+.bp-bar-label {
+    min-width: 30px;
+    text-align: right;
+    font-size: 11px;
+    color: var(--p-text-muted, #888);
+}

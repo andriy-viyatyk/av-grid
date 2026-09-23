@@ -693,6 +693,39 @@ visible cell is still **0 childList mutations and 2 attribute writes per cell**,
 
 ---
 
+## Scrolling, and why the grid draws its own scrollbars
+
+**What it does.** The viewport holding the cells scrolls natively — wheel, trackpad and touch all
+reach it with the browser's own animation — while the scrollbars you see at the right and bottom
+edges are the grid's own: two empty strips, each holding one spacer and no cells. Dragging a strip
+moves the viewport.
+
+**What it fixes.** A browser scrolls a viewport on the compositor and tells JavaScript afterwards,
+so for one frame the content has moved and the cells have not. At wheel speed `overscanRow` covers
+that frame. **Dragging the scrollbar does not stay at wheel speed:** one frame can cross thousands
+of rows and expose a viewport sharing nothing with the last, which no runway of any size can
+cover, and the grid was blank for the whole drag. Because a strip holds nothing, the browser
+scrolling it exposes nothing — the grid reads the new position and writes the viewport's offset
+and the cells for it in the same task, so they can never be a frame apart.
+
+**Measured**, per-frame probes at four heights down the viewport, 100,000 rows by 12 columns of
+rendered cells:
+
+| Per-frame distance | before | after |
+|---|---|---|
+| Ordinary scrolling (1/16 viewport) | 1 % of probes blank | **0 %** |
+| Fast scrolling (1/4 viewport) | 25 % | **0 %** |
+| **A scrollbar drag** (whole range in 30 frames) | **100 %** | **0 %** |
+
+And it costs nothing the gate can see: six alternating 100k runs give a paint of 0.210 / 0.195 ms
+against 0.207 / 0.193 native, a flat ratio of 0.93× against 0.94×, first paint 1.6 ms against
+1.7, 60 / 60 fps and zero pool misses on both sides. `overscanRow` keeps its default of 4: its
+remaining job is the wheel, where a notch is about 100px and four rows covers it.
+
+The DOM shape and what it means for a host are in
+[api.md](api.md#scrolling-and-the-scrollbars); the two traps it cost are in
+[invariants.md](invariants.md#the-scrollbar-the-user-drags-is-not-the-viewport).
+
 ## Scrolling to a row the geometry does not know about yet
 
 `scrollTop` is clamped to the scrollable extent, and the extent is written **inside a paint**. A

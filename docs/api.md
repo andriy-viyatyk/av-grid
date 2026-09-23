@@ -2233,6 +2233,40 @@ const grid = AVGrid.create("#host", { rows });
 
 ---
 
+## Scrolling and the scrollbars
+
+Nothing here needs configuring; it is documented because the DOM is not the shape you would
+guess, and a test that drives scrolling has to know which element to move.
+
+**The grid draws its own scrollbars.** The viewport holding the cells scrolls normally — the
+wheel, the trackpad and touch all reach it, and the browser animates them as it does anywhere
+else — but its own scrollbar is hidden. What you see and drag at the right and bottom edges are
+two **empty strips**, each holding a single spacer sized to the full content and no cells at all.
+Dragging one moves the viewport.
+
+**Why:** the browser scrolls a viewport on the compositor and tells JavaScript afterwards, so for
+one frame the content has moved and the cells have not. At wheel speed that gap is covered by
+`overscanRow` and nobody sees it. Dragging a scrollbar is different — one frame can travel
+thousands of rows, exposing a viewport that shares nothing with the last, which no amount of
+overscan can cover — and the grid went blank for the length of the drag. Because a strip holds
+nothing, the browser scrolling it exposes nothing; the grid reads the new position and writes the
+viewport's offset and the cells that belong at it **in the same task**, so the two can never be a
+frame apart.
+
+**What this means for a host:**
+
+- **To scroll the grid from a test or a script, move the strip**, not the viewport — or better,
+  call `scrollToRow` / `scrollToCell`, which are unaffected. Writing the viewport's `scrollTop`
+  directly still works and still repaints, since it remains a real scroller.
+- **The thumb trails the rows by one frame.** Putting it back forces a layout, and doing that
+  inside the paint measured five times the paint cost at 100,000 rows; it happens on the next
+  frame instead, which no eye can see.
+- **Space is reserved the way the platform reserves it.** Where scrollbars take room from
+  content, the strips take exactly the room the native bar would have; where the platform uses
+  overlay scrollbars that take no room, the strips float over the content edge in the same way.
+- `position: sticky` on the pinned bands is untouched by any of this — the viewport is still a
+  scrollport, which is why the offset is written as `scrollTop` rather than as a transform.
+
 ## DOM contract
 
 Useful for host CSS and for driving the grid from a test. **Class names and `data-*` attributes
@@ -2242,6 +2276,8 @@ positioned, and their nesting can change.
 | Attribute | On |
 |---|---|
 | `data-type="render-grid"` | The root |
+| `data-type="render-grid-scroll"` | The viewport the cells live in, classed `avg-viewport`. It is a real scroller and the wheel scrolls it, but **its own scrollbar is hidden** — the bar you see belongs to the two strips below. |
+| `data-type="render-grid-scrollbar-y"` / `data-type="render-grid-scrollbar-x"` | The grid's own scrollbars, one per axis, at the right and bottom edges, classed `avg-scrollbar-y` / `avg-scrollbar-x`. Each is an **empty box holding one spacer** (`data-type="render-grid-scrollbar-spacer"`) and no cells — its only job is to carry a native scrollbar. Hidden when its axis does not overflow. See [Scrolling and the scrollbars](#scrolling-and-the-scrollbars). |
 | `data-name` | The root, from the `name` option |
 | `data-type="header-cell"` | A header cell |
 | `data-type="data-cell"` | A data cell |

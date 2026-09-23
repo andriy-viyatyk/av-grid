@@ -266,7 +266,9 @@ async function runBenchmark() {
     try {
         setStatus("rebuilding…");
         const build = createGrid();
-        await settle(5);
+        // The grid has just been handed the height the results table was holding; let it
+        // observe the resize and settle before a single number is taken.
+        await settle(8);
 
         const rowHeight = 24;
         const maxY = grid.model.renderInfo.current.innerSize.height - grid.root.offsetHeight;
@@ -303,8 +305,18 @@ function setStatus(text) {
     statusEl.textContent = text;
 }
 
+/**
+ * Disable the controls for the duration of a run — and **hide the results table**.
+ *
+ * The table sits above the grid host, so every row it grows takes height away from the grid:
+ * the first run measures a full-height viewport and every run after it measures a shorter one.
+ * That silently moves any number that depends on how many rows are on screen, and it does so
+ * *between* runs, which is exactly when a before/after comparison is being read. Hiding it for
+ * the duration gives every run the viewport the first one had.
+ */
 function setBusy(busy) {
     for (const id of ["rebuild", "run", "clear"]) el(id).disabled = busy;
+    resultsEl.style.display = busy ? "none" : "";
 }
 
 const ms = (n) => `${n.toFixed(2)} ms`;

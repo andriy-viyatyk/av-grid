@@ -787,6 +787,146 @@ describe("scroll recovery", () => {
     });
 });
 
+/**
+ * Task 65 — the grid owns its scrollbars.
+ *
+ * The container keeps its native scrolling, so the wheel and the trackpad stay on the
+ * compositor with the browser's own animation; only its *bar* is hidden, and the bar the user
+ * drags is an empty strip whose scroll event moves the content, recomputes and paints in one
+ * task. That last property is the whole point, and it is the one these tests pin: a drag
+ * exposes a viewport sharing no row with the last one, so anything that leaves the offset and
+ * the cells in different frames shows the reader an empty grid.
+ */
+describe("own scrollbars", () => {
+    const stripsOf = (grid: RenderGrid) => ({
+        y: grid.root.querySelector(
+            '[data-type="render-grid-scrollbar-y"]',
+        ) as HTMLElement | null,
+        x: grid.root.querySelector(
+            '[data-type="render-grid-scrollbar-x"]',
+        ) as HTMLElement | null,
+    });
+
+    it("adds a strip per axis, each holding one spacer and no content", () => {
+        const { grid } = track(createGrid());
+        const { y, x } = stripsOf(grid);
+
+        expect(y).not.toBeNull();
+        expect(x).not.toBeNull();
+        for (const strip of [y!, x!]) {
+            expect(strip.parentElement).toBe(grid.root);
+            expect(strip.children.length).toBe(1);
+            expect(strip.textContent).toBe("");
+            expect(strip.style.position).toBe("absolute");
+        }
+        // The spacer is what gives the strip something to scroll; it holds no cells.
+        expect(y!.firstElementChild!.getAttribute("data-type")).toBe(
+            "render-grid-scrollbar-spacer",
+        );
+    });
+
+    it("leaves the container a real scroller, with only its own bar hidden", () => {
+        const { grid } = track(createGrid());
+
+        // Native scrolling is what keeps the wheel and the trackpad on the compositor, and it
+        // is also what keeps `position: sticky` working on the nine regions.
+        expect(grid.container.style.overflowY).toBe("auto");
+        expect(grid.container.style.getPropertyValue("scrollbar-width")).toBe("none");
+    });
+
+    it("moves the content, recomputes and paints in the strip's own event — not a frame later", () => {
+        const { grid } = track(createGrid());
+        const { y } = stripsOf(grid);
+        const paints = grid.stats.paints;
+        const topRowBefore = grid.area.querySelector("[data-row]")!.getAttribute("data-row");
+
+        y!.scrollTop = 200;
+        y!.dispatchEvent(new Event("scroll"));
+
+        // Deliberately no `await`: by the time the event handler has returned, the offset and
+        // the cells that belong at it are both already written. Anything asserted after a
+        // frame here would pass just as well against the defect.
+        expect(grid.container.scrollTop).toBe(200);
+        expect(grid.model.offset.y).toBe(200);
+        expect(grid.stats.paints).toBe(paints + 1);
+        expect(grid.area.querySelector("[data-row]")!.getAttribute("data-row")).not.toBe(
+            topRowBefore,
+        );
+    });
+
+    it("does not take the wheel", () => {
+        const { grid } = track(createGrid());
+
+        const wheel = new Event("wheel", { cancelable: true, bubbles: true });
+        grid.root.dispatchEvent(wheel);
+
+        // Taking it would mean `preventDefault`, which throws away the browser's own easing —
+        // measured as visibly worse than the native scroll it replaced. The lag this leaves on
+        // the wheel path is `overscanRow`'s job, which is what a runway is for.
+        expect(wheel.defaultPrevented).toBe(false);
+    });
+
+    it("puts the thumb back on an offset it did not choose", async () => {
+        const { grid } = track(createGrid());
+        const { y } = stripsOf(grid);
+
+        // `scrollToRow`, a queued scroll flushed after a paint, the repair of a position the
+        // browser discarded: all of them write the container, because that is where the model
+        // has always written. The thumb follows from the paint rather than from each caller.
+        grid.container.scrollTop = 140;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+        // One frame behind the rows, on purpose: writing `scrollTop` forces a layout, and doing
+        // it inside the paint - which has just dirtied two million-pixel-tall boxes - measured
+        // five times the paint cost on the gate. A thumb a frame late is not visible; a paint
+        // five times slower is.
+        expect(y!.scrollTop).toBe(0);
+        await nextFrame();
+        expect(y!.scrollTop).toBe(140);
+    });
+
+    it("does not read its own thumb write back as a gesture", async () => {
+        const { grid } = track(createGrid());
+        const { y } = stripsOf(grid);
+
+        grid.container.scrollTop = 140;
+        grid.container.dispatchEvent(new Event("scroll"));
+        await nextFrame();
+        // The deferred thumb write lands here, and arms the guard.
+        await nextFrame();
+
+        const paints = grid.stats.paints;
+        // The echo of the write above, arriving the way a real one does. Acting on it would
+        // recompute a position already painted, every frame of every scroll.
+        y!.dispatchEvent(new Event("scroll"));
+        expect(grid.stats.paints).toBe(paints);
+    });
+
+    it("keeps the sticky regions sticky", () => {
+        const { grid } = track(createGrid({ stickyTop: 1, stickyLeft: 1 }));
+
+        // The reason the container stayed a scrollport rather than becoming a transform: these
+        // resolve against it, and a transform on the area takes the header, the footer band and
+        // the pinned columns off the viewport along with the rows.
+        for (const part of ["sticky-top", "sticky-left"]) {
+            const el = grid.root.querySelector(
+                `[data-type="render-grid-${part}"]`,
+            ) as HTMLElement;
+            expect(el.style.position).toBe("sticky");
+        }
+    });
+
+    it("takes its strips with it on destroy", () => {
+        const { grid } = createGrid();
+        expect(stripsOf(grid).y).not.toBeNull();
+
+        grid.destroy();
+
+        expect(grid.root.parentElement).toBeNull();
+        expect(document.querySelector('[data-type="render-grid-scrollbar-y"]')).toBeNull();
+    });
+});
+
 describe("setOptions applies shell layout", () => {
     it("reapplies height and growToHeight, which were read once and never again", () => {
         const { grid } = track(createGrid({ height: "100%" }));

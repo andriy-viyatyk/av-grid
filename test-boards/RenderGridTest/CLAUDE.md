@@ -155,6 +155,67 @@ true`. `extent`: `unmeasured: 0` and `extentMatchesMeasuredSum: true`. `fromRow`
   height, so making one row 296 px tall re-estimates the other 390. The rows `fromRow` is
   accountable for are the rendered ones, and they move by exactly the delta.
 
+## The blank probe — `window.blank`
+
+`blank-probe.js` is the fourth harness here, built for plan task 65: **the viewport shows nothing
+while a 100,000-row grid is scrolled fast.** Frame rate cannot see this — painting nothing is cheap
+and the grid holds 60 fps throughout — so the instrument asks a different question: *after this
+frame's scroll, is there a cell under this pixel?*
+
+```js
+await window.blank.all()                       // the whole matrix below
+await window.blank.probe({ stepFraction: 1/4, overscanRow: 4 })   // what the reader sees
+await window.blank.lag({ drive: "raw" })       // same-frame paints vs late ones — the mechanism
+await window.blank.onBench()                   // the same probe against window.bench's own grid
+window.blank.makeGrid({ height, overscanRow })  // the probe's grid, for eyeballing
+```
+
+`stepFraction` is the distance scrolled per frame as a fraction of the viewport, or the string
+`"range"` for the whole extent in 30 frames — a scrollbar drag. `drive` is `"raw"` (a `scrollTop`
+write per frame, the browser firing its own event: closest to a drag), `"smooth"` (one
+`scrollTo({ behavior: "smooth" })`, the browser owning the scroll end to end) or `"synthetic"`
+(the write plus a dispatched `Event("scroll")`, which is what `window.bench` does — a control).
+
+**The cells have content on purpose.** A coloured status pill, a progress bar, a signed number
+coloured by sign. The measurement this task came from ran over cells like that, and cell
+content is most of the paint; a grid of bare strings would flatter every grid in it, this one
+included. The styling is at the bottom of `style.css`.
+
+**Baseline, 2026-09-23, before any change** (100,000 x 12, 588px viewport, `blankFramesPct` /
+`blankPointsPct`):
+
+| Per-frame distance | overscan 4 | overscan 20 | overscan 40 |
+|---|---|---|---|
+| 1/16 viewport (37px) | 2 % / 0 % | 0 % / 0 % | 0 % / 0 % |
+| 1/4 viewport (147px) | 98 % / 33 % | 0 % / 0 % | 0 % / 0 % |
+| range / 30 (93,315px) | 100 % / 60 % | 100 % / 60 % | 100 % / 60 % |
+
+So the overscan **is** the lever for wheel-speed scrolling and is no lever at all for a scrollbar
+drag — a drag exposes a viewport sharing no row with the previous frame, and no finite band covers
+that.
+
+**And the lag accounting says the paint is not late** — 60/60 raw, 59/59 smooth, 30/30 synthetic
+paints ran at the first rendering opportunity after their scroll event, 0 late. Read `lag()` before
+believing any fix that works by painting earlier: within one frame the order is *scroll event ->
+animation-frame callbacks -> style, layout, composite*, so a paint scheduled from the scroll event
+on `requestAnimationFrame` already lands in that same composited frame. The frame of blank is
+between the scroll **movement** and the **event**, which is the browser's, not the grid's.
+
+**Gotchas this rig cost:**
+
+- **Probe x must clear the sticky-left band.** That column is painted at every scroll position, so
+  a probe over it reports a covered viewport on a grid that is entirely blank. The points sit at
+  `view.left + 200`, and below the sticky header row.
+- **`elementFromPoint` hit-tests the main thread's layout, not the compositor's frame.** A blank it
+  reports is certainly blank on screen; a covered point may still have *looked* blank. The number
+  is a floor, which is the honest direction for a defect measurement.
+- **Sample synchronously after the `scrollTop` write.** The write is in layout immediately, so that
+  is the frame about to be composited. Sampling after an `await raf()` instead measures the frame
+  *after* the grid reacted and reports a healthy grid.
+- **The `"synthetic"` drive cannot show a late paint** — the event is dispatched during the
+  animation-frame phase, so its paint necessarily lands in the next frame and is still the first
+  opportunity. Quote `"raw"` or `"smooth"`.
+
 ## Key files
 
 | File | What it is |
@@ -164,6 +225,7 @@ true`. `extent`: `unmeasured: 0` and `extentMatchesMeasuredSum: true`. `fromRow`
 | `scroll-loss.js` | The scroll-loss rig, `window.scrollLoss` — see above |
 | `measured.js` | The measured-height rig, `window.measured` — see above |
 | `after-paint.js` | The after-paint / live-layout rig, `window.afterPaint` — see above |
+| `blank-probe.js` | The blank probe, `window.blank` — see above |
 | `style.css` | Board chrome + the grid's own cell styling (`.avg-cell`) |
 | `lib/av-grid.js` | **Build artifact** — the bundled library. Gitignored |
 

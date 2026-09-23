@@ -32,7 +32,8 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`tasks/plan-done-16.md`](tasks/plan-done-16.md) | The finished plan for phase 20, task 62: a cell recycled from the header no longer keeps the header's *children* — `claim(el, kind)` reads `data-type` before the renderer overwrites it and drops the element-keyed caches (`mode`, `written`, `treeState`) on a kind change; `setMode` trusts `mode`. **Its decision log applies too** — it corrects plan-done-13 decision 59 (the tree content host was rebuilt on every paint until now) |
 | [`tasks/plan-done-17.md`](tasks/plan-done-17.md) | The finished plan for phase 21, task 63: every popover was unreachable when the grid sat inside a modal `<dialog>` — `popoverHost()` mounts into the nearest open `<dialog>` above the anchor instead of always on `document.body`. **Its decision log applies too** — including the second point-anchored call site the plan missed |
 | [`tasks/plan-done-18.md`](tasks/plan-done-18.md) | The finished plan for phase 22, task 64: `treeColumn.busy` — the chevron *replaced* by a spinner in its own slot while a node's children load, with the gesture off for exactly that long. **Its decision log applies too** — including the `aria-expanded` claim it corrects, the header's ARIA leak it fixes in passing, and the 1.13× a bound thunk cost per scroll frame |
-| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 23, no open tasks yet: the standing rules and the six open questions. Read the archived decision logs before starting anything |
+| [`tasks/plan-done-19.md`](tasks/plan-done-19.md) | The finished plan for phase 23, task 65: the grid was blank for the length of a scrollbar drag — it now **draws its own scrollbars**, a pair of empty strips whose drag writes the offset and the cells in one task. **Its decision log applies too** — including the reported cause that measured false, the two wheel-emulation dead ends, and the five-fold paint cost of writing a scrollbar thumb from inside a paint |
+| [`tasks/plan.md`](tasks/plan.md) | **The active plan** — phase 24, no open tasks yet: the standing rules and the open questions. Read the archived decision logs before starting anything |
 | [`docs/api.md`](docs/api.md) | The complete public surface: options, columns, methods, callbacks, filters, keyboard, CSS tokens, DOM contract |
 | [`docs/react-api.md`](docs/react-api.md) | The React API, agent-focused and self-routing: the `<AVGrid>` component and props, the three update lanes, the instance ref, the filter bar, `reactEditor` / `reactFilterBody`. `docs/api.md` stays vanilla-only |
 | [`docs/architecture.md`](docs/architecture.md) | The source tree file by file, and the mapping back to Persephone |
@@ -42,7 +43,7 @@ Boards, which are written by AI agents; that shapes the API design.
 | [`docs/releasing.md`](docs/releasing.md) | Cutting a release: `npm version` → push the tag → Actions publishes. **Read before touching the version, the workflow, or `package.json`** |
 | [`tasks/benchmark-results.md`](tasks/benchmark-results.md) | Performance history. **Append a row after any render-path change** |
 
-**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 23, with no task written yet. It
+**[`tasks/plan.md`](tasks/plan.md) is the active plan** — phase 24, with no task written yet. It
 carries the standing rules and six open questions (control-size tokens for the popovers' inputs; a
 grid-level `textFilterOps` default; `textFilterLabels` for the popover's own chips; a runtime
 setter that degrades instead of throwing; a tree row engine in the library; a `title` hook on data
@@ -239,6 +240,22 @@ would come back from its fetch still spinning, and the **header**, which shares 
 has no `claim()`, had been leaking a tree cell's `aria-expanded` since task 59. Measured: the
 gutter back at **1.00×** per scroll frame after a per-paint closure was removed (it cost 1.13×),
 0 gutter mutations, the 100k gate unmoved.
+**Phase 23 is done** (task 65, shipped as **2.12.1** on 2026-09-24 — see
+[`tasks/plan-done-19.md`](tasks/plan-done-19.md)): dragging the scrollbar of a 100,000-row grid
+left it **blank for the length of the drag**. A browser scrolls a viewport on the compositor and
+tells JavaScript afterwards, so for one frame the content has moved and the cells have not; at
+wheel speed `overscanRow` covers that frame, but a drag can cross thousands of rows in one frame
+and expose a viewport sharing no row with the last, which no runway can cover. **The grid now
+draws its own scrollbars** — one **empty strip** per axis, holding a spacer and no cells — while
+the viewport keeps its native scrolling so the wheel and the trackpad stay on the compositor with
+the browser's own animation. A strip's scroll event writes the viewport's offset, recomputes and
+paints **in one task**, so the two can never be a frame apart; because a strip holds nothing, the
+browser scrolling it exposes nothing. Blank probes went **100 % → 0 %** on a drag and 25 % → 0 %
+on a fast scroll, with the 100k gate unmoved (0.210 / 0.195 ms a paint against 0.207 / 0.193,
+0.93× flat, 60 / 60 fps, 0 pool misses). The reported cause — *"the paint lands one frame
+late"* — measured **false** (149 of 149 paints already ran at the first opportunity after their
+scroll event) and the prototype built on it changed nothing an eye could see; `overscanRow` keeps
+its default of 4, since its remaining job is the wheel.
 
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,

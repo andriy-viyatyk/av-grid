@@ -20,3 +20,8 @@ test-boards/*/ui.log
 
 # Example board vendored library - copy from dist/ (see examples/persephone-board/README.md)
 examples/persephone-board/lib/
+
+# Local three-way comparison board (av-grid vs two third-party grids). Vendors ~2.5 MB of
+# other people's bundles and is a working instrument, not a gate — see its own CLAUDE.md.
+# Its av-grid build is dist/av-grid.umd.cjs, re-copied by hand after every source change.
+test-boards/GridCompareBoard/
