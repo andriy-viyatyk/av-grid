@@ -1,10 +1,11 @@
 # av-grid
 
-A virtualized data grid that renders straight to the DOM. **No runtime dependencies, no
-framework.** Built for **100,000+ rows** with no lag while scrolling, selecting a range, or
-editing.
+The data grid from [Persephone](https://github.com/andriy-viyatyk/persephone), extracted into a
+standalone library. It is virtualized and renders straight to the DOM, with **no runtime
+dependencies and no framework**, and it handles **100,000+ rows** while you scroll, select a range
+or edit.
 
-**[▶ Live demo](https://andriy-viyatyk.github.io/av-grid/)** — thirteen examples in the browser,
+**[▶ Live demo](https://andriy-viyatyk.github.io/av-grid/)** — seventeen examples in the browser,
 including a [100,000-row benchmark](https://andriy-viyatyk.github.io/av-grid/examples/09-benchmark.html)
 you can run yourself.
 
@@ -19,17 +20,18 @@ are all inferred from the rows.
 
 ---
 
-## Why another grid
+## Purpose
 
-Most JavaScript grids are comfortable to a few thousand rows and degrade past that — usually
-because a hover, a focus move or a growing selection repaints the entire visible window. The cost
-of an interaction ends up proportional to the size of the viewport, and sometimes to the size of
-the dataset.
+av-grid is the grid from [Persephone](https://github.com/andriy-viyatyk/persephone), extracted so
+that **Persephone Boards** can use it. Boards are plain-JavaScript pages written by AI agents, so
+the grid had to work without React, and its API had to be usable by an agent that has not read the
+docs. The minimum call infers everything, the vocabulary is `key` / `name` with no aliases, and
+validation fails loudly and says what is wrong.
 
-av-grid keeps a **cell-level dirty set**. Growing a range selection by one cell repaints exactly
-the cells whose state changed — two of them — whether the selection covers 101 rows or 99,001.
+## What it measures
 
-The result is a grid whose interaction cost is flat:
+A state change repaints only the cells it touched. Growing a range selection by one cell repaints
+two cells, whether the selection covers 101 rows or 99,001.
 
 | Measured on 100,000 rows × 20 columns, in a real browser | |
 |---|---|
@@ -171,7 +173,7 @@ it overrides.
 
 ## Examples
 
-Twelve standalone files, one topic each, every one meant to be copied whole. The names below open
+Seventeen standalone files, one topic each, every one meant to be copied whole. The names below open
 the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of each is one file in
 [`examples/`](examples/), with no build step of its own.
 
@@ -206,22 +208,6 @@ the **[live demo](https://andriy-viyatyk.github.io/av-grid/)**; the source of ea
 | [`docs/architecture.md`](docs/architecture.md) | The source tree, file by file |
 | [`docs/invariants.md`](docs/invariants.md) | The three rules that carry the performance — read before changing the render path |
 | [`docs/releasing.md`](docs/releasing.md) | How a version gets cut and published |
-
-## Provenance
-
-av-grid is a port of the React grid inside
-[Persephone](https://github.com/andriy-viyatyk/persephone), where its virtualization engine has
-been running against 100k-row datasets. That engine was already framework-free; this project
-reimplements the rendering layer in plain DOM so the same performance is available to any page.
-
-**It is not AG Grid**, despite the one-character distance. There is no shared API, no shared code
-and no shared history — `AVGrid.create(host, options)` is the whole entry point, and
-[`docs/api.md`](docs/api.md) is the whole surface.
-
-The API is deliberately shaped for **an AI agent to use without reading the docs first** — the
-minimum call infers everything, the vocabulary is `key` / `name` with no aliases, and validation is
-loud and specific rather than silent. Persephone Boards are written by agents, and they were the
-first consumer.
 
 ## Development
 
