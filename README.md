@@ -9,6 +9,8 @@ or edit.
 including a [100,000-row benchmark](https://andriy-viyatyk.github.io/av-grid/examples/09-benchmark.html)
 you can run yourself.
 
+**Website:** [andriy-viyatyk.github.io/grid](https://andriy-viyatyk.github.io/grid/) — a demo video and an overview, alongside Persephone and its other projects.
+
 ```js
 import { AVGrid } from "av-grid";
 
