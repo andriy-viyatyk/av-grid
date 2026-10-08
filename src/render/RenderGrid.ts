@@ -750,7 +750,7 @@ export class RenderGrid {
     // Paint
     // -----------------------------------------------------------------------
 
-    private paint(): void {
+    private paint(settlePass = 0): void {
         if (this.destroyed) return;
 
         const info = this.model.renderInfo.current;
@@ -790,6 +790,25 @@ export class RenderGrid {
         const startedAt = performance.now();
 
         this.applyLayout(info, scrollBarWidth, scrollBarHeight);
+
+        // `applyLayout` is where the strips are decided, from the content size this geometry
+        // has only just produced — so the geometry was computed against the *previous* bars.
+        // Expanding a tree node until it overflows shows the vertical strip, yet the columns
+        // (a `fitToWidth` row above all) are still laid out under it; collapsing hides the
+        // strip and leaves them a bar short of the edge. Nothing else notices: the grid root
+        // does not change size, so the `ResizeObserver` stays silent, and the model's own
+        // "a scrollbar appeared" check runs before this paint. It used to settle only on the
+        // next unrelated recompute — the first hover. Recompute now and paint again, before
+        // any cell is placed from the stale geometry. Two passes always suffice (the second
+        // can only drop a horizontal bar the first one implied); the bound keeps it finite.
+        if (
+            settlePass < 2 &&
+            (this.barW !== info.input.scrollBarWidth || this.barH !== info.input.scrollBarHeight)
+        ) {
+            this.model.updateRenderInfo({ all: true }, undefined, true);
+            this.paint(settlePass + 1);
+            return;
+        }
 
         // Every cell any region will hold after this paint. A cell can *migrate* between
         // regions in one paint — a column pinned or unpinned moves its live element from one
