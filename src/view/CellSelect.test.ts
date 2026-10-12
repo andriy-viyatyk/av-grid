@@ -178,6 +178,48 @@ describe("the list", () => {
     });
 });
 
+describe("the search box", () => {
+    const many = Array.from({ length: 11 }, (_v, i) => `option ${i}`);
+
+    it("is left out for ten options or fewer, and the list takes the focus", async () => {
+        await open();
+        expect(searchBox().style.display).toBe("none");
+        const list = document.querySelector(".avg-cell-select-popover .avg-list")!;
+        expect(list.contains(document.activeElement)).toBe(true);
+        expect(document.activeElement).not.toBe(searchBox());
+    });
+
+    it("shows above ten options, and takes the focus", async () => {
+        await open({ value: "option 0", row: { status: "option 0" }, column: { key: "status", options: many } as any });
+        expect(searchBox().style.display).toBe("");
+        expect(document.activeElement).toBe(searchBox());
+    });
+
+    it("shows at any count when the editor was opened by typing", async () => {
+        await open({ value: "c", openedBy: "typing", row: { status: "open" } });
+        expect(searchBox().style.display).toBe("");
+        expect(document.activeElement).toBe(searchBox());
+    });
+
+    it("shows once options from a promise pass ten", async () => {
+        await open({
+            value: "option 0",
+            row: { status: "option 0" },
+            column: { key: "status", options: () => Promise.resolve(many) } as any,
+        });
+        await Promise.resolve();
+        expect(searchBox().style.display).toBe("");
+    });
+
+    it("sizes the popover to its rows, with no room for a box it does not show", async () => {
+        await open();
+        const content = document.querySelector<HTMLElement>(
+            ".avg-cell-select-popover .avg-popover-content",
+        )!;
+        expect(content.style.height).toBe(`${8 + 3 * 24}px`);
+    });
+});
+
 describe("picking", () => {
     it("writes the value and commits, in one click", async () => {
         const { setValue, commit } = await open();

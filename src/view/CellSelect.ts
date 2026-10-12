@@ -39,12 +39,15 @@ import { chevronDownIcon } from "./icons";
 import { Popover } from "./Popover";
 import { VirtualList } from "./VirtualList";
 
-/** Search box and padding — everything in the popover that is not a list row. */
-const CHROME_HEIGHT = 30 + 8;
+/** The search box, and the padding — together everything in the popover that is not a row. */
+const SEARCH_HEIGHT = 30;
+const PADDING_HEIGHT = 8;
 const ROW_HEIGHT = 24;
-/** The search box and two rows — enough that a list still loading is not a sliver. */
-const MIN_HEIGHT = CHROME_HEIGHT + 2 * ROW_HEIGHT;
+/** Two rows — enough that a list still loading is not a sliver. */
+const MIN_ROWS = 2;
 const MAX_HEIGHT = 320;
+/** Up to this many options the list is read at a glance, and the search box is left out. */
+const SEARCH_THRESHOLD = 10;
 
 function label(value: unknown): string {
     return value === null || value === undefined ? "" : String(value);
@@ -72,9 +75,9 @@ export function createCellSelect<R>(ctx: EditorContext<R>): MountedCellEditor {
     const list = new VirtualList({
         className: "avg-cell-select-list",
         multiple: false,
-        // Always, rather than above some option count. It is where a type-to-edit's first
-        // character lands, and it is the replacement for the native element's type-ahead —
-        // which only ever matched a prefix, and only within a second of the last keystroke.
+        // Built always, shown above `SEARCH_THRESHOLD` options — the count is only known once
+        // they resolve, in `fill`. It is where a type-to-edit's first character lands, and the
+        // replacement for the native element's type-ahead, which only ever matched a prefix.
         search: true,
         searchPlaceholder: "search…",
         emptyLabel: "no options",
@@ -113,6 +116,10 @@ export function createCellSelect<R>(ctx: EditorContext<R>): MountedCellEditor {
             : [current, ...resolved];
 
         list.setItems(values.map((v, index) => ({ value: index, label: label(v) })));
+        // A type-to-edit keeps the box at any count: its character is the search text, and
+        // hiding the box would drop the keystroke that opened the editor.
+        const showSearch = typed || values.length > SEARCH_THRESHOLD;
+        list.setSearchVisible(showSearch);
 
         const selected = values.findIndex((v) => label(v) === currentLabel);
         if (selected >= 0) {
@@ -126,9 +133,10 @@ export function createCellSelect<R>(ctx: EditorContext<R>): MountedCellEditor {
             }
         }
 
+        const chrome = PADDING_HEIGHT + (showSearch ? SEARCH_HEIGHT : 0);
         popover.content.style.height = `${Math.min(
             MAX_HEIGHT,
-            Math.max(MIN_HEIGHT, CHROME_HEIGHT + values.length * ROW_HEIGHT),
+            chrome + Math.max(MIN_ROWS, values.length) * ROW_HEIGHT,
         )}px`;
         popover.reposition();
         list.measure();

@@ -183,6 +183,10 @@ export class VirtualList {
             // whitespace allowance the grid keeps for a resizable last column.
             columnWidth: () => "100%",
             fitToWidth: true,
+            // No slack below the last row. A list is sized to its rows by its caller — the
+            // dropdown editor does exactly that — and the grid's default 20px of trailing
+            // whitespace made every such list 20px taller than its box, with a scrollbar.
+            whiteSpaceY: 0,
             renderCell: this.renderCell,
             height: "100%",
         });
@@ -264,11 +268,30 @@ export class VirtualList {
         this.applyFilter();
     }
 
+    /** Whether the search box is showing — false when the list has none. */
+    get searchVisible(): boolean {
+        return !!this.searchInput && this.searchInput.style.display !== "none";
+    }
+
+    /**
+     * Show or hide the search box of a list built with one. Hiding it clears the search, so
+     * no text the user can no longer see keeps narrowing the rows; focus inside the list stays
+     * inside it. A list built with `search: false` has no box to show, and ignores this.
+     */
+    setSearchVisible(visible: boolean): void {
+        if (!this.searchInput || visible === this.searchVisible) return;
+        const hadFocus = this.element.contains(document.activeElement);
+        this.searchInput.style.display = visible ? "" : "none";
+        if (!visible && this.searchText) this.setSearch("");
+        this.measure();
+        if (hadFocus) this.focus();
+    }
+
     focus(): void {
         // The search box when there is one: typing is the first thing a user does to a list of
         // forty thousand options, and the arrow keys still work from there — they bubble to
         // the root, which is where the keyboard map lives.
-        if (this.searchInput) this.searchInput.focus();
+        if (this.searchVisible) this.searchInput!.focus();
         else this.render.model.gridRef.current?.focus({ preventScroll: true });
     }
 

@@ -1,4 +1,4 @@
-# av-grid — Implementation Plan 20: no open tasks
+# av-grid — Implementation Plan 20: phase 24
 
 **Phases 1–23 have shipped, through 2.12.1 (2026-09-24).** This plan holds the standing rules and
 the open questions, and is where the next task is written. **Before starting anything, read the
@@ -20,12 +20,16 @@ decision logs in `plan-done-01.md` … `plan-done-19.md`** — every one of them
 | # | Task | Status |
 |---|------|--------|
 | 1–65 | Phases 1–23 | see `plan-done-01.md` … `plan-done-19.md` — ✅ Done |
+| 66 | The dropdown editor fits its options: no scrollbar on a short list, no search box up to ten options | ✅ Done |
 
 ## Decision log
 
 | Decision | Why | Cost / notes |
 |---|---|---|
-| *(none yet)* | | |
+| 66.1 — `VirtualList` passes `whiteSpaceY: 0` to its engine | The dropdown editor sizes its popover to its rows, and the engine's default 20px of trailing slack made the list 20px taller than that box: three options measured 92px of content in a 72px body, and showed a scrollbar. A list has no last column to resize and no row to scroll clear of an edge, so the slack buys it nothing. Applies to every `VirtualList`, the checklist filter included | Measured by test: inner height = rows × rowHeight |
+| 66.2 — the dropdown's search box shows only past ten options (`SEARCH_THRESHOLD`), decided when the options resolve | Up to ten options are read at a glance; a search box over three is noise. The count is only known in `fill`, since `options` may be a function or a promise, so the box is built always and shown or hidden there through a new `VirtualList.setSearchVisible` | A promise's options start at zero, so the box appears when they arrive; focus inside the list is carried across the change |
+| 66.3 — a type-to-edit keeps the search box at any count | The typed character *is* the search text; hiding the box would drop the keystroke that opened the editor | — |
+| 66.4 — hiding the box clears its text | A search the user can no longer see must not keep narrowing the rows | — |
 
 ## Open questions carried forward
 

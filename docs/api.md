@@ -1069,7 +1069,8 @@ so that a press reaches the editor.
 
 Opens the library's own virtualized, themed dropdown — 10,000 options put 13 rows in the DOM. The
 picked option **keeps its type**, so a numeric option commits as a number. Typing over the cell
-seeds the dropdown's search box rather than the cell's value. Escape or a click elsewhere cancels.
+seeds the dropdown's search box rather than the cell's value. The search box shows only past ten
+options — or, at any count, when typing opened the dropdown. Escape or a click elsewhere cancels.
 
 ---
 
@@ -2630,8 +2631,13 @@ interface VirtualListOptions {
 ```
 
 Methods: `setItems`, `getItems`, `getVisibleItems`, `setSelected`, `getSelected`,
-`getSelectedItems`, `setSearch`, `setActiveIndex`, `getActiveItem`, `scrollToIndex`, `measure`,
-`focus`, `destroy`.
+`getSelectedItems`, `setSearch`, `setSearchVisible`, `setActiveIndex`, `getActiveItem`,
+`scrollToIndex`, `measure`, `focus`, `destroy`; the `searchVisible` getter.
+
+`setSearchVisible(false)` hides the search box of a list built with one and clears its text, so
+no search the user cannot see keeps narrowing the rows; focus inside the list stays inside it.
+The list keeps no slack below its last row, so a list sized to its rows shows them without a
+scrollbar.
 
 Set `onSearch` and the list stops matching the text itself and just reports what was typed — the
 seam `onGetOptions(…, search)` needs when the options are narrowed at the source.

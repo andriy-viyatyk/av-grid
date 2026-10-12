@@ -236,6 +236,41 @@ describe("search", () => {
         expect(list.element.querySelector(".avg-list-search")).toBeNull();
     });
 
+    it("can be hidden and shown again, and hiding clears it", async () => {
+        const list = makeList({ items: items(20) });
+        const input = list.element.querySelector<HTMLInputElement>(".avg-list-search")!;
+        list.setSearch("option 1");
+        expect(list.getVisibleItems().length).toBe(11);
+
+        list.setSearchVisible(false);
+        expect(list.searchVisible).toBe(false);
+        expect(input.style.display).toBe("none");
+        // No text the user can no longer see keeps narrowing the rows.
+        expect(list.search).toBe("");
+        expect(list.getVisibleItems().length).toBe(20);
+
+        list.setSearchVisible(true);
+        expect(list.searchVisible).toBe(true);
+        expect(input.style.display).toBe("");
+    });
+
+    it("keeps focus inside the list when the box it was in is hidden", () => {
+        const list = makeList({ items: items(3) });
+        list.focus();
+        expect(document.activeElement?.classList.contains("avg-list-search")).toBe(true);
+
+        list.setSearchVisible(false);
+        expect(list.element.contains(document.activeElement)).toBe(true);
+        expect(document.activeElement?.classList.contains("avg-list-search")).toBe(false);
+    });
+
+    it("ignores setSearchVisible on a list built without one", () => {
+        const list = makeList({ items: items(3), search: false });
+        list.setSearchVisible(true);
+        expect(list.searchVisible).toBe(false);
+        expect(list.element.querySelector(".avg-list-search")).toBeNull();
+    });
+
     it("keeps a selection made under a different search", () => {
         const list = makeList({ items: [{ value: 1, label: "north" }, { value: 2, label: "south" }] });
         list.setSearch("north");
@@ -407,5 +442,13 @@ describe("teardown", () => {
         const list = makeList({ items: items(3) });
         list.destroy();
         expect(document.body.contains(list.element)).toBe(false);
+    });
+});
+
+describe("height", () => {
+    it("is exactly its rows — no trailing whitespace a caller sized to them would scroll", async () => {
+        const list = makeList({ items: items(3) });
+        await nextFrame();
+        expect(list.render.model.renderInfo.current.innerSize.height).toBe(3 * 24);
     });
 });
