@@ -739,3 +739,54 @@ describe("renderDataCell — the text wrapper", () => {
         });
     });
 });
+
+describe("renderDataCell — hideZero", () => {
+    const rows = [
+        { id: 1, days: 0, label: "zero" },
+        { id: 2, days: 14, label: "two weeks" },
+    ];
+
+    it("shows a zero as 0 by default", () => {
+        const grid = create({ rows, columns: [{ key: "days", dataType: "number" }] });
+        expect(cellAt(grid, 0, "days").textContent).toBe("0");
+    });
+
+    it("shows a zero as empty when the column asks, and any other number as itself", () => {
+        const grid = create({
+            rows,
+            columns: [{ key: "days", dataType: "number", hideZero: true }],
+        });
+        expect(cellAt(grid, 0, "days").textContent).toBe("");
+        expect(cellAt(grid, 1, "days").textContent).toBe("14");
+    });
+
+    it("leaves a column that formats its own text alone", () => {
+        const grid = create({
+            rows,
+            columns: [
+                { key: "days", dataType: "number", hideZero: true, formatValue: (_c, r) => `${r.days} d` },
+            ],
+        });
+        expect(cellAt(grid, 0, "days").textContent).toBe("0 d");
+    });
+
+    it("still copies the zero", () => {
+        const grid = create({
+            rows,
+            columns: [{ key: "days", dataType: "number", hideZero: true }],
+        });
+        grid.selectRange(0, 0, 0, 0);
+        expect(grid.getSelectionText().trim()).toBe("0");
+    });
+
+    it("hides a zero in a footer row too", () => {
+        const grid = create({
+            rows,
+            footerRows: [{ id: 0, days: 0, label: "total" }],
+            columns: [{ key: "days", dataType: "number", hideZero: true }],
+        });
+        const footer = grid.element.querySelector<HTMLElement>('[data-type="footer-cell"]');
+        expect(footer?.textContent).toBe("");
+    });
+});
+

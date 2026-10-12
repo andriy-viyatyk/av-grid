@@ -605,6 +605,7 @@ interface Column<R = any> {
 
     dataType?: "string" | "number" | "boolean";
     displayFormat?: DisplayFormat;
+    hideZero?: boolean;             // show a 0 as an empty cell; display only — default false
     align?: "left" | "center" | "right";
 
     resizable?: boolean;
@@ -742,7 +743,7 @@ each one tries; the first hook present wins.
 
 | Consumer | Order |
 |---|---|
-| **What the cell shows** | `render` → the checkbox/tick (`dataType: "boolean"`) → `formatValue` → `displayFormat` → `row[key]` |
+| **What the cell shows** | `render` → the checkbox/tick (`dataType: "boolean"`) → `formatValue` → `displayFormat` → `row[key]`, a `0` shown empty under `hideZero` |
 | **Sorting** | `rowCompare` → `sortValue` → `row[key]`; whichever value is reached is compared by its runtime type (number, string via `localeCompare`, `Date` by instant, boolean, nullish first) |
 | **The search box** | `formatValue` → `displayFormat` → `row[key]` |
 | **A filter's row test** | `filter.match(value, row, column)` when the column has a custom `filter`, which reads whatever it likes; a `"text"` filter matches the search box's projection — `formatValue` → `displayFormat` → `row[key]`, `String()`-coerced, case-insensitive; otherwise (`"options"`) `formatValue` → `row[key]` |

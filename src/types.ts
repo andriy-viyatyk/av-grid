@@ -348,6 +348,15 @@ export interface Column<R = any> {
 
     dataType?: DataType;
     displayFormat?: DisplayFormat;
+    /**
+     * Show a cell whose value is the number `0` as empty. Default false.
+     *
+     * A column of counts or offsets that is mostly zeros reads faster when the zeros are blank.
+     * Display only: copy, sorting, the filter's option list, the search and the editor all still
+     * see `0`. A column with `render`, `formatValue` or `displayFormat` decides its own text and
+     * is not affected.
+     */
+    hideZero?: boolean;
     align?: Alignment;
 
     resizable?: boolean;

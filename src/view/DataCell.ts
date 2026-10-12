@@ -525,7 +525,9 @@ function displayText<R>(column: Column<R>, row: R, value: unknown): string {
     }
     if (value === null || value === undefined) return "";
     if (typeof value === "string") return value;
-    if (typeof value === "number") return String(value);
+    if (typeof value === "number") {
+        return value === 0 && column.hideZero ? "" : String(value);
+    }
     if (value instanceof Date) return formatDisplayValue(value);
     return String(value);
 }

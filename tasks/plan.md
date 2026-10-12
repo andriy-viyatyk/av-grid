@@ -21,6 +21,7 @@ decision logs in `plan-done-01.md` … `plan-done-19.md`** — every one of them
 |---|------|--------|
 | 1–65 | Phases 1–23 | see `plan-done-01.md` … `plan-done-19.md` — ✅ Done |
 | 66 | The dropdown editor fits its options: no scrollbar on a short list, no search box up to ten options | ✅ Done |
+| 67 | `Column.hideZero` — a numeric column shows its zeros as empty cells | ✅ Done |
 
 ## Decision log
 
@@ -30,6 +31,8 @@ decision logs in `plan-done-01.md` … `plan-done-19.md`** — every one of them
 | 66.2 — the dropdown's search box shows only past ten options (`SEARCH_THRESHOLD`), decided when the options resolve | Up to ten options are read at a glance; a search box over three is noise. The count is only known in `fill`, since `options` may be a function or a promise, so the box is built always and shown or hidden there through a new `VirtualList.setSearchVisible` | A promise's options start at zero, so the box appears when they arrive; focus inside the list is carried across the change |
 | 66.3 — a type-to-edit keeps the search box at any count | The typed character *is* the search text; hiding the box would drop the keystroke that opened the editor | — |
 | 66.4 — hiding the box clears its text | A search the user can no longer see must not keep narrowing the rows | — |
+| 67.1 — `hideZero` is a column option, default false, with no grid-level default | Asked for per column by a consumer: a column of offsets that is mostly zeros reads faster blank. Off by default because `0` and empty then look alike, which a library must not decide for every grid; a grid-wide switch was judged unneeded | — |
+| 67.2 — display only, and only the default text path | Copy, sorting, the checklist's options, the search and the editor still see `0` — the value has not changed, and a hidden zero copied as blank would lose data. A column with `render`, `formatValue` or `displayFormat` writes its own text and is untouched. Footer cells share `displayText`, so a zero total is blank too | A search for "0" still matches the row, with nothing to mark |
 
 ## Open questions carried forward
 
