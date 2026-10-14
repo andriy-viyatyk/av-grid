@@ -240,7 +240,7 @@ export const css = `
  * the text-overflow: ellipsis above did nothing for years — text was clipped mid-glyph, and in a
  * right-aligned column the overflow of a nowrap flex line moves to the *start* side, so a long
  * number silently lost its leading digits. The anonymous item is not reachable from CSS; only a
- * real element is. This is the same shape .avg-header-title and .avg-cell-select-value already use.
+ * real element is. This is the same shape .avg-header-title already uses.
  *
  * min-width: 0 is the load-bearing declaration — a flex item will not shrink below its content
  * width without it, and then there is nothing to ellipsize.
@@ -563,26 +563,39 @@ export const css = `
 }
 
 /*
- * The dropdown editor's closed state: the current value and a caret, filling the cell exactly
- * as the text editor does. It is a div rather than a select because the list it opens is drawn
- * by this library and themed by the same tokens as the grid — a native popup is drawn by the
- * platform and ignores every one of them.
+ * The options editor: an input holding the text, and a caret, filling the cell exactly as the
+ * text editor does. The input is the search box for the list below it, so it is bare — no border,
+ * no background, the cell's font — and the wrapper carries the editor's padding and background.
+ * The list it opens is drawn by this library and themed by the same tokens as the grid; a native
+ * <select> popup is drawn by the platform and ignores every one of them.
  */
 .avg-grid .avg-cell-select {
     display: flex;
     align-items: center;
     gap: 4px;
     overflow: hidden;
-    cursor: default;
-    user-select: none;
 }
 
-.avg-grid .avg-cell-select-value {
+.avg-grid .avg-cell-select-input {
     flex: 1 1 auto;
     min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+    border: none;
+    outline: none;
+    border-radius: 0;
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+    background: transparent;
+}
+
+/* Strict mode, text that names no option: Enter will not commit it. */
+.avg-grid .avg-cell-select-input[aria-invalid="true"] {
+    text-decoration: underline wavy var(--avg-text-muted);
+    text-decoration-skip-ink: none;
 }
 
 .avg-grid .avg-cell-select-caret {

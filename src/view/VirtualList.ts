@@ -1,6 +1,6 @@
 /**
- * A virtualized list of selectable rows — the body of the filter popover, and later the cell
- * dropdown.
+ * A virtualized list of selectable rows — the body of the filter popover, and the cell
+ * dropdown's popup.
  *
  * ```ts
  * const list = new VirtualList({
@@ -88,6 +88,12 @@ const DEFAULT_ROW_HEIGHT = 24;
 /** Enough to cover a fast wheel notch's worth of scroll before the next paint lands. */
 const DEFAULT_OVERSCAN_ROW = 4;
 
+/** Distinguishes the listbox ids of several lists on one page. */
+let listSeq = 0;
+
+/** Where `moveActive` goes: a number of rows, an end, or a page. */
+export type VirtualListMove = number | "first" | "last" | "pageUp" | "pageDown";
+
 const CHECKED = `<span class="avg-list-box avg-checked">${checkedIcon}</span>`;
 const UNCHECKED = `<span class="avg-list-box">${uncheckedIcon}</span>`;
 const INDETERMINATE = `<span class="avg-list-box avg-checked">${indeterminateIcon}</span>`;
@@ -119,6 +125,12 @@ export class VirtualList {
     private selectedOrder: VirtualListValue[] = [];
     private searchText = "";
     private _activeIndex = -1;
+    /**
+     * The listbox id, in single-pick mode only — the rows' ids derive from it. A checklist keeps
+     * no ARIA roles of its own: it is a group of checkboxes in a filter panel, not a listbox, and
+     * its DOM is left exactly as it was before the roles were added.
+     */
+    private readonly listboxId?: string;
 
     constructor(options: VirtualListOptions) {
         this.options = options;
@@ -151,6 +163,11 @@ export class VirtualList {
 
         this.body = document.createElement("div");
         this.body.className = "avg-list-body";
+        if (!multiple) {
+            this.listboxId = `avg-list-${++listSeq}`;
+            this.body.id = this.listboxId;
+            this.body.setAttribute("role", "listbox");
+        }
         this.element.appendChild(this.body);
 
         this.emptyEl = document.createElement("div");
@@ -248,7 +265,10 @@ export class VirtualList {
         return this.searchText;
     }
 
-    /** The highlighted row, as an index into the *visible* rows. -1 when the list is empty. */
+    /**
+     * The highlighted row, as an index into the *visible* rows. -1 when the list is empty, or when a
+     * caller cleared the highlight with `setActiveIndex(-1)`.
+     */
     get activeIndex(): number {
         return this._activeIndex;
     }
@@ -259,6 +279,56 @@ export class VirtualList {
 
     setActiveIndex(index: number): void {
         this.setActive(Math.max(-1, Math.min(index, this.filtered.length - 1)));
+    }
+
+    /**
+     * Move the highlight — the list's own arrow-key map, callable from outside, for a caller
+     * whose keys arrive somewhere else (the dropdown editor types into the cell, not the list).
+     *
+     * A number moves that many rows; `"first"` / `"last"` go to the ends; `"pageUp"` /
+     * `"pageDown"` move by the rows that fit. The result is clamped to the rows on screen, and
+     * from no highlight at all (`activeIndex` -1) any move lands on a row: forward from the top,
+     * `"last"` and `"pageUp"` from where they say. The new row is scrolled into view. Does
+     * nothing on an empty list.
+     */
+    moveActive(move: VirtualListMove): void {
+        const count = this.filtered.length;
+        if (!count) return;
+        const page = Math.max(1, this.render.model.visibleRowCount);
+        const from = this._activeIndex;
+        let to: number;
+        switch (move) {
+            case "first":
+                to = 0;
+                break;
+            case "last":
+                to = count - 1;
+                break;
+            case "pageUp":
+                to = from < 0 ? 0 : from - page;
+                break;
+            case "pageDown":
+                to = from < 0 ? Math.min(page, count) - 1 : from + page;
+                break;
+            default:
+                to = from < 0 ? (move > 0 ? move - 1 : 0) : from + move;
+        }
+        this.setActive(Math.max(0, Math.min(count - 1, to)));
+        this.scrollToIndex(this._activeIndex);
+    }
+
+    /**
+     * The DOM id the row at this *visible* index carries, for `aria-activedescendant` — single-pick
+     * lists only; `undefined` on a checklist, or for an index with no row.
+     */
+    optionId(index: number): string | undefined {
+        if (!this.listboxId || index < 0 || index >= this.filtered.length) return undefined;
+        return `${this.listboxId}-${index}`;
+    }
+
+    /** The listbox element's id — single-pick lists only. */
+    get listId(): string | undefined {
+        return this.listboxId;
     }
 
     /** Set the search text programmatically; the input follows. */
@@ -347,6 +417,14 @@ export class VirtualList {
         else el.removeAttribute("data-active");
         if (item?.disabled) el.setAttribute("data-disabled", "");
         else el.removeAttribute("data-disabled");
+        // The option semantics, single-pick only (`listboxId` is the flag). Written on every
+        // paint, never only when "needed": the element is pooled, so the id and the
+        // `aria-selected` it arrives with are another row's.
+        if (this.listboxId) {
+            el.setAttribute("role", "option");
+            el.id = `${this.listboxId}-${p.row}`;
+            el.setAttribute("aria-selected", selected ? "true" : "false");
+        }
 
         setText(label, item ? (item.label ?? String(item.value)) : "");
         applyCellStyle(el, p.style);
@@ -431,33 +509,25 @@ export class VirtualList {
     };
 
     private onKeyDown = (e: KeyboardEvent): void => {
-        const count = this.filtered.length;
-        const page = Math.max(1, this.render.model.visibleRowCount);
-        const move = (to: number): void => {
-            e.preventDefault();
-            this.setActive(Math.max(0, Math.min(count - 1, to)));
-            if (this._activeIndex >= 0) this.scrollToIndex(this._activeIndex);
+        const moves: Record<string, VirtualListMove> = {
+            ArrowDown: 1,
+            ArrowUp: -1,
+            Home: "first",
+            End: "last",
+            PageDown: "pageDown",
+            PageUp: "pageUp",
         };
+        const move = moves[e.key];
+        if (move !== undefined) {
+            if (!this.filtered.length) return;
+            e.preventDefault();
+            // From no highlight, ↑ lands on the first row as ↓ does — the keyboard map has
+            // always started there, and the list is never left with nothing highlighted by a key.
+            this.moveActive(this._activeIndex < 0 && move === -1 ? 1 : move);
+            return;
+        }
 
         switch (e.key) {
-            case "ArrowDown":
-                if (count) move(this._activeIndex + 1);
-                break;
-            case "ArrowUp":
-                if (count) move(this._activeIndex - 1);
-                break;
-            case "Home":
-                if (count) move(0);
-                break;
-            case "End":
-                if (count) move(count - 1);
-                break;
-            case "PageDown":
-                if (count) move(this._activeIndex + page);
-                break;
-            case "PageUp":
-                if (count) move(this._activeIndex - page);
-                break;
             case " ":
             case "Enter": {
                 const item = this.filtered[this._activeIndex];

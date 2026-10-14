@@ -419,6 +419,118 @@ describe("the keyboard", () => {
     });
 });
 
+describe("moveActive", () => {
+    it("moves by rows, clamped to the ends", () => {
+        const list = makeList({ items: items(10) });
+        list.moveActive(3);
+        expect(list.activeIndex).toBe(3);
+        list.moveActive(-1);
+        expect(list.activeIndex).toBe(2);
+        list.moveActive(100);
+        expect(list.activeIndex).toBe(9);
+        list.moveActive(-100);
+        expect(list.activeIndex).toBe(0);
+    });
+
+    it("goes to the ends, and pages", () => {
+        const list = makeList({ items: items(200) });
+        list.moveActive("last");
+        expect(list.activeIndex).toBe(199);
+        list.moveActive("first");
+        expect(list.activeIndex).toBe(0);
+        list.moveActive("pageDown");
+        const page = list.activeIndex;
+        expect(page).toBeGreaterThan(1);
+        list.moveActive("pageUp");
+        expect(list.activeIndex).toBe(0);
+    });
+
+    it("lands on a row from no highlight at all", () => {
+        const list = makeList({ items: items(10) });
+        list.setActiveIndex(-1);
+        expect(list.activeIndex).toBe(-1);
+        list.moveActive(1);
+        expect(list.activeIndex).toBe(0);
+        list.setActiveIndex(-1);
+        list.moveActive("last");
+        expect(list.activeIndex).toBe(9);
+    });
+
+    it("does nothing on an empty list", () => {
+        const list = makeList({ items: [] });
+        list.moveActive(1);
+        expect(list.activeIndex).toBe(-1);
+    });
+});
+
+describe("listbox semantics, single-pick only", () => {
+    it("gives a single-pick list a listbox with option rows", async () => {
+        const list = makeList({ items: items(5), multiple: false, selected: [1] });
+        await nextFrame();
+        const listbox = list.element.querySelector('[role="listbox"]')!;
+        expect(listbox).not.toBeNull();
+        expect(listbox.id).toBe(list.listId);
+        for (const row of rows(list)) {
+            const index = Number(row.dataset.index);
+            expect(row.getAttribute("role")).toBe("option");
+            expect(row.id).toBe(list.optionId(index));
+            expect(row.getAttribute("aria-selected")).toBe(index === 1 ? "true" : "false");
+        }
+    });
+
+    it("gives every list its own ids", () => {
+        const a = makeList({ multiple: false });
+        const b = makeList({ multiple: false });
+        expect(a.listId).not.toBe(b.listId);
+        expect(a.optionId(0)).not.toBe(b.optionId(0));
+    });
+
+    it("leaves a checklist exactly as it was — no roles, no ids", async () => {
+        const list = makeList({ items: items(5), selected: [1] });
+        await nextFrame();
+        expect(list.element.querySelector("[role]")).toBeNull();
+        expect(list.listId).toBeUndefined();
+        expect(list.optionId(0)).toBeUndefined();
+        for (const row of rows(list)) {
+            expect(row.id).toBe("");
+            expect(row.hasAttribute("aria-selected")).toBe(false);
+        }
+    });
+
+    it("rewrites a recycled row's id and aria-selected — a pooled row arrives dirty", async () => {
+        const list = makeList({ items: items(500), multiple: false, selected: [0, 1, 2] }, 100);
+        await nextFrame();
+        const seen = new Set(rows(list));
+        expect(rows(list).some((r) => r.getAttribute("aria-selected") === "true")).toBe(true);
+
+        const scroller = list.render.container;
+        for (const y of [41, 97, 300, 2400, 6000]) {
+            scroller.scrollTop = y;
+            scroller.dispatchEvent(new Event("scroll"));
+            await nextFrame();
+        }
+
+        const now = rows(list);
+        // The window moved far past the first rows, so the elements on screen were handed on.
+        expect(now.some((r) => seen.has(r))).toBe(true);
+        for (const row of now) {
+            const index = Number(row.dataset.index);
+            expect(index).toBeGreaterThan(2);
+            expect(row.id).toBe(list.optionId(index));
+            expect(row.getAttribute("aria-selected")).toBe("false");
+        }
+    });
+
+    it("reports no option id for an index without a row", () => {
+        const list = makeList({ items: items(3), multiple: false });
+        expect(list.optionId(-1)).toBeUndefined();
+        expect(list.optionId(3)).toBeUndefined();
+        list.setSearch("option 2");
+        expect(list.optionId(0)).toBe(`${list.listId}-0`);
+        expect(list.optionId(1)).toBeUndefined();
+    });
+});
+
 describe("updating items", () => {
     it("re-renders on setItems", async () => {
         const list = makeList({ items: items(3) });

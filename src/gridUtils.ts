@@ -519,7 +519,10 @@ export function defaultValidate<R>(col: Column<R>, _row: R, val: any): any {
             return isNaN(n) ? null : n;
         }
         default:
-            if (val && Array.isArray(col.options)) {
+            // `freeText` turns the options into suggestions, so a value outside them is not a
+            // rejection. Function and async options are never checked here: they cannot be
+            // resolved synchronously, so a paste into such a column is always accepted.
+            if (val && Array.isArray(col.options) && !col.freeText) {
                 return col.options.find((o) => o === val) ? val : undefined;
             }
             return val;

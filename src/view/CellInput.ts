@@ -26,7 +26,7 @@ import type { EditorContext, MountedCellEditor } from "../types";
  * `undefined` covers the environment with no layout at all — happy-dom, or a `display: none`
  * ancestor — where every rect is zero and a search would confidently answer 0 for any x.
  */
-function caretIndexAt(input: HTMLInputElement, clientX: number): number | undefined {
+export function caretIndexAt(input: HTMLInputElement, clientX: number): number | undefined {
     const text = input.value;
     if (!text) return 0;
     const doc = input.ownerDocument;

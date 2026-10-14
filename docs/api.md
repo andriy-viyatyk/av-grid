@@ -228,9 +228,10 @@ How an editor opens:
 Boolean columns have no text editor: `Space`, `Enter` or a double-click toggles them across the
 whole selection, and an editable boolean cell carries a checkbox that toggles on the first click
 (only the box toggles — the cell around it just selects). `Delete` clears every editable cell in
-the selection. A column with `options` opens the library's own themed dropdown rather than a
-native `<select>`, and one with [`editor`](#editor--a-custom-cell-editor) opens whatever you
-build. Per-column opt-outs: `readonly: true`, and any `isStatusColumn`.
+the selection. A column with [`options`](#options) opens the **options editor** — a text box in
+the cell over the library's own themed, filtered list, rather than a native `<select>` — and one
+with [`editor`](#editor--a-custom-cell-editor) opens whatever you build. Per-column opt-outs:
+`readonly: true`, and any `isStatusColumn`.
 
 `EditOrigin` — the value on `CellEdit.openedBy`, and the only thing that decides where the caret
 starts:
@@ -623,6 +624,7 @@ interface Column<R = any> {
 
     validate?: (column: Column<R>, row: R, value: any) => any;
     options?: any[] | (() => any[] | Promise<any[]>);
+    freeText?: boolean;             // with options: accept text outside them — default false
 }
 ```
 
@@ -633,6 +635,7 @@ columns: [
     { key: "active", name: "Active", dataType: "boolean", width: 70 },
     { key: "created", name: "Created", displayFormat: "date" },
     { key: "status", name: "Status", options: ["open", "pending", "closed"] },
+    { key: "city", name: "City", options: knownCities, freeText: true },
     { key: "actions", name: "", render: () => `<button>Send</button>`, filterType: null },
 ]
 ```
@@ -986,7 +989,11 @@ are *all* fixed widths.
 Return the value to commit. Return `undefined` to reject the edit, which fires `onInvalidEdit`.
 With no `validate`, `defaultValidate` coerces to `dataType`: `"number"` through `Number()`
 (rejecting `NaN`), `"boolean"` treating `"false"` / `"no"` / `"0"` as false, and a column with an
-`options` array rejecting anything not in it.
+`options` **array** rejecting anything not in it — unless the column has `freeText: true`, whose
+options are only suggestions. Function and async `options` are never checked here (they cannot be
+resolved synchronously), so a paste into such a column is always accepted. This is what a paste
+and `setCellValue` go through; a `validate` of your own still runs on a `freeText` column and can
+reject, which fires `onInvalidEdit` as usual.
 
 ### `editor` — a custom cell editor
 
@@ -1068,10 +1075,48 @@ so that a press reaches the editor.
 { key: "owner", options: async () => (await fetch("/owners")).json() }
 ```
 
-Opens the library's own virtualized, themed dropdown — 10,000 options put 13 rows in the DOM. The
-picked option **keeps its type**, so a numeric option commits as a number. Typing over the cell
-seeds the dropdown's search box rather than the cell's value. The search box shows only past ten
-options — or, at any count, when typing opened the dropdown. Escape or a click elsewhere cancels.
+Opens the **options editor**: the text is typed *in the cell*, exactly where the text editor puts
+it, and a virtualized, themed list under the cell narrows to it as you type (case-insensitive,
+anywhere in the label) — 10,000 options put 13 rows in the DOM. There is no separate search box;
+the cell is the search box, and the focus never leaves it. A committed option **keeps its type**,
+so a numeric option commits as a number. All three forms resolve on every open; you can type while
+a promise is pending, and a rejected one leaves an empty list and a console warning.
+
+How it opens follows the text editor: `Enter` / `F2` / `startEdit()` select the current label and
+list every option with the current one highlighted; a click puts the caret where it landed over the
+same list; typing a character replaces the text with it and narrows the list.
+
+**Strict — the default.** The cell only ever takes an option, or empty:
+
+| You do | What happens |
+|---|---|
+| Type | The best match is highlighted: an exact match (case-sensitive, then not), else the first match in list order. Empty text highlights nothing. |
+| `Enter` / `Tab` | Commits the highlighted option. With nothing highlighted: empty text **clears** the cell; text matching no option is **never written** — `Enter` does nothing (the list says *no matching options* and the input carries `aria-invalid`), `Tab` cancels and moves on. |
+| Click elsewhere / focus leaves | Commits only if the text is unchanged or **is** an option (case-insensitive, trimmed). A prefix is never picked on the way out — anything else cancels. |
+| Click a row | Commits that option. |
+
+The cell's current value is listed first when it is not one of the options, so opening the editor
+never silently changes the cell.
+
+**Suggest — `freeText: true`.** The options are suggestions and the cell takes any text:
+
+```js
+{ key: "city", options: ["Berlin", "Boston", "Lisbon"], freeText: true }
+```
+
+Nothing is highlighted while you type, so `Enter`, `Tab` and leaving the cell keep **what you
+typed, exactly as typed**. An option is taken only when you arrowed to it (`↓` from the text picks
+the first suggestion, `↑` from the first goes back to the text), clicked it, or typed its name —
+`berlin` commits `"Berlin"`, with the option's type. When nothing matches, the list hides and the
+editor is a plain text box; with no options at all it is simply a text editor. A paste of any text
+is accepted (see [`validate`](#validate)). `freeText` is ignored on a column without `options`.
+
+**Function and promise options:** in strict mode `Enter` while a promise is still pending does
+nothing; in suggest mode it commits the text.
+
+`Escape` cancels in both modes, and is handled by the editor — so inside a modal `<dialog>` it
+cancels the edit and leaves the dialog open. `defaultValidate`'s check against an `options` array
+means `setCellValue` and a paste of a value outside the options are rejected in strict mode.
 
 ---
 
@@ -2126,6 +2171,11 @@ known gap in
 | `Escape` | Cancel |
 | `Enter` / `Tab` / `↑` / `↓` (in the editor) | Commit, then move |
 | `←` / `→` / `Home` / `End` (in the editor) | Move the caret; the grid does not act |
+| `↓` / `↑` (in the options editor) | Move the list's highlight; the text is not rewritten. With `freeText`, `↑` from the first suggestion goes back to the typed text |
+| `PageDown` / `PageUp` (in the options editor) | Move the highlight a page |
+| `Enter` (in the options editor) | Commit **without moving** — see [`options`](#options) for what is committed |
+| `Tab` / `Shift+Tab` (in the options editor) | Commit, then move |
+| `Escape` (in the options editor) | Cancel — and only that: an enclosing modal `<dialog>` stays open |
 | `Escape` / `Tab` (in a custom `editor`) | Cancel / commit-and-move, bound by the grid unless the editor calls `preventDefault()` |
 | `Delete` | Clear every editable cell in the selection |
 
@@ -2293,7 +2343,7 @@ positioned, and their nesting can change.
 | `data-resizable` | A header cell |
 | `data-pinned="left" \| "right"` | A pinned column's header cell. On `"right"`, the resize grip moves to the cell's left edge. |
 | `data-type="filter-button"` | The funnel inside a header cell |
-| `data-type="cell-editor"` | The open editor |
+| `data-type="cell-editor"` | The open editor. For an `options` column it is a `div.avg-cell-select` holding **`input.avg-cell-select-input`** (the text, `role="combobox"` with `aria-expanded`, `aria-controls`, `aria-activedescendant` and, in strict mode with no match, `aria-invalid="true"`) and the `avg-cell-select-caret` span; `data-free-text` is present with `freeText`. Its list is a popover classed `avg-cell-select-popover` with **no `.avg-list-search`**; the list body is `role="listbox"` and each row `role="option"` with an `id` and `aria-selected`. |
 | `data-part="tree-indent"` / `data-part="tree-chevron"` | The tree gutter's guides and chevron slot inside a `treeColumn` cell (classed `avg-tree-cell`); the content follows in `avg-tree-content`. The first guide carries `data-first`; the slot is `avg-tree-chevron` (`data-expanded` when open, `data-inert` when there is no gesture), `avg-tree-stub`, or `avg-tree-busy` while `treeColumn.busy` holds. `aria-expanded` rides on the gridcell, with `aria-busy` beside it while busy. See [Tree column](#tree-column--treecolumn). |
 | `data-avg-action="add-row" \| "add-column"` | The two `+` buttons |
 | `data-avg-slot="content-end"` | The host's `extraElement`, which also carries `avg-extra` |
@@ -2633,7 +2683,16 @@ interface VirtualListOptions {
 
 Methods: `setItems`, `getItems`, `getVisibleItems`, `setSelected`, `getSelected`,
 `getSelectedItems`, `setSearch`, `setSearchVisible`, `setActiveIndex`, `getActiveItem`,
-`scrollToIndex`, `measure`, `focus`, `destroy`; the `searchVisible` getter.
+`moveActive`, `optionId`, `scrollToIndex`, `measure`, `focus`, `destroy`; the `searchVisible`,
+`activeIndex` and `listId` getters.
+
+`moveActive(move)` moves the highlight the way the list's own arrow keys do, for a caller whose
+keys arrive elsewhere: a number of rows, `"first"` / `"last"`, or `"pageUp"` / `"pageDown"`,
+clamped to the visible rows and scrolled into view; from no highlight (`setActiveIndex(-1)`) any
+move lands on a row. A **single-pick** list (`multiple: false`) is an ARIA listbox: its body
+carries `role="listbox"` and the id `listId`, each row `role="option"`, `aria-selected` and the id
+`optionId(index)` — what an input driving the list points `aria-activedescendant` at. A checklist
+carries none of these.
 
 `setSearchVisible(false)` hides the search box of a list built with one and clears its text, so
 no search the user cannot see keeps narrowing the rows; focus inside the list stays inside it.

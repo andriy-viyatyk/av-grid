@@ -74,13 +74,18 @@ to be released only by a sort, which left filtered-out rows on screen after an e
 in place and re-filters nothing. Only a browser could find it: it takes an edit, then a filter
 change, then a look at what is actually on screen.
 
-### The cell dropdown
+### The options editor
 
-A column with `options` opens a themed, virtualized list rather than a native `<select>`, whose
-popup the platform drew and the `--p-*` contract could never reach. **10,000 options put 13 rows in
-the DOM and mutate zero grid cells.** Typing over a cell seeds the list's search box instead of the
-cell's value; a picked option keeps its type — `20` commits as the number, which the stringifying
-`<select>` could not manage — and Escape or a click elsewhere cancels rather than committing.
+A column with `options` opens a text box in the cell over a themed, virtualized list rather than a
+native `<select>`, whose popup the platform drew and the `--p-*` contract could never reach.
+**10,000 options put 13 rows in the DOM and mutate zero grid cells**, and narrowing them costs
+about a millisecond a keystroke. The text is typed in the cell and filters the list; the focus never
+leaves the cell, so a click on a row commits it and a click elsewhere applies the blur rule. A
+committed option keeps its type — `20` commits as the number, which the stringifying `<select>`
+could not manage. Two modes: **strict** (the default) commits only an option or empty and never
+writes text that matches nothing; **suggest** (`freeText: true`) commits what was typed unless an
+option was arrowed to, clicked or named. It is an ARIA combobox over a listbox, and Escape inside a
+modal `<dialog>` cancels the edit without closing the dialog.
 
 ### Column widths
 

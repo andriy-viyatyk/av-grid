@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gatherByGroup, sortAsList, sortEquals } from "./gridUtils";
+import { defaultValidate, gatherByGroup, sortAsList, sortEquals } from "./gridUtils";
 
 describe("gatherByGroup", () => {
     it("gathers interleaved group columns, anchored where the group first appears", () => {
@@ -62,5 +62,31 @@ describe("sortAsList / sortEquals", () => {
             ),
         ).toBe(false);
         expect(sortEquals(undefined, [])).toBe(true);
+    });
+});
+
+describe("defaultValidate against options", () => {
+    const row = {};
+
+    it("rejects a value outside an options array", () => {
+        const col = { key: "status", options: ["open", "closed"] };
+        expect(defaultValidate(col, row, "open")).toBe("open");
+        expect(defaultValidate(col, row, "nonsense")).toBeUndefined();
+    });
+
+    it("accepts it when the column is freeText — the options are only suggestions", () => {
+        const col = { key: "status", options: ["open", "closed"], freeText: true };
+        expect(defaultValidate(col, row, "nonsense")).toBe("nonsense");
+        expect(defaultValidate(col, row, "open")).toBe("open");
+    });
+
+    it("never rejects against function options, which cannot be resolved here", () => {
+        const col = { key: "status", options: () => ["open"] };
+        expect(defaultValidate(col, row, "nonsense")).toBe("nonsense");
+    });
+
+    it("lets an empty value through, which is how a cell is cleared", () => {
+        const col = { key: "status", options: ["open"] };
+        expect(defaultValidate(col, row, "")).toBe("");
     });
 });

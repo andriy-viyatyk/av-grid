@@ -49,7 +49,7 @@ av-grid/
             FilterBar.ts         ← removable chips: edit from one, remove one, remove all
             DataCell.ts          ← the hot path; allocation-light
             CellInput.ts         ← the text editor; owned by EditingModel, never pooled
-            CellSelect.ts        ← the dropdown editor, for a column with `options`
+            CellSelect.ts        ← the options editor (text in the cell over a filtered list), for a column with `options`
             DefaultEditFormatter.ts ← which of the two a cell gets
             HeaderCell.ts        ← label, sort indicator, resize grip, filter funnel
             GroupHeader.ts       ← the column-group band: overlay divs, not pooled cells

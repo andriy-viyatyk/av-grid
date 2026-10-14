@@ -166,6 +166,103 @@ describe("dismissal", () => {
     });
 });
 
+/**
+ * The internal options the options editor uses: its input keeps the focus while the list is
+ * open, so Escape must reach the input and an outside press must be *reported*, not acted on.
+ */
+describe("dismissal handed to the caller (internal options)", () => {
+    it("closeOnEscape: false leaves Escape alone — it reaches the focused element", () => {
+        const popover = make({ anchor: anchorAt(10, 10), closeOnEscape: false });
+        void popover.show();
+
+        const seen = vi.fn();
+        document.body.addEventListener("keydown", seen);
+        const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+        popover.root.dispatchEvent(event);
+
+        expect(popover.isOpen).toBe(true);
+        expect(seen).toHaveBeenCalledTimes(1);
+        expect(event.defaultPrevented).toBe(false);
+        document.body.removeEventListener("keydown", seen);
+    });
+
+    it("closeOnOutside: false stays open, and onOutside hears the press", () => {
+        const outside = document.createElement("div");
+        document.body.appendChild(outside);
+        const onOutside = vi.fn();
+        const popover = make({ anchor: anchorAt(10, 10), closeOnOutside: false, onOutside });
+        void popover.show();
+
+        outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        expect(popover.isOpen).toBe(true);
+        expect(onOutside).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports the outside press before anything it lands on hears it", () => {
+        const outside = document.createElement("div");
+        document.body.appendChild(outside);
+        const order: string[] = [];
+        outside.addEventListener("pointerdown", () => order.push("target"));
+        const popover = make({
+            anchor: anchorAt(10, 10),
+            closeOnOutside: false,
+            onOutside: () => order.push("onOutside"),
+        });
+        void popover.show();
+
+        outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        expect(order).toEqual(["onOutside", "target"]);
+    });
+
+    it("onOutside alone still closes, after reporting", () => {
+        const outside = document.createElement("div");
+        document.body.appendChild(outside);
+        const onOutside = vi.fn();
+        const popover = make({ anchor: anchorAt(10, 10), onOutside });
+        void popover.show();
+
+        outside.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        expect(onOutside).toHaveBeenCalledTimes(1);
+        expect(popover.isOpen).toBe(false);
+    });
+
+    it("does not report a press inside, on the anchor, or on ignoreOutside", () => {
+        const anchor = anchorAt(10, 10);
+        const chip = document.createElement("div");
+        chip.className = "avg-filter-chip";
+        document.body.appendChild(chip);
+        const onOutside = vi.fn();
+        const popover = make({
+            anchor,
+            closeOnOutside: false,
+            ignoreOutside: ".avg-filter-chip",
+            onOutside,
+        });
+        void popover.show();
+
+        popover.content.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        anchor.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        chip.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        expect(onOutside).not.toHaveBeenCalled();
+    });
+
+    it("still takes every document listener with it when it closes", () => {
+        const add = vi.spyOn(document, "addEventListener");
+        const remove = vi.spyOn(document, "removeEventListener");
+
+        const popover = make({ anchor: anchorAt(10, 10), closeOnEscape: false });
+        void popover.show();
+        const added = add.mock.calls.map((c) => c[0]).sort();
+        popover.close();
+        const removed = remove.mock.calls.map((c) => c[0]).sort();
+
+        expect(added).not.toContain("keydown");
+        expect(removed).toEqual(added);
+        add.mockRestore();
+        remove.mockRestore();
+    });
+});
+
 describe("focus", () => {
     it("focuses the popover and hands focus back on close", () => {
         const before = document.createElement("input");

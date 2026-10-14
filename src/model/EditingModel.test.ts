@@ -87,6 +87,23 @@ function grid(count = 20, extra: Partial<AVGridOptions<Row>> = {}): AVGrid<Row> 
     return g;
 }
 
+/** The same five columns, with `status` taking free text. */
+function freeColumns(): any[] {
+    return [
+        { key: "name", name: "Name", width: 120 },
+        { key: "score", name: "Score", width: 80, dataType: "number" },
+        { key: "active", name: "Active", width: 70, dataType: "boolean" },
+        {
+            key: "status",
+            name: "Status",
+            width: 90,
+            options: ["open", "closed"],
+            freeText: true,
+        },
+        { key: "id", name: "ID", width: 60, readonly: true },
+    ];
+}
+
 function cellAt(g: AVGrid<Row>, row: number, col: number): HTMLElement | null {
     return g.element.querySelector(
         `[data-type="data-cell"][data-row="${row}"][data-col="${col}"]`,
@@ -333,7 +350,9 @@ describe("opening an editor", () => {
 
         const select = selectEditor(g);
         expect(select).not.toBeNull();
-        expect(select!.textContent).toContain("open");
+        expect(select!.querySelector<HTMLInputElement>(".avg-cell-select-input")!.value).toBe(
+            "open",
+        );
         expect(dropdownRows().map((r) => r.textContent)).toEqual([
             "open",
             "closed",
@@ -575,6 +594,131 @@ describe("committing and cancelling", () => {
         expect(g.isEditing()).toBe(false);
         expect(g.getRows()[0].status).toBe("closed");
         expect(document.querySelector(".avg-cell-select-popover")).toBeNull();
+    });
+});
+
+describe("the options editor in a grid", () => {
+    const selectInput = (g: AVGrid<Row>): HTMLInputElement =>
+        g.element.querySelector<HTMLInputElement>(".avg-cell-select-input")!;
+
+    async function typeInto(g: AVGrid<Row>, text: string): Promise<void> {
+        const box = selectInput(g);
+        box.value = text;
+        box.dispatchEvent(new Event("input", { bubbles: true }));
+        await paintWithLayout(g);
+    }
+
+    it("strict: Enter commits the highlighted option and stays on the cell", async () => {
+        const g = grid();
+        g.focusCell(1, 3);
+        key(g, { key: "F2", code: "F2" });
+        await paintWithLayout(g);
+        expect(g.getRows()[1].status).toBe("closed");
+
+        await typeInto(g, "op");
+        keyOn(selectInput(g), { key: "Enter", code: "Enter", cancelable: true });
+
+        expect(g.isEditing()).toBe(false);
+        expect(g.getRows()[1].status).toBe("open");
+        expect(g.getFocus()).toMatchObject({ rowKey: "2", columnKey: "status" });
+    });
+
+    it("strict: text naming no option is never written", async () => {
+        const onInvalidEdit = vi.fn();
+        const onEdit = vi.fn();
+        const g = grid(20, { onInvalidEdit, onEdit });
+        g.focusCell(0, 3);
+        key(g, { key: "F2", code: "F2" });
+        await paintWithLayout(g);
+
+        await typeInto(g, "nonsense");
+        keyOn(selectInput(g), { key: "Enter", code: "Enter", cancelable: true });
+        expect(g.isEditing()).toBe(true);
+
+        keyOn(selectInput(g), { key: "Tab", code: "Tab", cancelable: true });
+        expect(g.isEditing()).toBe(false);
+        expect(g.getRows()[0].status).toBe("open");
+        expect(onEdit).not.toHaveBeenCalled();
+        expect(onInvalidEdit).not.toHaveBeenCalled();
+    });
+
+    it("freeText: Enter writes the typed text as the cell's value", async () => {
+        const g = grid(20, { columns: freeColumns() });
+        g.focusCell(0, 3);
+        key(g, { key: "F2", code: "F2" });
+        await paintWithLayout(g);
+
+        await typeInto(g, "on hold");
+        keyOn(selectInput(g), { key: "Enter", code: "Enter", cancelable: true });
+        expect(g.isEditing()).toBe(false);
+        expect(g.getRows()[0].status).toBe("on hold");
+    });
+
+    it("Escape cancels inside a modal dialog without closing the dialog", async () => {
+        const dialog = document.createElement("dialog");
+        dialog.setAttribute("open", "");
+        document.body.append(dialog);
+        const host = document.createElement("div");
+        dialog.append(host);
+        const g = withLayout(() =>
+            AVGrid.create<Row>(host, {
+                rows: rows(5),
+                columns: [{ key: "status", name: "Status", width: 90, options: ["open", "closed"] }],
+                getRowKey: (r) => String(r.id),
+                editable: true,
+            }),
+        );
+        grids.push(g);
+        g.focusCell(0, 0);
+        key(g, { key: "F2", code: "F2" });
+        await paintWithLayout(g);
+        expect(dialog.querySelector(".avg-cell-select-popover")).not.toBeNull();
+
+        await typeInto(g, "clo");
+        const esc = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+        selectInput(g).dispatchEvent(esc);
+
+        expect(esc.defaultPrevented).toBe(true);
+        expect(g.isEditing()).toBe(false);
+        expect(g.getRows()[0].status).toBe("open");
+        expect(dialog.hasAttribute("open")).toBe(true);
+    });
+});
+
+describe("pasting into an options column", () => {
+    it("rejects a value outside the options array", () => {
+        const onInvalidEdit = vi.fn();
+        const g = grid(20, { onInvalidEdit });
+        g.focusCell(0, 3);
+        g.pasteText("nonsense");
+        expect(g.getRows()[0].status).toBe("open");
+        expect(onInvalidEdit).toHaveBeenCalledTimes(1);
+    });
+
+    it("accepts it with freeText", () => {
+        const onInvalidEdit = vi.fn();
+        const g = grid(20, { onInvalidEdit, columns: freeColumns() });
+        g.focusCell(0, 3);
+        g.pasteText("nonsense");
+        expect(g.getRows()[0].status).toBe("nonsense");
+        expect(onInvalidEdit).not.toHaveBeenCalled();
+    });
+
+    it("still runs a host validate, which can reject it", () => {
+        const onInvalidEdit = vi.fn();
+        const columns = freeColumns();
+        columns[3] = {
+            ...columns[3],
+            validate: (_c: unknown, _r: unknown, v: unknown) =>
+                String(v).length <= 4 ? v : undefined,
+        } as any;
+        const g = grid(20, { onInvalidEdit, columns });
+        g.focusCell(0, 3);
+        g.pasteText("nonsense");
+        expect(g.getRows()[0].status).toBe("open");
+        expect(onInvalidEdit).toHaveBeenCalledTimes(1);
+        g.pasteText("hold");
+        expect(g.getRows()[0].status).toBe("hold");
     });
 });
 

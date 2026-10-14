@@ -85,9 +85,10 @@
 
                 { key: "name", name: "Name", width: 160 },
 
-                // `options` opens the library's own virtualized dropdown instead of a native
-                // <select>. A picked option keeps its type, and typing over the cell seeds the
-                // dropdown's search box rather than the cell's value.
+                // `options` opens the options editor: the text is typed in the cell and the
+                // library's own virtualized list narrows to it. Strict by default — only an
+                // option is committed; add `freeText: true` to accept any text. A committed
+                // option keeps its type.
                 { key: "status", name: "Status", width: 130, options: ["open", "pending", "closed"] },
 
                 // A validate that coerces rather than rejects. Return undefined to reject,

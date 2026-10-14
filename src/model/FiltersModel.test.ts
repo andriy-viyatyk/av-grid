@@ -459,6 +459,33 @@ describe("FiltersModel", () => {
         });
     });
 
+    describe("a column with editor options", () => {
+        // `Column.options` / `freeText` are the *editor's* choices. The checklist offers what the
+        // rows actually hold, so a free-text value is filterable and an unused option is not.
+        const withOptions = (options: any, freeText: boolean) =>
+            columns.map((c) => (c.key === "status" ? { ...c, options, freeText } : c));
+
+        for (const freeText of [false, true]) {
+            it(`offers the rows' values, never column.options (freeText: ${freeText})`, () => {
+                const provider = vi.fn(() => ["open", "pending", "archived"]);
+                for (const options of [["open", "pending", "archived"], provider]) {
+                    const { model } = makeModel({ columns: withOptions(options, freeText) as any });
+                    const offered = model.models.filters.getOptions("status") as DisplayOption[];
+                    expect(offered.map((o) => o.value).sort()).toEqual(["closed", "open"]);
+                }
+                expect(provider).not.toHaveBeenCalled();
+            });
+        }
+
+        it("filters such a column by its values as before", () => {
+            const { model } = makeModel({
+                columns: withOptions(["open", "pending"], true) as any,
+                filters: [{ columnKey: "status", value: ["closed"] }],
+            });
+            expect(names(model)).toEqual(["Grace"]);
+        });
+    });
+
     describe("the storage helpers, without a grid", () => {
         it("answers whether a config exists before anything is created", () => {
             const storage = makeStorage();

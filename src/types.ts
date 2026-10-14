@@ -488,6 +488,17 @@ export interface Column<R = any> {
     validate?: (column: Column<R>, row: R, value: any) => any;
     /** Choices for the in-cell editor. May be computed, and may be async. */
     options?: any[] | (() => any[] | Promise<any[]>);
+    /**
+     * Let the cell hold text that is not one of its `options` — the options become suggestions.
+     * Default false: the editor commits only an option (or clears the cell), and a paste of
+     * anything else into an `options` array column is rejected.
+     *
+     * With `freeText: true` the editor commits the highlighted suggestion if the user arrowed to
+     * one, else the option the text names (case-insensitively), else the text exactly as typed;
+     * nothing is highlighted while typing, so Enter keeps what was typed. A paste is accepted.
+     * Ignored on a column without `options`.
+     */
+    freeText?: boolean;
 }
 
 export type OnColumnResize = (columnKey: string, width: number) => void;

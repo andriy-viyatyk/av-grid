@@ -100,6 +100,24 @@ export interface PopoverOptions {
      * portal — this is the option to publish, as a minor.
      */
     container?: HTMLElement;
+    /**
+     * **Internal, not public API.** `false` leaves Escape alone: the popover installs no key
+     * listener, so the key reaches whatever has the focus. For a popover that is the continuation
+     * of a focused control which handles Escape itself — the dropdown editor, whose input stays
+     * focused while its list is open. Default `true`.
+     */
+    closeOnEscape?: boolean;
+    /**
+     * **Internal, not public API.** `false` keeps the popover open on an outside pointerdown;
+     * `onOutside` still hears it. Default `true`.
+     */
+    closeOnOutside?: boolean;
+    /**
+     * **Internal, not public API.** Called on a pointerdown outside the popover, its anchor and
+     * `ignoreOutside` — in the document's capture phase, so before anything the press lands on
+     * can act on it. Runs before the popover closes (when `closeOnOutside` lets it).
+     */
+    onOutside?: (e: Event) => void;
 }
 
 /**
@@ -239,7 +257,9 @@ export class Popover<T = void> {
         // listener is added mid-dispatch that phase has already passed — the in-flight event
         // cannot reach it, and every later one arrives before anything else can act on it.
         this.doc.addEventListener("pointerdown", this.onDocumentPointerDown, true);
-        this.doc.addEventListener("keydown", this.onDocumentKeyDown, true);
+        if (this.options.closeOnEscape !== false) {
+            this.doc.addEventListener("keydown", this.onDocumentKeyDown, true);
+        }
         // `true` on scroll: a scroll in any container, not just the document, moves the anchor.
         this.doc.defaultView?.addEventListener("scroll", this.reposition, true);
         this.doc.defaultView?.addEventListener("resize", this.reposition);
@@ -259,7 +279,9 @@ export class Popover<T = void> {
         this.open = false;
 
         this.doc.removeEventListener("pointerdown", this.onDocumentPointerDown, true);
-        this.doc.removeEventListener("keydown", this.onDocumentKeyDown, true);
+        if (this.options.closeOnEscape !== false) {
+            this.doc.removeEventListener("keydown", this.onDocumentKeyDown, true);
+        }
         this.doc.defaultView?.removeEventListener("scroll", this.reposition, true);
         this.doc.defaultView?.removeEventListener("resize", this.reposition);
         this.observer?.disconnect();
@@ -407,7 +429,8 @@ export class Popover<T = void> {
         // means, and closing here would race their toggle.
         if (this.options.anchor instanceof Element && this.options.anchor.contains(target)) return;
         if (this.options.ignoreOutside && target.closest?.(this.options.ignoreOutside)) return;
-        this.close();
+        this.options.onOutside?.(e);
+        if (this.options.closeOnOutside !== false) this.close();
     };
 
     private onDocumentKeyDown = (e: KeyboardEvent): void => {
