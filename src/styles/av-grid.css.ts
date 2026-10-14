@@ -556,6 +556,8 @@ export const css = `
     margin: 0;
     border: none;
     outline: none;
+    /* A host's form reset (a focus ring drawn as a box-shadow) must not draw inside the cell. */
+    box-shadow: none;
     border-radius: 0;
     font: inherit;
     color: var(--avg-cell-text);
@@ -585,6 +587,8 @@ export const css = `
     margin: 0;
     border: none;
     outline: none;
+    /* A host's form reset (a focus ring drawn as a box-shadow) must not draw inside the cell. */
+    box-shadow: none;
     border-radius: 0;
     font: inherit;
     color: inherit;
