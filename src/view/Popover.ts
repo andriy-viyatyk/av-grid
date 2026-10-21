@@ -368,6 +368,11 @@ export class Popover<T = void> {
         if (resolved === "top" || resolved === "bottom") {
             this.root.style.maxHeight = `${Math.max(MIN_AVAILABLE_HEIGHT, room[resolved])}px`;
             size = this.root.getBoundingClientRect();
+        } else {
+            // Beside the anchor the popover may slide up or down, so the whole viewport height is
+            // its room: a submenu longer than the window scrolls instead of hanging off the bottom.
+            this.root.style.maxHeight = `${Math.max(MIN_AVAILABLE_HEIGHT, vh - 2 * VIEWPORT_MARGIN)}px`;
+            size = this.root.getBoundingClientRect();
         }
 
         let x: number;

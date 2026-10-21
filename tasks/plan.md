@@ -23,6 +23,7 @@ decision logs in `plan-done-01.md` … `plan-done-19.md`** — every one of them
 | 66 | The dropdown editor fits its options: no scrollbar on a short list, no search box up to ten options | ✅ Done |
 | 67 | `Column.hideZero` — a numeric column shows its zeros as empty cells | ✅ Done |
 | 68 | The options editor redesigned: text typed in the cell over a filtered list, strict by default, `Column.freeText` for suggest mode | ✅ Done |
+| 69 | A popover placed beside its anchor (a submenu) is capped to the viewport height and scrolls, instead of hanging off the bottom | ✅ Done |
 
 ## Decision log
 
@@ -43,6 +44,7 @@ decision logs in `plan-done-01.md` … `plan-done-19.md`** — every one of them
 | 68.7 — `VirtualList` gains `moveActive(n \| "first" \| "last" \| "pageUp" \| "pageDown")` (the list's own key map now runs through it), and `optionId(index)` and the `listId` getter (public, approved by the author), so the input can point `aria-activedescendant` and `aria-controls` at real ids. A single-pick list is an ARIA listbox (`role="listbox"` on the body, `role="option"` + `id` + `aria-selected` written on every paint, because rows are pooled); the checklist used by filters is unchanged | The editor's keys arrive at the input, not the list; the ids are the listbox contract | Benchmark row 2026-10-14: within frame noise |
 | 68.8 — strict-mode users get the new editor too (no legacy flag), shipped as a **minor** (2.13.0). DOM contract change: `.avg-cell-select-value` is replaced by `input.avg-cell-select-input`, and the popup has no `.avg-list-search` | One editor is less to explain than two; a host that styled the old span has one selector to change | Release note drafted in the task report |
 | 68.9 — filters untouched: the options checklist offers the rows' values and never reads `column.options` (array or function); proven by test for both `freeText` values | The editor's choices and the filter's choices are different questions | — |
+| 69.1 — a `left`/`right` placement caps `maxHeight` at the viewport height less both margins (never under `MIN_AVAILABLE_HEIGHT`), then the existing clamp slides it inside | Only `top`/`bottom` placements were capped, so a submenu (`right-start`) of 60 items was clamped to the top margin and ran off the bottom with no scroll: the menu list scrolls only inside a capped root. Beside its anchor a popover may move vertically, so the whole viewport height is its room, not the room below the anchor | A defect fix with no new surface: a **patch**. Two placement tests (capped and clamped; a fitting one stays beside its anchor) |
 
 ## Open questions carried forward
 

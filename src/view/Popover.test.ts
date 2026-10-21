@@ -334,6 +334,23 @@ describe("placement", () => {
         expect(maxHeight).toBeLessThan(900);
     });
 
+    it("caps a side placement to the viewport height and keeps it inside, top to bottom", () => {
+        const anchor = anchorAt(120, vh - 100, 100, 20);
+        const popover = sized(make({ anchor, placement: "right-start" }), 200, vh * 2);
+        void popover.show();
+        const maxHeight = parseInt(popover.root.style.maxHeight, 10);
+        expect(maxHeight).toBe(vh - 16);
+        expect(popover.root.style.top).toBe("8px");
+        expect(popover.root.getAttribute("data-placement")).toBe("right-start");
+    });
+
+    it("leaves a side placement that fits where it is, beside its anchor", () => {
+        const popover = sized(make({ anchor: anchorAt(120, 100, 100, 20), placement: "right-start" }), 200, 150);
+        void popover.show();
+        expect(popover.root.style.top).toBe("100px");
+        expect(popover.root.style.left).toBe("224px");
+    });
+
     it("shifts back inside the viewport rather than hanging off the right edge", () => {
         const popover = sized(make({ anchor: anchorAt(vw - 40, 40, 30, 20) }), 300, 100);
         void popover.show();
