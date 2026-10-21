@@ -261,7 +261,7 @@ export class Popover<T = void> {
             this.doc.addEventListener("keydown", this.onDocumentKeyDown, true);
         }
         // `true` on scroll: a scroll in any container, not just the document, moves the anchor.
-        this.doc.defaultView?.addEventListener("scroll", this.reposition, true);
+        this.doc.defaultView?.addEventListener("scroll", this.onScroll, true);
         this.doc.defaultView?.addEventListener("resize", this.reposition);
 
         if (typeof ResizeObserver !== "undefined") {
@@ -282,7 +282,7 @@ export class Popover<T = void> {
         if (this.options.closeOnEscape !== false) {
             this.doc.removeEventListener("keydown", this.onDocumentKeyDown, true);
         }
-        this.doc.defaultView?.removeEventListener("scroll", this.reposition, true);
+        this.doc.defaultView?.removeEventListener("scroll", this.onScroll, true);
         this.doc.defaultView?.removeEventListener("resize", this.reposition);
         this.observer?.disconnect();
         this.observer = undefined;
@@ -321,6 +321,16 @@ export class Popover<T = void> {
     // =========================================================================================
     // Placement
     // =========================================================================================
+
+    /**
+     * A scroll anywhere but inside the popover may have moved the anchor. The popover's own content
+     * scrolling moves nothing it is placed against, and repositioning then would clear the height cap
+     * mid-scroll, which collapses the overflow and snaps the list back to its top.
+     */
+    private onScroll = (event: Event): void => {
+        if (event.target instanceof Node && this.root.contains(event.target)) return;
+        this.reposition();
+    };
 
     /**
      * Recompute the position. Called on open, on scroll, on resize, and whenever the content

@@ -344,6 +344,20 @@ describe("placement", () => {
         expect(popover.root.getAttribute("data-placement")).toBe("right-start");
     });
 
+    it("does not reposition when its own content scrolls, only when something outside does", () => {
+        const popover = sized(make({ anchor: anchorAt(120, 100, 100, 20), placement: "right-start" }), 200, 150);
+        const list = document.createElement("div");
+        popover.content.appendChild(list);
+        void popover.show();
+        popover.root.style.top = "1px";
+
+        list.dispatchEvent(new Event("scroll"));
+        expect(popover.root.style.top).toBe("1px");
+
+        document.dispatchEvent(new Event("scroll"));
+        expect(popover.root.style.top).toBe("100px");
+    });
+
     it("leaves a side placement that fits where it is, beside its anchor", () => {
         const popover = sized(make({ anchor: anchorAt(120, 100, 100, 20), placement: "right-start" }), 200, 150);
         void popover.show();
