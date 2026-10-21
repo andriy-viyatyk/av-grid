@@ -24,6 +24,7 @@ decision logs in `plan-done-01.md` … `plan-done-19.md`** — every one of them
 | 67 | `Column.hideZero` — a numeric column shows its zeros as empty cells | ✅ Done |
 | 68 | The options editor redesigned: text typed in the cell over a filtered list, strict by default, `Column.freeText` for suggest mode | ✅ Done |
 | 69 | A popover placed beside its anchor (a submenu) is capped to the viewport height and scrolls, instead of hanging off the bottom | ✅ Done |
+| 70 | The dropdown editor's first and last rows clear the popover's rounded corners: the active row's outline is no longer cut off | ✅ Done |
 
 ## Decision log
 
@@ -46,6 +47,7 @@ decision logs in `plan-done-01.md` … `plan-done-19.md`** — every one of them
 | 68.9 — filters untouched: the options checklist offers the rows' values and never reads `column.options` (array or function); proven by test for both `freeText` values | The editor's choices and the filter's choices are different questions | — |
 | 69.1 — a `left`/`right` placement caps `maxHeight` at the viewport height less both margins (never under `MIN_AVAILABLE_HEIGHT`), then the existing clamp slides it inside | Only `top`/`bottom` placements were capped, so a submenu (`right-start`) of 60 items was clamped to the top margin and ran off the bottom with no scroll: the menu list scrolls only inside a capped root. Beside its anchor a popover may move vertically, so the whole viewport height is its room, not the room below the anchor | A defect fix with no new surface: a **patch**. Two placement tests (capped and clamped; a fitting one stays beside its anchor) |
 | 69.2 — the popover's scroll listener ignores a scroll whose target is inside the popover (`onScroll`) | Once capped, the submenu's list scrolled — and every scroll event reached the capture-phase `reposition`, which clears `maxHeight` to measure: the overflow collapsed, the browser reset `scrollTop` to 0, and the list snapped back to its top on each wheel step or thumb drag. A popover's own content scrolling cannot move its anchor; a scroll in the parent menu (the submenu's anchor) is outside it and still repositions | Unit test confirmed failing without the guard |
+| 70.1 — `.avg-cell-select-list` is padded `6px 2px` (was `0 2px`), the menu list's 6px, and `PADDING_HEIGHT` is 12 to match | The list sat flush against the popover's top edge, so its 11px corners cut the ends off the first row's active outline (and the last row's at the bottom of a scrolled-to-end list). The 8px `PADDING_HEIGHT` budgeted since task 66 was never laid out as padding — it was empty space under the last row. 6px clears an 11px corner by about 1px at the row's 2px inset; 4px would leave the outline touching it | A defect fix with no new surface: a **patch**. The height test now expects 12 + 3 × 24 |
 
 ## Open questions carried forward
 

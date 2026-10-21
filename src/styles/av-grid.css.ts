@@ -625,8 +625,10 @@ export const css = `
     overflow: hidden;
 }
 
+/* 6px above and below, as the menu's list: the popover's 11px corners cut the active row's
+   outline off at the ends when the first or last row touches the edge. */
 .avg-cell-select-list {
-    padding: 0 2px;
+    padding: 6px 2px;
 }
 
 /* The hover tint is suppressed over an open editor — see the ::after rule above. */

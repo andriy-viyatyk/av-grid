@@ -249,7 +249,7 @@ describe("opening", () => {
         const content = document.querySelector<HTMLElement>(
             ".avg-cell-select-popover .avg-popover-content",
         )!;
-        expect(content.style.height).toBe(`${8 + 3 * 24}px`);
+        expect(content.style.height).toBe(`${12 + 3 * 24}px`);
     });
 });
 

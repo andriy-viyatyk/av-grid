@@ -58,7 +58,7 @@ import { Popover } from "./Popover";
 import { VirtualList } from "./VirtualList";
 
 /** The list's padding — everything in the popover that is not a row. */
-const PADDING_HEIGHT = 8;
+const PADDING_HEIGHT = 12;
 const ROW_HEIGHT = 24;
 /** Two rows — enough that a list still loading, or saying nothing matches, is not a sliver. */
 const MIN_ROWS = 2;
