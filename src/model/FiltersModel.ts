@@ -17,7 +17,7 @@
  * passing `persistFilters` at all is the host's consent to write.
  */
 
-import { defaultCompare, filterRows, formatDisplayValue } from "../gridUtils";
+import { defaultCompare, filterRows, formatDisplayValue, optionFilterValues, searchWords } from "../gridUtils";
 import { validateFilters } from "../validate";
 import type {
     AnyFilter,
@@ -213,23 +213,30 @@ export function defaultFilterOptions<R>(
     search?: string,
     searchString?: string,
     filterColumns: readonly Column<R>[] = columns,
+    withCounts = false,
 ): DisplayOption[] {
-    const column = columns.find((c) => String(c.key) === columnKey);
+    const column = filterColumns.find((c) => String(c.key) === columnKey) ??
+        columns.find((c) => String(c.key) === columnKey);
     const others = filters.filter((f) => f.columnKey !== columnKey);
 
-    const distinct = new Set<any>();
+    const distinct = new Map<any, number>();
     for (const row of filterRows(rows, columns, searchString, others, filterColumns)) {
         // The same rule the row filter matches by: a computed column has no row property, so
         // its distinct values are the ones it displays.
-        distinct.add(
-            column?.formatValue ? column.formatValue(column, row) : (row as any)?.[columnKey],
-        );
+        const rowValues = optionFilterValues(row, column, columnKey);
+        const counted = new Set<any>();
+        for (const value of rowValues) {
+            if (!distinct.has(value)) distinct.set(value, 0);
+            if (!counted.has(value)) distinct.set(value, distinct.get(value)! + 1);
+            counted.add(value);
+        }
     }
 
-    const values = Array.from(distinct);
+    const values = Array.from(distinct.keys());
     values.sort(defaultCompare());
 
     const options = values.map<DisplayOption>((value) => ({
+        ...(withCounts ? { count: distinct.get(value) } : undefined),
         value,
         // Only when true. An option becomes the filter's value, which is what `getFilters()`
         // hands back and what persistence writes — `italic: false` on every one of them is
@@ -249,9 +256,12 @@ export function defaultFilterOptions<R>(
                     formatDisplayValue(value, column?.displayFormat),
     }));
 
-    if (!search) return options;
-    const lower = search.toLowerCase();
-    return options.filter((o) => o.label.toLowerCase().includes(lower));
+    const words = searchWords(search);
+    if (!words.length) return options;
+    return options.filter((option) => {
+        const label = option.label.toLowerCase();
+        return words.every((word) => label.includes(word));
+    });
 }
 
 /**

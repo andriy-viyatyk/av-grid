@@ -535,3 +535,33 @@ describe("the mount host (task 63)", () => {
         expect(popover.mountedIn).toBeUndefined();
     });
 });
+
+describe("Popover.onOpenChange", () => {
+    it("reports each attached and removed transition and isolates listener errors", () => {
+        const popover = make({ anchor: { x: 10, y: 10 } });
+        const events: Array<[HTMLElement, boolean]> = [];
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        const offThrowing = Popover.onOpenChange(() => { throw new Error("listener"); });
+        const off = Popover.onOpenChange((root, open) => events.push([root, open]));
+        const destroyedWhileOpen = make({ anchor: { x: 20, y: 20 } });
+        try {
+            popover.show();
+            popover.close();
+            popover.close();
+            popover.destroy();
+            destroyedWhileOpen.show();
+            destroyedWhileOpen.destroy();
+            expect(events).toEqual([
+                [popover.root, true], [popover.root, false],
+                [destroyedWhileOpen.root, true], [destroyedWhileOpen.root, false],
+            ]);
+            expect(error).toHaveBeenCalledTimes(4);
+        } finally {
+            off();
+            offThrowing();
+            error.mockRestore();
+            popover.destroy();
+            destroyedWhileOpen.destroy();
+        }
+    });
+});

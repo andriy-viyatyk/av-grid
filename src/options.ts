@@ -45,7 +45,7 @@ export interface AVGridOptions<R = any> {
      * The columns to display. Inferred from the first rows' keys when omitted — see
      * `inferColumns` in `validate.ts` for exactly what that produces.
      */
-    columns?: Column<R>[];
+    columns?: Column<R>[] | undefined;
 
     /**
      * A stable identity for a row, used by selection, focus and editing so they survive
@@ -55,7 +55,7 @@ export interface AVGridOptions<R = any> {
      * identity assigned per row object on first sight. The inferred form is stable across
      * sorting and filtering but not across a `setRows()` that rebuilds the row objects.
      */
-    getRowKey?: (row: R) => string;
+    getRowKey?: ((row: R) => string) | undefined;
 
     // -----------------------------------------------------------------------
     // Row selection
@@ -68,13 +68,13 @@ export interface AVGridOptions<R = any> {
      * not survive into `setColumns()`, so a host can rewrite its columns without having to
      * remember to put the checkbox back.
      */
-    selectColumn?: boolean;
+    selectColumn?: boolean | undefined;
 
     /**
      * Initially selected rows, by row key — the value `getRowKey` returns, not the row index.
      * Keys are used throughout so a selection survives sorting and filtering.
      */
-    selected?: readonly string[];
+    selected?: readonly string[] | undefined;
 
     /**
      * The focused cell, and the range selected around it.
@@ -104,7 +104,7 @@ export interface AVGridOptions<R = any> {
      * from storage describes a pointer that is not there. Whatever is passed, the grid keeps its
      * own.
      */
-    focus?: CellFocus<R> | null;
+    focus?: CellFocus<R> | null | undefined;
 
     /**
      * The set of selected rows changed, by checkbox or by `setSelected()`.
@@ -112,7 +112,7 @@ export interface AVGridOptions<R = any> {
      * Receives the keys; call `grid.getSelectedRows()` for the row objects, which is O(rows)
      * and so is not done for you on every click.
      */
-    onSelectionChange?: (selectedKeys: string[]) => void;
+    onSelectionChange?: ((selectedKeys: string[]) => void) | undefined;
 
     // -----------------------------------------------------------------------
     // Editing
@@ -141,7 +141,7 @@ export interface AVGridOptions<R = any> {
      * reference edited nothing without a callback, which reads as a broken grid. Return `false`
      * from `onEdit` to keep the write from happening and own the update yourself.
      */
-    editable?: boolean;
+    editable?: boolean | undefined;
 
     /**
      * A cell was edited. Fires once per committed cell, *before* the value is written, so
@@ -149,7 +149,7 @@ export interface AVGridOptions<R = any> {
      *
      * A range delete or a boolean toggle across a selection fires this once per cell.
      */
-    onEdit?: (edit: CellEditEvent<R>) => void | boolean;
+    onEdit?: ((edit: CellEditEvent<R>) => void | boolean) | undefined;
 
     /**
      * An edit was rejected because the value could not be coerced to the column's type — the
@@ -159,7 +159,7 @@ export interface AVGridOptions<R = any> {
      * should not make noise uninvited, so the sound is the host's to make: the default is to do
      * nothing at all.
      */
-    onInvalidEdit?: (edit: InvalidEditEvent<R>) => void;
+    onInvalidEdit?: ((edit: InvalidEditEvent<R>) => void) | undefined;
 
     // -----------------------------------------------------------------------
     // Adding and deleting rows and columns
@@ -183,13 +183,13 @@ export interface AVGridOptions<R = any> {
      * other methods always work — an API call is the host's own decision, and needing to set an
      * option before your own code may call a method is a trap, not a safeguard.
      */
-    canAddRows?: boolean;
+    canAddRows?: boolean | undefined;
     /** Let the user delete rows — ctrl+Delete deletes the selected ones. */
-    canDeleteRows?: boolean;
+    canDeleteRows?: boolean | undefined;
     /** Let the user add columns — ctrl+shift+Insert, ctrl+→ off the last column, and a `+` in the header. */
-    canAddColumns?: boolean;
+    canAddColumns?: boolean | undefined;
     /** Let the user delete columns — ctrl+shift+Delete deletes the selected ones. */
-    canDeleteColumns?: boolean;
+    canDeleteColumns?: boolean | undefined;
 
     /**
      * What a blank row contains. Called once per row being added, with the index it will land at.
@@ -198,13 +198,13 @@ export interface AVGridOptions<R = any> {
      * grid inferred one, because two rows sharing a key would confuse selection, focus and
      * editing. Supply this whenever a blank row needs anything else.
      */
-    newRow?: (index: number) => R;
+    newRow?: ((index: number) => R) | undefined;
 
     /** What a blank column looks like. The default is `{ key: "column<n>", name: "Column <n>" }`. */
-    newColumn?: (index: number) => Column<R>;
+    newColumn?: ((index: number) => Column<R>) | undefined;
 
     /** Text on the add-row button. Default `` `add ${rowNoun}` ``, so `"add row"`. */
-    addRowLabel?: string;
+    addRowLabel?: string | undefined;
 
     /**
      * What this grid calls one of its rows. Default `"row"`.
@@ -222,7 +222,7 @@ export interface AVGridOptions<R = any> {
      * `addRowLabel` still overrides the button outright. Columns are unaffected — there is no
      * `columnNoun`, because nothing has asked to rename them.
      */
-    rowNoun?: string;
+    rowNoun?: string | undefined;
 
     /**
      * Rows are about to be added, however that was triggered. Return `false` to cancel.
@@ -230,13 +230,13 @@ export interface AVGridOptions<R = any> {
      * Fires *before* the insert, like `onEdit`, so the callback can fill the rows in or refuse
      * them. `grid.getRows()` afterwards includes them.
      */
-    onAddRows?: (e: AddRowsEvent<R>) => void | boolean;
+    onAddRows?: ((e: AddRowsEvent<R>) => void | boolean) | undefined;
     /** Rows are about to be deleted. Return `false` to cancel — this is where a confirm goes. */
-    onDeleteRows?: (e: DeleteRowsEvent<R>) => void | boolean;
+    onDeleteRows?: ((e: DeleteRowsEvent<R>) => void | boolean) | undefined;
     /** Columns are about to be added. Return `false` to cancel. */
-    onAddColumns?: (e: AddColumnsEvent<R>) => void | boolean;
+    onAddColumns?: ((e: AddColumnsEvent<R>) => void | boolean) | undefined;
     /** Columns are about to be deleted. Return `false` to cancel. */
-    onDeleteColumns?: (e: DeleteColumnsEvent<R>) => void | boolean;
+    onDeleteColumns?: ((e: DeleteColumnsEvent<R>) => void | boolean) | undefined;
 
     // -----------------------------------------------------------------------
     // Clipboard
@@ -252,14 +252,14 @@ export interface AVGridOptions<R = any> {
      *
      * Set this when the page has its own clipboard behaviour to run instead.
      */
-    disableClipboard?: boolean;
+    disableClipboard?: boolean | undefined;
 
     // -----------------------------------------------------------------------
     // Layout
     // -----------------------------------------------------------------------
 
     /** Row height in pixels. Default 24. Uniform — variable data-row heights are not supported. */
-    rowHeight?: number;
+    rowHeight?: number | undefined;
     /**
      * The header's own height in pixels. Defaults to `rowHeight`, so a grid that never sets it
      * behaves as before. Set it when the rows are tall for the sake of multi-line cell content
@@ -267,17 +267,17 @@ export interface AVGridOptions<R = any> {
      * header *band*: with `Column.group` in play the header is `headerHeight * 2`, the same
      * relationship `rowHeight` had. Footer rows keep `rowHeight`.
      */
-    headerHeight?: number;
+    headerHeight?: number | undefined;
     /** Stretch the columns to fill the width, instead of scrolling horizontally. */
-    fitToWidth?: boolean;
+    fitToWidth?: boolean | undefined;
     /** Draw the static cell borders. Default `true`; `false` gives a borderless list look. */
-    cellBorders?: boolean;
+    cellBorders?: boolean | undefined;
     /** CSS height for the root. Set it to let the grid grow instead of filling its parent. */
-    growToHeight?: string;
-    growToWidth?: string;
+    growToHeight?: string | undefined;
+    growToWidth?: string | undefined;
     /** Extra rows/columns rendered outside the viewport. Defaults: 4 rows, 1 column. */
-    overscanRow?: number;
-    overscanColumn?: number;
+    overscanRow?: number | undefined;
+    overscanColumn?: number | undefined;
     /**
      * Height in pixels of the slack below the last row. Default 20.
      *
@@ -296,16 +296,16 @@ export interface AVGridOptions<R = any> {
      * already produced one spurious horizontal scrollbar; a second control over it with nothing
      * asking for it is how that comes back. Ask if you need one.
      */
-    whiteSpaceY?: number;
+    whiteSpaceY?: number | undefined;
 
     // -----------------------------------------------------------------------
     // Presentation
     // -----------------------------------------------------------------------
 
     /** Extra class on the root element, for host styling. */
-    className?: string;
+    className?: string | undefined;
     /** Debug label, emitted as `data-name` on the root. Never used for styling. */
-    name?: string;
+    name?: string | undefined;
     /**
      * Inject the grid's stylesheet into the document on first use. Default `true`.
      *
@@ -313,7 +313,7 @@ export interface AVGridOptions<R = any> {
      * document however many grids are created, and carries no `!important`, so any host rule
      * of equal specificity wins.
      */
-    injectStyles?: boolean;
+    injectStyles?: boolean | undefined;
     /**
      * One host element placed after the last row, inside the scrolling content.
      *
@@ -343,7 +343,7 @@ export interface AVGridOptions<R = any> {
      * - **It shares that strip with the add-row button** (`canAddRows`), which sits at the
      *   bottom left. A grid that wants both positions its own element clear of it.
      */
-    extraElement?: HTMLElement | null;
+    extraElement?: HTMLElement | null | undefined;
 
     /**
      * Rows pinned to the bottom of the grid — a grand total, a subtotal band.
@@ -371,13 +371,13 @@ export interface AVGridOptions<R = any> {
      * added — the band itself is what the last data row scrolls clear of — and `extraElement`
      * sits **above** the band, still scrolling with the content.
      */
-    footerRows?: readonly R[];
+    footerRows?: readonly R[] | undefined;
     /**
      * Extra classes for footer-row cells, alongside `avg-footer-cell`. Same contract as
      * `rowClass`: additive, re-evaluated on every repaint, and a class that stops being
      * returned goes away. `rowIndex` is the index into `footerRows`.
      */
-    footerRowClass?: (row: RowContext<R>) => ClassValue;
+    footerRowClass?: ((row: RowContext<R>) => ClassValue) | undefined;
 
     // -----------------------------------------------------------------------
     // Column groups
@@ -394,9 +394,9 @@ export interface AVGridOptions<R = any> {
      * label for that group. The band itself appears whenever any visible column has a `group` —
      * see `Column.group`; this hook only changes what a group cell shows.
      */
-    columnGroupRender?: (
+    columnGroupRender?: ((
         context: ColumnGroupContext<R>,
-    ) => string | HTMLElement | undefined | null;
+    ) => string | HTMLElement | undefined | null) | undefined;
 
     /**
      * Extra classes for a group cell, added to `.avg-group-cell`.
@@ -405,7 +405,7 @@ export interface AVGridOptions<R = any> {
      * columnGroupClass: ({ group }) => (group === "Q2" ? "period-current" : undefined)
      * ```
      */
-    columnGroupClass?: (context: ColumnGroupContext<R>) => ClassValue;
+    columnGroupClass?: ((context: ColumnGroupContext<R>) => ClassValue) | undefined;
 
     // -----------------------------------------------------------------------
     // Sorting and filtering
@@ -416,7 +416,7 @@ export interface AVGridOptions<R = any> {
      * `multiSort`**: a single `SortColumn` by default, a `readonly SortColumn[]` (first
      * element sorts first) with `multiSort: true` — never a union at runtime.
      */
-    sort?: SortState | null;
+    sort?: SortState | null | undefined;
     /**
      * Sort by several columns at once. Default `false`.
      *
@@ -438,9 +438,9 @@ export interface AVGridOptions<R = any> {
      *
      * Off (the default), everything behaves and is typed exactly as before the option existed.
      */
-    multiSort?: boolean;
+    multiSort?: boolean | undefined;
     /** Free-text filter applied across every column's displayed value. */
-    searchString?: string;
+    searchString?: string | undefined;
     /**
      * Mark the matched words inside the cells. Default `true`.
      *
@@ -468,7 +468,7 @@ export interface AVGridOptions<R = any> {
      * default. `"background"` has a reason of its own — on a column whose text colour already
      * means something, a status or a rating, it marks without overriding it.
      */
-    highlightSearch?: boolean | "text" | "background" | "both";
+    highlightSearch?: boolean | "text" | "background" | "both" | undefined;
     /**
      * Extra words to mark in the cells, **without filtering any row out**.
      *
@@ -487,7 +487,7 @@ export interface AVGridOptions<R = any> {
      * words came from outside it.** Both may be set at once, and the marked set is the union of
      * the two. `highlightSearch: false` silences both; `highlightSearch`'s shapes apply to both.
      */
-    highlightString?: string;
+    highlightString?: string | undefined;
     /**
      * Applied column filters. The filter UI arrives in task 16; these already filter rows.
      *
@@ -498,7 +498,7 @@ export interface AVGridOptions<R = any> {
      * `columnName` and `type` are filled in from the column, and bare values are expanded to
      * `{ value, label }` — so `getFilters()` gives back more than was passed in.
      */
-    filters?: Filter[];
+    filters?: Filter[] | undefined;
     /**
      * Remember the applied filters across reloads, under `Filters-${name}`.
      *
@@ -509,7 +509,7 @@ export interface AVGridOptions<R = any> {
      * Passing this is the consent to write — nothing is stored otherwise. Stored filters take
      * precedence over `filters` above, which stays the default for a first visit.
      */
-    persistFilters?: PersistFiltersOptions;
+    persistFilters?: PersistFiltersOptions | undefined;
     /**
      * Supply the options a filter popover offers, instead of the column's distinct values.
      *
@@ -519,7 +519,7 @@ export interface AVGridOptions<R = any> {
      *
      * May return a promise. Receives the *other* applied filters, so options can cascade.
      */
-    onGetOptions?: GetFilterOptions<R>;
+    onGetOptions?: GetFilterOptions<R> | undefined;
     /**
      * Your word on a filter-bar chip. Called for every applied filter, whatever its type, with
      * the text the chip would have shown; return a string to use instead, or `undefined` to keep
@@ -535,11 +535,11 @@ export interface AVGridOptions<R = any> {
      * result is not truncated — you chose it — and it is the chip's tooltip as well. A throw is
      * caught, warned once naming the column, and the default text shows.
      */
-    filterLabel?: (
+    filterLabel?: ((
         filter: Filter,
         column: Column<R> | undefined,
         defaultText: string,
-    ) => string | undefined;
+    ) => string | undefined) | undefined;
     /**
      * The host owns filtering: the grid keeps the whole filter UI — funnels, popovers, chips,
      * `onFiltersChange`, persistence — but never tests a row against `filters`. Default `false`.
@@ -569,7 +569,7 @@ export interface AVGridOptions<R = any> {
      * Independent of `externalSort`: a grid may sort a loaded page locally while filtering
      * server-side.
      */
-    externalFilter?: boolean;
+    externalFilter?: boolean | undefined;
     /**
      * The host owns sorting: the grid keeps the whole sort UI — header clicks, arrows,
      * `multiSort` position numbers, `aria-sort`, `onSortChange` — but never reorders the rows.
@@ -588,10 +588,10 @@ export interface AVGridOptions<R = any> {
      * Independent of `externalFilter`; `Column.sortValue` and `Column.rowCompare` are simply
      * never called while this is on.
      */
-    externalSort?: boolean;
-    disableSorting?: boolean;
+    externalSort?: boolean | undefined;
+    disableSorting?: boolean | undefined;
     /** Take the funnel off every header. A column opts out on its own with `filterType: null`. */
-    disableFiltering?: boolean;
+    disableFiltering?: boolean | undefined;
     /**
      * Take header drag-reorder off every column. Default `false`.
      *
@@ -607,7 +607,7 @@ export interface AVGridOptions<R = any> {
      * Reordering is already off while column groups are shown and for pinned columns; this
      * makes that state the host's choice too. Flips live through `setOptions()`.
      */
-    disableColumnReorder?: boolean;
+    disableColumnReorder?: boolean | undefined;
     /**
      * Give one column a tree gutter — indent guides and a chevron or stub in front of the
      * column's ordinary content. The host's rows are already flat and in display order; the grid
@@ -617,7 +617,7 @@ export interface AVGridOptions<R = any> {
      * treeColumn: { key: "name", depth: (r) => r.depth, hasChildren: (r) => r.kids > 0, expanded: (r) => open[r.id] }
      * ```
      */
-    treeColumn?: TreeColumnOptions<R>;
+    treeColumn?: TreeColumnOptions<R> | undefined;
     /**
      * A tree row's chevron was pressed, or `→` / `←` on its focused tree cell: `expanded` is the
      * state the user asked for. The host updates its own state and hands back the rows it now
@@ -628,7 +628,7 @@ export interface AVGridOptions<R = any> {
      * Its *presence* is what turns the gesture on, so under `av-grid/react` it is a lane-3 option
      * (give it a stable identity), not a proxied callback.
      */
-    onTreeToggle?: (row: R, expanded: boolean) => void;
+    onTreeToggle?: ((row: R, expanded: boolean) => void) | undefined;
     /**
      * Show a bar of removable filter chips directly above the grid.
      *
@@ -644,7 +644,7 @@ export interface AVGridOptions<R = any> {
      * something to do to a page later. `setOptions({ filterBar: false })` still takes the bar
      * away, and `true` puts it back on a grid that was created with one.
      */
-    filterBar?: boolean;
+    filterBar?: boolean | undefined;
 
     // -----------------------------------------------------------------------
     // Callbacks
@@ -656,20 +656,24 @@ export interface AVGridOptions<R = any> {
      * with `multiSort: true`. Safe to hand straight back to `setSort()` — the value guard
      * makes the echo terminate.
      */
-    onSortChange?: (sort: SortState | undefined) => void;
+    onSortChange?: ((sort: SortState | undefined) => void) | undefined;
     /**
      * The applied filters changed — from the API, the header funnel or a filter chip alike.
      *
      * Receives the normalized list, which is safe to hand straight back to `setFilters()`:
      * setting the filters the grid already has does nothing, so an echo cannot loop.
      */
-    onFiltersChange?: (filters: Filter[]) => void;
-    onColumnResize?: (columnKey: string, width: number) => void;
-    onColumnsReorder?: (sourceKey: string, targetKey: string) => void;
+    onFiltersChange?: ((filters: Filter[]) => void) | undefined;
+    onColumnResize?: ((columnKey: string, width: number) => void) | undefined;
+    onColumnsReorder?: ((sourceKey: string, targetKey: string) => void) | undefined;
     /** Fires after any change to the column set, whatever caused it. */
-    onColumnsChange?: (columns: Column<R>[]) => void;
+    onColumnsChange?: ((columns: Column<R>[]) => void) | undefined;
+    /** Initial viewport offset, applied after the first measured paint. */
+    initialScroll?: { top: number; left: number } | undefined;
+    /** Called after scroll events that the visible grid acts on. */
+    onScrollChange?: ((scroll: { scrollTop: number; scrollLeft: number }) => void) | undefined;
     /** Fires when the set of displayed rows changes — a sort, a filter, or `setRows()`. */
-    onVisibleRowsChange?: (rows: readonly R[]) => void;
+    onVisibleRowsChange?: ((rows: readonly R[]) => void) | undefined;
 
     /**
      * The focused cell, and the range selected around it, changed.
@@ -680,11 +684,11 @@ export interface AVGridOptions<R = any> {
      * Named for *cell* focus deliberately: `onSelectionChange` is reserved for row selection,
      * which is a different thing a grid can have selected.
      */
-    onFocusChange?: (focus: CellFocus<R> | undefined) => void;
+    onFocusChange?: ((focus: CellFocus<R> | undefined) => void) | undefined;
 
-    onCellClick?: (cell: CellContext<R>, e: MouseEvent) => void;
-    onCellDoubleClick?: (cell: CellContext<R>, e: MouseEvent) => void;
-    onCellContextMenu?: (cell: CellContext<R>, e: MouseEvent) => void;
+    onCellClick?: ((cell: CellContext<R>, e: MouseEvent) => void) | undefined;
+    onCellDoubleClick?: ((cell: CellContext<R>, e: MouseEvent) => void) | undefined;
+    onCellContextMenu?: ((cell: CellContext<R>, e: MouseEvent) => void) | undefined;
 
     /**
      * Extra items at the top of the context menu, above the built-in ones.
@@ -699,7 +703,7 @@ export interface AVGridOptions<R = any> {
      * says whether the pointer was over a cell or a header; `e.selectedCount` is free to read,
      * `e.selection` copies the selected rows and so is a getter.
      */
-    getContextMenuItems?: (e: GridContextMenuEvent<R>) => MenuItem[];
+    getContextMenuItems?: ((e: GridContextMenuEvent<R>) => MenuItem[]) | undefined;
     /**
      * Draw the context menu yourself, instead of the grid's.
      *
@@ -715,14 +719,14 @@ export interface AVGridOptions<R = any> {
      * Providing this suppresses the grid's own menu **and** the browser's. To get the platform
      * menu back instead, use `disableContextMenu`.
      */
-    onGridContextMenu?: (e: GridContextMenuEvent<R>, items: MenuItem[]) => void;
+    onGridContextMenu?: ((e: GridContextMenuEvent<R>, items: MenuItem[]) => void) | undefined;
     /**
      * Leave right-click alone: no grid menu, and the browser's own menu appears.
      *
      * The grid never shows its menu over an open cell editor either way — a user editing text
      * wants Cut/Paste/Spelling, which only the platform can offer.
      */
-    disableContextMenu?: boolean;
+    disableContextMenu?: boolean | undefined;
     /**
      * Extra class names for a cell, applied on top of the built-in state classes.
      *
@@ -733,7 +737,7 @@ export interface AVGridOptions<R = any> {
      * onCellClass: (c) => (c.value === null ? "missing" : undefined)
      * ```
      */
-    onCellClass?: (cell: CellContext<R>) => ClassValue;
+    onCellClass?: ((cell: CellContext<R>) => ClassValue) | undefined;
 
     /**
      * Extra class names for every cell of a row — how a whole row is highlighted.
@@ -748,7 +752,7 @@ export interface AVGridOptions<R = any> {
      *
      * Called once per cell, not once per row, so keep it a property read rather than a search.
      */
-    rowClass?: (row: RowContext<R>) => ClassValue;
+    rowClass?: ((row: RowContext<R>) => ClassValue) | undefined;
 }
 
 /** The resolved form: every option that has a default, with its default filled in. */
@@ -820,6 +824,7 @@ export const CALLBACK_OPTION_KEYS = [
     "onColumnsReorder",
     "onColumnsChange",
     "onVisibleRowsChange",
+    "onScrollChange",
     "onFocusChange",
     "onCellClick",
     "onCellDoubleClick",

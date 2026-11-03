@@ -289,7 +289,10 @@ every programmatic scroll. A real wheel scroll under the pointer costs **0.291 m
 distinct values, cascaded against the other filters, with select-all, Apply and Clear. The option
 list is supplied by the library unless a host passes `onGetOptions`, which may return a promise. A
 column with 100,000 distinct values puts **12** rows in the checklist — `VirtualList` earning its
-keep.
+keep. Checklist search matches every typed word in any order. `Column.filterValues` supports a
+row with several option values (any selected value keeps the row), and `DisplayOption.count` can
+show opt-in row counts. Detached filter bars can keep chosen columns' inactive chips visible with
+`pinned`.
 
 **Through the API, and across a reload.** `grid.applyFilter({ columnKey: "status", value:
 ["open"] })` narrows 100,000 rows to 40,000 in **5.9 ms with one repaint and zero DOM mutations**,
@@ -872,7 +875,8 @@ one is built and then unreachable (task 63, 2.11.3). Escape closes the popover a
 dialog standing: the handler runs in the capture phase and calls `preventDefault()`, which
 suppresses the dialog's `cancel`.
 
-**`VirtualList`** is a searchable checklist on its own `RenderGrid` instance: **100,000 options
+**`VirtualList`** is a searchable checklist on its own `RenderGrid` instance. Search requires all
+typed words, in any order; option counts are rendered when supplied. **100,000 options
 mount in 4.4 ms with 11 rows in the DOM, scroll at 60 fps with a flat-cost ratio of 1.00×, and
 select-all across all of them costs 9 ms and one repaint.**
 

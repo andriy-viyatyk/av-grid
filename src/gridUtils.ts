@@ -134,6 +134,15 @@ function filterValue<R>(row: R, resolved: ResolvedFilter<R>): any {
         : row[filter.columnKey as keyof R];
 }
 
+/** The option values and row matching share this projection for multi-valued columns. */
+export function optionFilterValues<R>(row: R, column: Column<R> | undefined, key: string): readonly unknown[] {
+    if (column?.filterValues) {
+        const values = column.filterValues(row);
+        return Array.isArray(values) ? values : [];
+    }
+    return [column?.formatValue ? column.formatValue(column, row) : (row as any)?.[key]];
+}
+
 /**
  * Does one selected option match a row's value?
  *
@@ -194,7 +203,12 @@ function filtersMatch<R>(row: R, filters?: ResolvedFilter<R>[]): boolean {
                     // rather than showing an empty grid, and this is the same rule one level
                     // down, for anyone calling `filterRows` directly.
                     if (optFilter.value?.length) {
-                        if (!optFilter.value.some((o) => optionMatches(o, rowValue))) {
+                        const matches = resolved.column?.filterValues
+                            ? optionFilterValues(row, resolved.column, filter.columnKey).some((value) =>
+                                  optFilter.value!.some((o) => optionMatches(o, value)),
+                              )
+                            : optFilter.value.some((o) => optionMatches(o, rowValue));
+                        if (!matches) {
                             match = false;
                         }
                     }

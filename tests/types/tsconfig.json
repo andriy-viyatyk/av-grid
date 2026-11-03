@@ -1,0 +1,13 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "exactOptionalPropertyTypes": true,
+        "noEmit": true,
+        "baseUrl": "../..",
+        "paths": {
+            "av-grid": ["./dist/index.d.ts"],
+            "av-grid/react": ["./dist/react/index.d.ts"]
+        }
+    },
+    "include": ["./*.ts", "./*.tsx"]
+}

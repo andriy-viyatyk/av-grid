@@ -707,6 +707,22 @@ describe("RenderGridModel — after-paint scrolling", () => {
         expect(c.scrollTop).toBe(1600);
     });
 
+    it("queues an initial raw offset in the same last-wins slot", () => {
+        const { model, container } = mountedModel();
+        model.scrollToOffsetAfterPaint(120, 45);
+        model.flushPendingScroll();
+        expect((container as unknown as FakeElement).scrollTop).toBe(120);
+        expect((container as unknown as FakeElement).scrollLeft).toBe(45);
+    });
+
+    it("reports scroll offsets after acting on a visible scroll event", () => {
+        const onScrollChange = vi.fn();
+        const { model, container } = mountedModel({ onScrollChange });
+        (container as unknown as FakeElement).scrollTop = 60;
+        model.onScroll();
+        expect(onScrollChange).toHaveBeenCalledWith({ scrollTop: 60, scrollLeft: 0 });
+    });
+
     it("a flushed request is consumed exactly once", async () => {
         const { model, container } = mountedModel();
         const c = container as unknown as FakeElement;

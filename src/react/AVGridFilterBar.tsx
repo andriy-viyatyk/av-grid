@@ -32,6 +32,8 @@ export interface AVGridFilterBarProps<R = any> {
     name?: string;
     /** `false` drops the remove-all ✕ — for a toolbar with its own clear control. */
     clearButton?: boolean;
+    /** Column keys whose chips stay first on the bar, active or inactive. */
+    pinned?: readonly string[];
     /** Class on the host element this component renders. */
     className?: string;
     /** Style on the host element. */
@@ -56,10 +58,16 @@ export function AVGridFilterBar<R = any>({
     barClassName,
     name,
     clearButton,
+    pinned,
     className,
     style,
 }: AVGridFilterBarProps<R>): ReactElement {
     const hostRef = useRef<HTMLDivElement>(null);
+    const barRef = useRef<FilterBar<R> | null>(null);
+    // Read at creation as well as on change: the bar is made only once the grid instance arrives,
+    // which is a later render than the one whose `pinned` effect already ran against no bar.
+    const pinnedRef = useRef(pinned);
+    pinnedRef.current = pinned;
 
     // Keyed on the instance: a new grid replaces the bar, and there is nothing to do until one
     // exists. `barClassName` and `name` are read once at creation — by the core, not by us — so
@@ -73,9 +81,13 @@ export function AVGridFilterBar<R = any>({
             className: barClassName,
             name,
             clearButton,
+            pinned: pinnedRef.current,
         });
+        barRef.current = bar;
         return () => bar.destroy();
     }, [grid, barClassName, name, clearButton]);
+
+    useLayoutEffect(() => { barRef.current?.setPinned(pinned); }, [pinned]);
 
     return <div ref={hostRef} className={className} style={style} />;
 }

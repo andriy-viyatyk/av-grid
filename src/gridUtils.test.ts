@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { defaultValidate, gatherByGroup, sortAsList, sortEquals } from "./gridUtils";
+import { defaultValidate, filterRows, gatherByGroup, sortAsList, sortEquals } from "./gridUtils";
+import { defaultFilterOptions } from "./model/FiltersModel";
 
 describe("gatherByGroup", () => {
     it("gathers interleaved group columns, anchored where the group first appears", () => {
@@ -36,6 +37,39 @@ describe("gatherByGroup", () => {
             "y",
             "z",
         ]);
+    });
+});
+
+describe("multi-valued option filters", () => {
+    const rows = [
+        { id: 1, tags: ["x", "y"] },
+        { id: 2, tags: ["y"] },
+        { id: 3, tags: ["x", "x", "z"] },
+        { id: 4, tags: [] },
+    ];
+    const columns = [{ key: "tags", filterValues: (row: (typeof rows)[number]) => row.tags }];
+
+    it("matches when any value is selected and flattens distinct values", () => {
+        const filters = [{ columnKey: "tags", value: ["z", "y"] }];
+        expect(filterRows(rows, columns, undefined, filters).map((row) => row.id)).toEqual([1, 2, 3]);
+        expect(defaultFilterOptions(rows, columns, [], "tags").map((option) => option.value)).toEqual(["x", "y", "z"]);
+    });
+
+    it("counts each option once per row and omits counts by default", () => {
+        const plain = defaultFilterOptions(rows, columns, [], "tags");
+        expect(plain.every((option) => option.count === undefined)).toBe(true);
+        const counted = defaultFilterOptions(rows, columns, [], "tags", undefined, undefined, columns, true);
+        expect(counted.map(({ value, count }) => [value, count])).toEqual([["x", 2], ["y", 2], ["z", 1]]);
+    });
+
+    it("filters generated options by every word in any order", () => {
+        const sourceRows = [
+            { id: 1, tag: "ALPHA EAST NURSE" },
+            { id: 2, tag: "ALPHA EAST LAB" },
+            { id: 3, tag: "NURSE BETA ALPHA" },
+        ];
+        const options = defaultFilterOptions(sourceRows, [{ key: "tag" }], [], "tag", " nurse alpha ");
+        expect(options.map((option) => option.value)).toEqual(["ALPHA EAST NURSE", "NURSE BETA ALPHA"]);
     });
 });
 

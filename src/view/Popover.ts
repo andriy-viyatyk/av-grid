@@ -164,6 +164,36 @@ interface Rect {
 }
 
 export class Popover<T = void> {
+    private static readonly openChangeListeners = new Set<(root: HTMLElement, open: boolean) => void>();
+    private static readonly openChangeQueue: Array<[HTMLElement, boolean]> = [];
+    private static dispatchingOpenChange = false;
+
+    /** Subscribe to open and close transitions from every av-grid popover. */
+    static onOpenChange(listener: (root: HTMLElement, open: boolean) => void): () => void {
+        const subscription = (root: HTMLElement, open: boolean): void => listener(root, open);
+        this.openChangeListeners.add(subscription);
+        return () => this.openChangeListeners.delete(subscription);
+    }
+
+    private static emitOpenChange(root: HTMLElement, open: boolean): void {
+        this.openChangeQueue.push([root, open]);
+        if (this.dispatchingOpenChange) return;
+        this.dispatchingOpenChange = true;
+        try {
+            while (this.openChangeQueue.length) {
+                const [nextRoot, nextOpen] = this.openChangeQueue.shift()!;
+                for (const listener of Array.from(this.openChangeListeners)) {
+                    try {
+                        listener(nextRoot, nextOpen);
+                    } catch (error) {
+                        console.error("av-grid: Popover.onOpenChange listener threw:", error);
+                    }
+                }
+            }
+        } finally {
+            this.dispatchingOpenChange = false;
+        }
+    }
     /** The outer, positioned element. Styling and `data-*` hooks live here. */
     readonly root: HTMLDivElement;
     /** Where the caller puts its content. Scrolls when the content outgrows the popover. */
@@ -175,6 +205,7 @@ export class Popover<T = void> {
     private readonly offset: [number, number];
 
     private open = false;
+    private announcedOpen = false;
     private resolve?: (value: T | undefined) => void;
     private promise?: Promise<T | undefined>;
     private manualSize?: PopoverSize;
@@ -247,6 +278,11 @@ export class Popover<T = void> {
         // Resolved here rather than in the constructor: a dialog can open or close between a
         // popover being built and being shown, and the answer is only true at mount time.
         this.host().appendChild(this.root);
+        this.announcedOpen = true;
+        Popover.emitOpenChange(this.root, true);
+        // A listener may close or destroy the popover synchronously. Do not install a fresh
+        // set of document listeners after that close has already removed it.
+        if (!this.open) return this.promise;
         this.reposition();
 
         if (this.options.autoFocus !== false) this.root.focus({ preventScroll: true });
@@ -288,6 +324,10 @@ export class Popover<T = void> {
         this.observer = undefined;
 
         this.root.remove();
+        if (this.announcedOpen) {
+            this.announcedOpen = false;
+            Popover.emitOpenChange(this.root, false);
+        }
         // Back where the user was — otherwise closing a filter popover leaves the grid
         // unfocused and the next keystroke goes nowhere.
         if (this.options.autoFocus !== false && this.previousFocus instanceof HTMLElement) {

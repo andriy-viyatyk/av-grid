@@ -219,6 +219,18 @@ describe("search", () => {
         expect(list.getVisibleItems().length).toBe(11);
     });
 
+    it("matches every search word in any order and select-all uses those rows", () => {
+        const list = makeList({ items: [
+            { value: "ALPHA EAST NURSE" },
+            { value: "ALPHA EAST LAB" },
+            { value: "NURSE BETA ALPHA" },
+        ] });
+        list.setSearch(" nurse   alpha ");
+        expect(list.getSelected()).toEqual([]);
+        click(list.element.querySelector(".avg-list-all")!);
+        expect(list.getSelected()).toEqual(["ALPHA EAST NURSE", "NURSE BETA ALPHA"]);
+    });
+
     it("hands filtering to the host when onSearch is set", () => {
         const onSearch = vi.fn();
         const list = makeList({ items: items(5), onSearch });

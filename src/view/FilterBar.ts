@@ -156,6 +156,8 @@ export interface FilterBarOptions<R = any> {
      * `grid.clearFilters()`.
      */
     clearButton?: boolean;
+    /** Column keys whose chips stay first on the bar, active or inactive. */
+    pinned?: readonly string[];
 }
 
 /**
@@ -232,9 +234,11 @@ export class FilterBar<R = any> {
     private openKey?: string;
 
     private destroyed = false;
+    private pinned: readonly string[];
 
     constructor(options: FilterBarOptions<R>) {
         this.model = options.model;
+        this.pinned = Array.from(new Set(options.pinned ?? []));
 
         const doc = document;
         this.element = doc.createElement("div");
@@ -270,15 +274,29 @@ export class FilterBar<R = any> {
         const filters = this.model.models.filters.filters;
         const next: HTMLElement[] = [];
         const live = new Set<string>();
-
+        const byKey = new Map(filters.map((f) => [f.columnKey, f] as const));
+        const order: Array<{ key: string; filter?: Filter }> = [];
+        for (const key of this.pinned) {
+            if (this.model.models.columns.columnByKey(key)) {
+                order.push({ key, filter: byKey.get(key) });
+            }
+        }
+        const pinnedKeys = new Set(order.map((item) => item.key));
         for (const filter of filters) {
-            const key = filter.columnKey;
-            const text = describeFilter(this.model, filter);
+            if (!pinnedKeys.has(filter.columnKey)) {
+                order.push({ key: filter.columnKey, filter });
+            }
+        }
+
+        for (const { key, filter } of order) {
+            const text = filter ? describeFilter(this.model, filter) : this.inactiveText(key);
             // NUL-separated: a separator no column name or value can contain.
-            const signature = `${text.name}\0${text.values}`;
+            const signature =
+                `${filter ? "a" : "i"}${pinnedKeys.has(key) ? "p" : ""}\0` +
+                `${text.name}\0${text.values}`;
             let chip = this.chipElements.get(key);
             if (!chip || chip.getAttribute("data-signature") !== signature) {
-                chip = this.buildChip(filter, signature, text);
+                chip = this.buildChip(key, filter, pinnedKeys.has(key), signature, text);
                 this.chipElements.set(key, chip);
             }
             live.add(key);
@@ -292,9 +310,22 @@ export class FilterBar<R = any> {
         this.chips.replaceChildren(...next);
         // Hidden rather than empty: an empty bar is a strip of border and background that looks
         // like a rendering fault, and it would push the grid down for nothing.
-        this.element.classList.toggle("avg-filter-bar-empty", !filters.length);
+        this.element.classList.toggle("avg-filter-bar-empty", !order.length);
+        this.clearButton?.classList.toggle("avg-filter-bar-clear-hidden", !filters.length);
         this.syncOpen();
     };
+
+    setPinned(keys: readonly string[] | undefined): void {
+        const next = Array.from(new Set(keys ?? []));
+        if (next.length === this.pinned.length && next.every((key, i) => key === this.pinned[i])) return;
+        this.pinned = next;
+        this.refresh();
+    }
+
+    private inactiveText(key: string): FilterChipText {
+        const name = this.model.models.filters.filterOrDefault(key).columnName ?? key;
+        return { name, values: "", title: name };
+    }
 
     destroy(): void {
         if (this.destroyed) return;
@@ -318,13 +349,20 @@ export class FilterBar<R = any> {
      * as one string: different signature, different chip — which is also how a changed
      * `filterLabel` answer reaches the bar on the next refresh.
      */
-    private buildChip(filter: Filter, signature: string, text: FilterChipText): HTMLElement {
+    private buildChip(
+        key: string,
+        filter: Filter | undefined,
+        isPinned: boolean,
+        signature: string,
+        text: FilterChipText,
+    ): HTMLElement {
         const chip = document.createElement("span");
-        chip.className = "avg-filter-chip";
+        chip.className = filter ? "avg-filter-chip" : "avg-filter-chip avg-filter-chip--inactive";
         chip.setAttribute("data-signature", signature);
         // The key goes on the chip rather than being looked up by position: chips are rebuilt
         // as the filters change, and a handler that read an index would act on the wrong one.
-        chip.setAttribute("data-column-key", filter.columnKey);
+        chip.setAttribute("data-column-key", key);
+        if (isPinned) chip.setAttribute("data-pinned", "");
 
         const body = document.createElement("span");
         body.className = "avg-filter-chip-body";
@@ -333,7 +371,7 @@ export class FilterBar<R = any> {
 
         const name = document.createElement("span");
         name.className = "avg-filter-chip-name";
-        name.textContent = `${text.name}:`;
+        name.textContent = filter ? `${text.name}:` : text.name;
 
         const values = document.createElement("span");
         values.className = "avg-filter-chip-values";
@@ -343,14 +381,17 @@ export class FilterBar<R = any> {
         caret.className = "avg-filter-chip-caret";
         caret.innerHTML = chevronDownIcon;
 
-        body.append(name, values, caret);
-        chip.append(
-            body,
-            createIconButton(closeIcon, "remove", {
-                title: "Remove filter",
-                className: "avg-filter-chip-remove",
-            }),
-        );
+        body.append(name);
+        if (filter) body.append(values, caret);
+        chip.append(body);
+        if (filter) {
+            chip.append(
+                createIconButton(closeIcon, "remove", {
+                    title: "Remove filter",
+                    className: "avg-filter-chip-remove",
+                }),
+            );
+        }
         return chip;
     }
 

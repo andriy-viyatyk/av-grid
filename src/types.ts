@@ -324,6 +324,8 @@ export interface Column<R = any> {
      * as well. See *Which hook feeds what* in [`docs/api.md`](../docs/api.md) for the whole table.
      */
     formatValue?: (column: Column<R>, row: R) => string;
+    /** Values used by the built-in options filter for a row with multiple values (ANY-match). */
+    filterValues?: (row: R) => readonly unknown[];
 
     /**
      * What this column's cells copy, when what they *show* is the wrong thing to put in a
@@ -560,6 +562,8 @@ export interface DisplayOption<T = any> {
     value: T;
     label: string;
     italic?: boolean;
+    /** Number of rows containing this option; shown on checklist rows when supplied. */
+    count?: number;
 }
 
 /**

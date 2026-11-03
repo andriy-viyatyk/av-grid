@@ -213,6 +213,30 @@ describe("the rows lane", () => {
 // ===========================================================================================
 
 describe("the option diff lane", () => {
+    it("passes initialScroll from the React prop into create-time options", () => {
+        const made = spyOnCreate();
+        render(
+            <AVGridReact<Row>
+                rows={rows}
+                columns={columns}
+                initialScroll={{ top: 240, left: 80 }}
+            />,
+        );
+        expect(made.at(-1)!.model.options.initialScroll).toEqual({ top: 240, left: 80 });
+    });
+
+    it("passes a Column.filterValues hook through the columns prop", () => {
+        const made = spyOnCreate();
+        const filterValues = (row: Row) => [row.name.split(" ")[0]];
+        render(
+            <AVGridReact<Row>
+                rows={rows}
+                columns={[{ key: "name", filterValues }]}
+            />,
+        );
+        expect(made.at(-1)!.getColumns()[0]?.filterValues).toBe(filterValues);
+    });
+
     it("sends exactly the changed key, once", () => {
         const made = spyOnCreate();
         const view = render(
@@ -412,6 +436,16 @@ describe("the option diff lane", () => {
 // ===========================================================================================
 
 describe("the callback lane", () => {
+    it("routes onScrollChange through the callback proxy", () => {
+        const made = spyOnCreate();
+        const onScrollChange = vi.fn();
+        render(<AVGridReact<Row> rows={rows} columns={columns} onScrollChange={onScrollChange} />);
+        const grid = made.at(-1)!;
+        grid.model.renderModel?.onScroll();
+        expect(onScrollChange).toHaveBeenCalledTimes(1);
+        expect(onScrollChange).toHaveBeenCalledWith({ scrollTop: 0, scrollLeft: 0 });
+    });
+
     it("never re-sends an inline callback, and fires the latest closure", () => {
         const made = spyOnCreate();
         const first = vi.fn();
@@ -538,11 +572,11 @@ describe("the instance ref", () => {
 // ===========================================================================================
 
 describe("AVGridFilterBar", () => {
-    function Host({ show = true }: { show?: boolean }) {
+    function Host({ show = true, pinned }: { show?: boolean; pinned?: readonly string[] }) {
         const [grid, setGrid] = useState<AVGrid<Row> | null>(null);
         return (
             <>
-                <AVGridFilterBar grid={grid} className="bar-host" />
+                <AVGridFilterBar grid={grid} className="bar-host" pinned={pinned} />
                 {show ? (
                     <AVGridReact<Row> ref={setGrid} rows={rows} columns={columns} />
                 ) : null}
@@ -554,6 +588,15 @@ describe("AVGridFilterBar", () => {
         const view = render(<Host />);
         const barHost = view.container.querySelector(".bar-host")!;
         expect(barHost.querySelectorAll(".avg-filter-bar")).toHaveLength(1);
+    });
+
+    it("updates pinned chips without remounting the bar", () => {
+        const view = render(<Host pinned={["name"]} />);
+        const bar = view.container.querySelector(".avg-filter-bar")!;
+        expect(bar.querySelector(".avg-filter-chip")?.getAttribute("data-column-key")).toBe("name");
+        view.rerender(<Host pinned={["score", "name"]} />);
+        expect(view.container.querySelector(".avg-filter-bar")).toBe(bar);
+        expect(Array.from(bar.querySelectorAll<HTMLElement>(".avg-filter-chip")).map((c) => c.dataset.columnKey)).toEqual(["score", "name"]);
     });
 
     it("removes the bar when it unmounts, leaving the grid alone", () => {

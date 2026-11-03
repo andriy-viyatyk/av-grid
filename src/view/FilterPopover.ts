@@ -82,11 +82,11 @@ export function showFilterPopover<R>(
     options: ShowFilterPopoverOptions = {},
 ): Promise<Filter | undefined> {
     const filters = model.models.filters;
-    const column = model.data.columns.find((c) => String(c.key) === columnKey);
+    const column = model.models.columns.columnByKey(columnKey);
     if (!column) {
         console.warn(
             `av-grid: showFilterPopover("${columnKey}") — no such column. ` +
-                `Available: ${model.data.columns.map((c) => String(c.key)).join(", ")}.`,
+                `Available: ${model.options.columns.map((c) => String(c.key)).join(", ")}.`,
         );
         return Promise.resolve(undefined);
     }

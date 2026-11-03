@@ -495,3 +495,21 @@ describe("editing from a chip", () => {
         expect(grid.model.flags.filterPopover).toBeUndefined();
     });
 });
+
+describe("pinned chips", () => {
+    it("keeps configured chips first while inactive and hides remove-all with no filters", () => {
+        const grid = create({ rows, columns: [{ key: "status", name: "Status" }, { key: "team", name: "Team" }] });
+        const bar = AVGrid.createFilterBar(document.createElement("div"), { grid, pinned: ["team", "status"] });
+        const chips = Array.from(bar.element.querySelectorAll<HTMLElement>(".avg-filter-chip"));
+        expect(chips.map((chip) => chip.dataset.columnKey)).toEqual(["team", "status"]);
+        expect(chips[0].classList.contains("avg-filter-chip--inactive")).toBe(true);
+        expect(chips[0].querySelector(".avg-filter-chip-remove")).toBeNull();
+        expect(bar.element.querySelector(".avg-filter-bar-clear")?.classList.contains("avg-filter-bar-clear-hidden")).toBe(true);
+        grid.setFilters([{ columnKey: "status", value: ["open"] }]);
+        expect(bar.element.querySelector(".avg-filter-chip[data-column-key='status']")?.classList.contains("avg-filter-chip--inactive")).toBe(false);
+        grid.clearFilters();
+        expect(bar.element.querySelectorAll(".avg-filter-chip")).toHaveLength(2);
+        expect(bar.element.querySelector(".avg-filter-chip[data-column-key='status']")?.classList.contains("avg-filter-chip--inactive")).toBe(true);
+        bar.destroy();
+    });
+});

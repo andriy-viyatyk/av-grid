@@ -60,9 +60,9 @@ export type AVGridInstance<R = any> = AVGrid<R>;
  */
 export type AVGridReactProps<R = any> = Omit<AVGridOptions<R>, "className"> & {
     /** Class on the host element this component renders. */
-    className?: string;
+    className?: string | undefined;
     /** Style on the host element. Give it a height — the grid fills its host. */
-    style?: CSSProperties;
+    style?: CSSProperties | undefined;
 };
 
 // ===========================================================================================
@@ -235,7 +235,7 @@ function useOptionSync<R>(props: AVGridReactProps<R>, state: WrapperState<R>): v
         // A prop that disappeared resets that option to its default. Removing a prop is how a
         // React author says "stop asking for this", and it must not silently keep the old value.
         for (const key of Object.keys(state.prevOptions)) {
-            if (!(key in next)) {
+            if (!(key in next) && state.prevOptions[key] !== undefined) {
                 changed[key] = undefined;
                 changedCount++;
             }
@@ -282,6 +282,9 @@ function optionSnapshot(props: AnyRecord, proxied: ReadonlySet<string>): AnyReco
     const out: AnyRecord = {};
     for (const key of Object.keys(props)) {
         if (HOST_ONLY_KEYS.has(key) || key === "rows" || proxied.has(key)) continue;
+        // Under exactOptionalPropertyTypes a React author can explicitly pass undefined; for
+        // option syncing that is the same as not passing the prop at all.
+        if (props[key] === undefined) continue;
         out[key] = props[key];
     }
     return out;

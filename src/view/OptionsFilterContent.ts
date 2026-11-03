@@ -198,6 +198,7 @@ export class OptionsFilterContent<R> {
         const items = this.offered.map<VirtualListItem>((option, index) => ({
             value: index,
             label: displayLabel(option),
+            count: option.count,
         }));
         this.list.setItems(items);
 

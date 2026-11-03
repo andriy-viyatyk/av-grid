@@ -32,6 +32,7 @@
 
 import { RenderGrid } from "../render/RenderGrid";
 import type { RenderCellParams, RowAlign } from "../render/types";
+import { searchWords } from "../gridUtils";
 import { applyCellStyle, setText } from "./cellDom";
 import { checkedIcon, indeterminateIcon, uncheckedIcon } from "./icons";
 
@@ -42,6 +43,7 @@ export interface VirtualListItem {
     /** Falls back to `String(value)`. An empty label is the caller's to name — see below. */
     label?: string;
     disabled?: boolean;
+    count?: number;
 }
 
 export interface VirtualListOptions {
@@ -393,12 +395,10 @@ export class VirtualList {
         // A recycled element comes back exactly as its last occupant left it, so every
         // property set here is set unconditionally — and the children are rebuilt only when
         // the element is not already the right shape.
-        if (el.childElementCount !== 2) {
-            el.textContent = "";
-            el.insertAdjacentHTML("afterbegin", `${UNCHECKED}<span class="avg-list-label"></span>`);
-        }
+        if (el.childElementCount !== 3) el.innerHTML = `${UNCHECKED}<span class="avg-list-label"></span><span class="avg-list-count"></span>`;
         const box = el.firstElementChild as HTMLElement;
-        const label = el.lastElementChild as HTMLElement;
+        const label = box.nextElementSibling as HTMLElement;
+        const count = el.lastElementChild as HTMLElement;
 
         el.className = "avg-list-item";
         el.setAttribute("data-index", String(p.row));
@@ -427,20 +427,22 @@ export class VirtualList {
         }
 
         setText(label, item ? (item.label ?? String(item.value)) : "");
+        setText(count, item?.count === undefined ? "" : String(item.count));
         applyCellStyle(el, p.style);
         return el;
     };
 
     private applyFilter(): void {
-        const text = this.searchText.trim().toLowerCase();
+        const words = searchWords(this.searchText);
         // `onSearch` means the caller narrows the options at the source, so the list shows
         // exactly what it was given.
         this.filtered =
-            !text || this.options.onSearch
+            !words.length || this.options.onSearch
                 ? this.items
-                : this.items.filter((i) =>
-                      (i.label ?? String(i.value)).toLowerCase().includes(text),
-                  );
+                : this.items.filter((i) => {
+                      const label = (i.label ?? String(i.value)).toLowerCase();
+                      return words.every((word) => label.includes(word));
+                  });
 
         this._activeIndex = this.filtered.length ? 0 : -1;
         this.emptyEl.style.display = this.filtered.length ? "none" : "";

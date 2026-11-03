@@ -1068,6 +1068,13 @@ export const css = `
     text-overflow: ellipsis;
 }
 
+.avg-list-count {
+    margin-left: auto;
+    padding-left: 8px;
+    color: var(--avg-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
 .avg-list-box {
     display: inline-flex;
     flex: 0 0 auto;
@@ -1310,6 +1317,11 @@ export const css = `
     border-color: var(--avg-accent);
 }
 
+.avg-filter-chip--inactive {
+    background-color: var(--avg-bg);
+    color: var(--avg-text-muted);
+}
+
 .avg-filter-chip-body {
     display: inline-flex;
     align-items: center;
@@ -1357,6 +1369,8 @@ export const css = `
     flex: 0 0 auto;
     color: var(--avg-text-muted);
 }
+
+.avg-filter-bar-clear-hidden { display: none; }
 
 .avg-filter-bar .avg-icon-button > svg {
     width: 14px;

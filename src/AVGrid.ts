@@ -218,6 +218,8 @@ export class AVGrid<R = any> {
     private warnedAfterDestroy = false;
     /** The deferred re-measure the constructor schedules when the host is not laid out yet. */
     private sizeCheckRaf?: number;
+    /** Watches a host that was still not displayed at that re-measure, until it gets a height. */
+    private sizeCheckObserver?: ResizeObserver;
 
     /** The two add affordances, present only while the matching option is on. */
     private addRowButton?: HTMLButtonElement;
@@ -269,6 +271,7 @@ export class AVGrid<R = any> {
             name?: string;
             /** `false` drops the remove-all ✕ — for a toolbar with its own clear control. */
             clearButton?: boolean;
+            pinned?: readonly string[];
         },
     ): FilterBar<R> {
         const host = resolveContainer(container);
@@ -286,6 +289,7 @@ export class AVGrid<R = any> {
             className: options.className,
             name: options.name,
             clearButton: options.clearButton,
+            pinned: options.pinned,
         });
         host.appendChild(bar.element);
         return bar;
@@ -344,6 +348,7 @@ export class AVGrid<R = any> {
                   : resolveHeight(host),
             growToHeight: resolved.growToHeight,
             growToWidth: resolved.growToWidth,
+            onScrollChange: (scroll) => this.model.options.onScrollChange?.(scroll),
         });
 
         if (resolved.cellBorders === false) {
@@ -365,13 +370,27 @@ export class AVGrid<R = any> {
         // that case the fallback height was chosen against a measurement of zero; re-check
         // once layout has happened and fill the container after all.
         if (!resolved.growToHeight && host.clientHeight === 0) {
-            this.sizeCheckRaf = requestAnimationFrame(() => {
-                this.sizeCheckRaf = undefined;
-                if (this.destroyed || host.clientHeight === 0) return;
+            const fill = (): boolean => {
+                if (this.destroyed || host.clientHeight === 0) return false;
                 // The wrapper when there is one: it is what has the definite height, and the
                 // grid inside it is sized by the flex line rather than by its own style.
                 (this.wrapper ?? this.render.root).style.height = "100%";
                 this.render.model.checkSize();
+                return true;
+            };
+            this.sizeCheckRaf = requestAnimationFrame(() => {
+                this.sizeCheckRaf = undefined;
+                if (fill() || this.destroyed || typeof ResizeObserver === "undefined") return;
+                // Still zero a frame later: the host is not displayed at all — an inactive tab,
+                // a collapsed panel, a `display: none` ancestor. One frame is not enough there;
+                // keep watching until it gets a height, or the grid would stay at the fallback
+                // for its whole life however tall the host later becomes.
+                this.sizeCheckObserver = new ResizeObserver(() => {
+                    if (!fill() && !this.destroyed) return;
+                    this.sizeCheckObserver?.disconnect();
+                    this.sizeCheckObserver = undefined;
+                });
+                this.sizeCheckObserver.observe(host);
             });
         }
 
@@ -394,6 +413,14 @@ export class AVGrid<R = any> {
         // rows and columns, so it needs them built. `initFocus` rather than `setFocus` because
         // nothing has changed yet — see FocusModel.
         this.model.models.focus.initFocus(resolved.focus ?? undefined);
+
+        // Restore a saved viewport only after the first measured paint has written its extent.
+        if (resolved.initialScroll) {
+            this.render.model.scrollToOffsetAfterPaint(
+                resolved.initialScroll.top,
+                resolved.initialScroll.left,
+            );
+        }
 
         // The models ran their first pass in the AVGridModel constructor, before the render
         // model existed to be told about it. Paint what they produced.
@@ -978,6 +1005,7 @@ export class AVGrid<R = any> {
         delete rest.focus;
         delete rest.externalFilter;
         delete rest.externalSort;
+        delete rest.initialScroll;
 
         // An explicit `undefined` means "back to the default", not "leave it alone". That is
         // what a host adapter sends when a prop disappears — `av-grid/react` does exactly this
@@ -1270,6 +1298,8 @@ export class AVGrid<R = any> {
             cancelAnimationFrame(this.sizeCheckRaf);
             this.sizeCheckRaf = undefined;
         }
+        this.sizeCheckObserver?.disconnect();
+        this.sizeCheckObserver = undefined;
 
         this.dataSubscription.unsubscribe();
         this.groupHeader.destroy();

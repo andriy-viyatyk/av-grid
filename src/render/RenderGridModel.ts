@@ -107,6 +107,7 @@ export interface RenderGridOptions {
     whiteSpaceX?: number;
     whiteSpaceY?: number;
     onInnerSizeChange?: (size: RenderInnerSize) => void;
+    onScrollChange?: (scroll: { scrollTop: number; scrollLeft: number }) => void;
     onAdjustRenderRange?: AdjustRenderRangeFunc;
     onResize?: (size: RenderSizeOptional) => void;
 }
@@ -168,7 +169,9 @@ export class RenderGridModel extends Model<RenderGridState> {
      * the one it wants to see. `scrollToRow`'s unmeasured fallback shares this slot rather
      * than keeping a second one, so the two can never disagree about which row is wanted.
      */
-    private pendingScrollRow?: { row: number; align: RowAlign };
+    private pendingScroll?:
+        | { kind: "row"; row: number; align: RowAlign }
+        | { kind: "offset"; top: number; left: number };
 
     constructor(options: RenderGridOptions) {
         super({ ...defaultRenderGridState });
@@ -288,7 +291,7 @@ export class RenderGridModel extends Model<RenderGridState> {
         this.resizeObserver = undefined;
         // A grid that is never measured and then disposed never runs its queued scroll. That
         // is correct; the slot is cleared so a retained model reference cannot resurrect it.
-        this.pendingScrollRow = undefined;
+        this.pendingScroll = undefined;
         super.dispose();
     }
 
@@ -619,6 +622,7 @@ export class RenderGridModel extends Model<RenderGridState> {
         };
         this.offset = { x, y };
         this.updateRenderInfo(undefined, direction);
+        this.options.onScrollChange?.({ scrollTop: y, scrollLeft: x });
     };
 
     /**
@@ -711,7 +715,7 @@ export class RenderGridModel extends Model<RenderGridState> {
             // whatever runs next. So the newer request wins outright, and it repairs the same
             // damage on its way past — `flushPendingScroll` clears `scrollLost` because a
             // landed scroll leaves nothing to restore.
-            if (this.pendingScrollRow) return;
+            if (this.pendingScroll) return;
             this.scrollLost = true;
             this.restoreScroll();
         };
@@ -760,13 +764,13 @@ export class RenderGridModel extends Model<RenderGridState> {
         // relying on the await to hold the request until the grid exists, and that has always
         // worked. Only a grid that is attached and still unmeasurable needs the register.
         if (!this.measured) {
-            this.pendingScrollRow = { row, align: rowAlign };
+            this.pendingScroll = { kind: "row", row, align: rowAlign };
             // The flush happens at the end of a paint, so make sure one is coming. `update()`
             // usually has already scheduled it; this makes the call safe on its own.
             this.requestRepaint();
             return;
         }
-        this.pendingScrollRow = undefined;
+        this.pendingScroll = undefined;
 
         const newOffset = calcScrollOffsetY(row, info, this.offset, rowAlign);
         if (container) {
@@ -795,11 +799,18 @@ export class RenderGridModel extends Model<RenderGridState> {
      */
     scrollToRowAfterPaint(row: number, rowAlign: RowAlign = "nearest"): void {
         if (this._disposed) return;
-        this.pendingScrollRow = { row, align: rowAlign };
+        this.pendingScroll = { kind: "row", row, align: rowAlign };
         // The reference required the caller to have scheduled a paint. Requesting one here
         // instead makes the call correct on its own, which is what an API meant to be used
         // without reading docs has to be — and a repaint that finds nothing changed is the
         // early-return branch of `paint()`, which flushes too.
+        this.requestRepaint();
+    }
+
+    /** Queue a raw offset until a measured paint has written the scrollable extent. */
+    scrollToOffsetAfterPaint(top: number, left: number): void {
+        if (this._disposed) return;
+        this.pendingScroll = { kind: "offset", top, left };
         this.requestRepaint();
     }
 
@@ -818,10 +829,10 @@ export class RenderGridModel extends Model<RenderGridState> {
      * every time they scrolled away from it.
      */
     flushPendingScroll(): void {
-        if (this._disposed || !this.pendingScrollRow || !this.measured) return;
+        if (this._disposed || !this.pendingScroll || !this.measured) return;
 
-        const pending = this.pendingScrollRow;
-        this.pendingScrollRow = undefined;
+        const pending = this.pendingScroll;
+        this.pendingScroll = undefined;
 
         // A queued scroll that lands *is* a restore: it writes a fresh, deliberate offset to a
         // container that can accept it, which is everything `restoreScroll` was going to do
@@ -829,7 +840,15 @@ export class RenderGridModel extends Model<RenderGridState> {
         // scroll with the old offset.
         this.scrollLost = false;
 
-        void this.scrollToRow(pending.row, pending.align);
+        if (pending.kind === "offset") {
+            const container = this.containerRef.current;
+            if (container) {
+                container.scrollLeft = pending.left;
+                container.scrollTop = pending.top;
+            }
+        } else {
+            void this.scrollToRow(pending.row, pending.align);
+        }
     }
 
     async scrollToCol(col: number): Promise<void> {

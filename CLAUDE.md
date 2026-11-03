@@ -257,6 +257,12 @@ late"* — measured **false** (149 of 149 paints already ran at the first opport
 scroll event) and the prototype built on it changed nothing an eye could see; `overscanRow` keeps
 its default of 4, since its remaining job is the wheel.
 
+**Phase 24 is prepared for the next minor release** (tasks 71–74, on top of unreleased 69–70):
+checklist search matches every word in any order; filter bars can pin chips and option lists can
+show per-row counts or filter multi-valued columns; `initialScroll` and `onScrollChange` expose
+viewport restoration and observation; and `Popover.onOpenChange()` reports library-wide
+popover transitions. This work is unreleased; the version and tag are intentionally unchanged.
+
 **Every piece of grid state is an option, so every piece of it is a prop.** `focus` was the last
 one that was not, and it joined them in the same release: `sort`, `filters`, `selected`,
 `searchString` and `focus` may all be held in host state and echoed straight back, because each

@@ -134,7 +134,7 @@ const grid = AVGrid.create(document.body, { rows });    // or an element
 > **Writing React?** Read [`react-api.md`](react-api.md) instead — the same grid as a
 > component, with everything on this page available as props. This page stays framework-free.
 
-### `AVGrid.createFilterBar(container, { grid, className?, name? })`
+### `AVGrid.createFilterBar(container, { grid, className?, name?, clearButton?, pinned? })`
 
 Mount a filter bar somewhere other than directly above the grid. See
 [The filter bar](#the-filter-bar).
@@ -292,6 +292,7 @@ clears, on an `editable` grid. A paste writes through the same path as typing, s
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `rowHeight` | `number` | `24` | Uniform over the data rows and the footer rows. Variable data-row heights are not supported. The header follows it unless `headerHeight` is set. |
+| `initialScroll` | `{ top: number; left: number }` | — | Initial viewport offset, queued until the first measured paint writes the scrollable extent. Create-time only; the latest queued scroll request wins. |
 | `headerHeight` | `number` | `rowHeight` | The header's own height — one header *band*, so with [`group`](#group--two-level-headers) shown the header is `headerHeight * 2`. Set it when tall rows (multi-line cell content) should not drag a one-line header up with them. The default is live: a grid that never sets it follows every later `rowHeight`. Footer rows keep `rowHeight`. |
 | `fitToWidth` | `boolean` | `false` | Stretch the columns to fill the width instead of scrolling horizontally. Not needed when a column has a percentage [`width`](#width) — that fills the width on its own. |
 | `cellBorders` | `boolean` | `true` | `false` gives a borderless list look. |
@@ -577,6 +578,7 @@ See [The context menu](#the-context-menu).
 | `onColumnsReorder` | `(sourceKey: string, targetKey: string) => void` | Columns were dragged into a new order. |
 | `onColumnsChange` | `(columns: Column<R>[]) => void` | Any change to the column set, whatever caused it. |
 | `onVisibleRowsChange` | `(rows: readonly R[]) => void` | The displayed row set changed — a sort, a filter, or `setRows()`. |
+| `onScrollChange` | `(scroll: { scrollTop: number; scrollLeft: number }) => void` | Called after each scroll event the visible grid acts on. No call while the grid is hidden. |
 | `onFocusChange` | `(focus: CellFocus<R> \| undefined) => void` | The focused cell or the range around it changed. Once per cell during a drag, not once per pointer move. |
 | `onTreeToggle` | `(row: R, expanded: boolean) => void` | A tree row's chevron was pressed, or `→` / `←` on its focused tree cell. **Its presence turns the gesture on**; without it the tree is static. See [Tree column](#tree-column--treecolumn). |
 
@@ -621,6 +623,7 @@ interface Column<R = any> {
                                     // starts with; null takes the funnel off
     textFilterOps?: TextFilterOp[]; // the "text" popover's chips; add "blank" / "notBlank"
     filter?: FilterDefinition<R>;   // a filter type of your own, in place of the checklist
+    filterValues?: (row: R) => readonly unknown[]; // options filter values for a multi-valued row
 
     validate?: (column: Column<R>, row: R, value: any) => any;
     options?: any[] | (() => any[] | Promise<any[]>);
@@ -1643,7 +1646,7 @@ A filter is resolved against the **full** column array, `hidden` columns include
 Every column carries one by default. `filterType: null` takes it off one column,
 `disableFiltering: true` off all of them. Clicking it opens a searchable checklist of that
 column's distinct values, **cascaded against the other filters**, with select-all, Apply and
-Clear. A column with 100,000 distinct values puts 12 rows in the checklist. `filterType: "text"`
+Clear. Search matches every whitespace-separated word in any order, case-insensitively; select-all applies to the visible matches. A column with 100,000 distinct values puts 12 rows in the checklist. `filterType: "text"`
 opens the built-in text filter instead — see below. Give the column a `filter` definition and
 the same funnel opens that — see [a filter type of your own](#columnfilter--a-filter-type-of-your-own).
 
@@ -1847,8 +1850,15 @@ The list shows a loading row until the promise resolves, and a response overtake
 is discarded. Ignore `search` and the list narrows the returned options itself.
 
 ```ts
-interface DisplayOption<T = any> { value: T; label: string; italic?: boolean }
+interface DisplayOption<T = any> { value: T; label: string; italic?: boolean; count?: number }
 ```
+
+An option's optional `count` is displayed at the right of its checklist row. The built-in
+`defaultFilterOptions(..., withCounts = false)` can populate it when `withCounts` is true; counts
+are rows containing each value after the other filters and search, with the current column's
+filter excluded. For a multi-valued column, a row matches when **any** value from
+`filterValues(row)` is selected, and each option is counted at most once per row. This affects only
+the built-in options filter; display, copy, sort and search still use the ordinary column value.
 
 ### Host-owned filtering and sorting
 
@@ -1936,6 +1946,12 @@ Exported for hosts that want to manage the store directly: `filtersStorageKey`,
 Applied filters shown as removable chips. A chip reads `Status: open,pending (+3)`; clicking its
 body reopens the popover **anchored to the chip**, its ✕ removes that filter, and the ✕ at the
 right end removes them all. **The bar takes no space at all until something is filtered.**
+
+Pass `pinned: ["status", "team"]` to `AVGrid.createFilterBar` to keep those columns' chips first,
+in the order given. A pinned column with no active filter shows an inactive chip with its title
+only; clicking it opens its filter, including when the column is hidden. Removing the filter or
+using remove-all keeps the chip inactive. Unknown column keys are ignored. `bar.setPinned(keys)`
+changes the list later. The remove-all button hides when no filter is applied.
 
 Two ways to mount one, both making the same object:
 
@@ -2622,6 +2638,19 @@ Anchors to an element or a point, flips instead of clipping, caps its height to 
 available and scrolls, dismisses on `Escape` or an outside pointerdown, and resizes by a corner
 grip.
 
+Subscribe to every popover opened by every grid with `Popover.onOpenChange`. The listener runs
+after the popover root is attached (`open: true`) and after it is removed (`open: false`); each
+transition is reported once. The returned function unsubscribes. A listener error is logged and
+does not interrupt other listeners or the popover lifecycle.
+
+```js
+const unsubscribe = Popover.onOpenChange((root, open) => {
+    hostTooltipSuppressed = open;
+});
+// when the host no longer needs the subscription
+unsubscribe();
+```
+
 ```ts
 interface PopoverOptions {
     anchor: Element | { x: number; y: number };
@@ -2647,6 +2676,9 @@ silently re-anchors it to whatever the element became. Anchor to a header cell, 
 
 A searchable, virtualized checklist on its own `RenderGrid` instance. 100,000 options mount in
 4.4 ms with 11 rows in the DOM and scroll at 60 fps.
+
+Its search matches all whitespace-separated words, case-insensitively and in any order. An
+option may include `count` to show a right-aligned row count.
 
 ```js
 import { VirtualList } from "av-grid";

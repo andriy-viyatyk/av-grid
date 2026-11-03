@@ -299,7 +299,9 @@ host `<div>`.
 ## Your own filter chips
 
 `<AVGridFilterBar>` takes `clearButton={false}` for a bar embedded in a toolbar that has its own
-clear control. And when the built-in chips themselves are not enough, render your own — `filters`
+clear control, and `pinned={["status", "team"]}` to keep those chips first, in that order. An
+inactive pinned chip shows the column title and opens its filter popover when clicked, including
+for a hidden column. Changing `pinned` updates the existing bar. And when the built-in chips themselves are not enough, render your own — `filters`
 is already in your state if you round-trip it, and everything a chip does is one call on the ref:
 
 ```tsx
@@ -424,7 +426,7 @@ import type {
 | `AVGridReact<R>` | The same export, under the name that cannot collide |
 | `AVGridProps<R>`, `AVGridReactProps<R>` | The props type, likewise under both names |
 | `AVGridInstance<R>` | What a `ref` yields — a type alias over the core's `AVGrid` class |
-| `AVGridFilterBar<R>` | `{ grid: AVGridInstance<R> \| null, barClassName?, name?, clearButton?, className?, style? }` |
+| `AVGridFilterBar<R>` | `{ grid: AVGridInstance<R> \| null, barClassName?, name?, clearButton?, pinned?, className?, style? }` |
 | `reactEditor<R>(render)` | `(ctx: EditorContext<R>) => ReactElement` → a `Column.editor` — see [React components inside the grid's hooks](#react-components-inside-the-grids-hooks) |
 | `reactFilterBody<R>(render)` | `(ctx: FilterBodyContext<R>, setValue) => ReactElement` → a `FilterDefinition.create` |
 
