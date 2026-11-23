@@ -75,6 +75,61 @@ const mode = new WeakMap<HTMLElement, ContentMode>();
 const written = new WeakMap<HTMLElement, string>();
 
 /**
+ * The row and column an element's `render` node was drawn for — the node arm's counterpart of
+ * `written`.
+ *
+ * The node arm used to clear the cell and append on every paint. A hover or a selection repaints
+ * the whole row, so the press that selects a row replaced the element under the pointer before
+ * the release: the press and the release then landed on two different nodes, the browser
+ * dispatched no `click` at all, and the first click on a rendered element of an unselected row
+ * was lost (task 76). A repaint therefore keeps the node it already holds when the hook returns
+ * that very node, or a node equal to it (`isEqualNode`: tag, attributes, children) drawn for the
+ * same row object in the same column. Anything else — new markup, a replaced row object, a
+ * recycled element arriving from another cell — re-renders as before.
+ *
+ * The row and the column are part of the test because the node arm is the one that may carry
+ * the host's own listeners: a kept node's listener can then only close over the row it was
+ * built for. What it cannot cover is a listener that closes over state *outside* the row and
+ * changes without changing the markup — `onCellClick` is the place for clicks.
+ */
+const drawnFor = new WeakMap<HTMLElement, { row: unknown; column: unknown }>();
+
+/**
+ * Write a `render` node into `el`, keeping the node already there when it shows the same thing
+ * for the same cell — see `drawnFor`.
+ */
+function setCellNode(el: HTMLElement, rendered: Element, row: unknown, column: unknown): void {
+    // `setMode` returning true means it just emptied the element, so there is nothing to keep.
+    const current = setMode(el, "node") ? null : el.firstChild;
+    let drawn = drawnFor.get(el);
+    if (current && current === el.lastChild) {
+        if (current === rendered) {
+            // The hook handed back the node the cell already holds — nothing to write.
+        } else if (
+            drawn &&
+            drawn.row === row &&
+            drawn.column === column &&
+            current.isEqualNode(rendered)
+        ) {
+            return;
+        } else {
+            el.textContent = "";
+            el.appendChild(rendered);
+        }
+    } else {
+        el.textContent = "";
+        el.appendChild(rendered);
+    }
+    // Updated in place: one record per element, not one allocation per paint.
+    if (!drawn) {
+        drawn = { row, column };
+        drawnFor.set(el, drawn);
+    }
+    drawn.row = row;
+    drawn.column = column;
+}
+
+/**
  * The class on the span that holds a text cell's content.
  *
  * A cell cannot ellipsize its own text. `.avg-data-cell` is `inline-flex`, so a bare text node
@@ -288,7 +343,7 @@ type CellKind = "data-cell" | "footer-cell";
  * left — so **everything a renderer leaves on an element, on it or about it, must be set or
  * reset by every other renderer that draws from the pool.** Two kinds of leftovers:
  *
- * 1. **This file's own records of the element** — `mode`, `written`, `treeState` — describe
+ * 1. **This file's own records of the element** — `mode`, `written`, `drawnFor`, `treeState` — describe
  *    children that a foreign occupant has since replaced. Kept, they make the cache checks below
  *    lie: a data cell whose markup last rendered to the same string skips its `innerHTML` write
  *    and shows the header's children instead (task 62 — a data cell reading `All`). Dropped only
@@ -305,6 +360,7 @@ function claim(el: HTMLElement, kind: CellKind): void {
     if (el.getAttribute("data-type") !== kind) {
         mode.delete(el);
         written.delete(el);
+        drawnFor.delete(el);
         treeState.delete(el);
         el.removeAttribute("aria-expanded");
         el.removeAttribute("aria-busy");
@@ -465,9 +521,7 @@ export function renderDataCell<R>(
                 written.set(target, rendered);
             }
         } else {
-            setMode(target, "node");
-            target.textContent = "";
-            target.appendChild(rendered);
+            setCellNode(target, rendered, row, column);
         }
     } else if (column.dataType === "boolean") {
         setMode(target, "bool");
@@ -622,9 +676,7 @@ export function renderFooterCell<R>(
                 written.set(el, rendered);
             }
         } else {
-            setMode(el, "node");
-            el.textContent = "";
-            el.appendChild(rendered);
+            setCellNode(el, rendered, row, column);
         }
     } else if (column.dataType === "boolean") {
         setMode(el, "bool");

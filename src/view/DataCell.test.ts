@@ -400,6 +400,102 @@ describe("renderDataCell — the text wrapper", () => {
     });
 
     /**
+     * Task 76 — the first click on a rendered element of an unselected row was lost. The press
+     * selected the row, the repaint replaced the pressed node with a fresh one, and a real
+     * browser dispatches no `click` when the press and the release land on different nodes. The
+     * fake DOM dispatches whatever it is told, so the test asserts the cause — the pressed node
+     * is still the cell's after the repaint — and then that its click reaches `onCellClick`.
+     */
+    describe("a repaint keeps an equal render node (task 76)", () => {
+        const pill = (text: string) => {
+            const span = document.createElement("span");
+            span.className = "pill";
+            const inner = document.createElement("b");
+            inner.textContent = text;
+            span.appendChild(inner);
+            return span;
+        };
+        const press = (target: Element) =>
+            target.dispatchEvent(
+                new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0 }),
+            );
+
+        it("a press on a nested node of an unselected row, then its click, fires onCellClick once", async () => {
+            const clicks: string[] = [];
+            const grid = create({
+                rows: [
+                    { id: 1, status: "Done" },
+                    { id: 2, status: "Failed" },
+                ],
+                columns: [
+                    { key: "id" },
+                    { key: "status", render: (c) => pill(String(c.value)) },
+                ],
+                onCellClick: (c) => clicks.push(String(c.value)),
+            });
+            await settle();
+
+            const pressed = cellAt(grid, 1, "status").querySelector("b")!;
+            press(pressed);
+            await settle();
+
+            expect(grid.getFocus()?.rowKey).toBe("2");
+            expect(pressed.isConnected).toBe(true);
+            expect(cellAt(grid, 1, "status").querySelector("b")).toBe(pressed);
+
+            pressed.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+            expect(clicks).toEqual(["Failed"]);
+        });
+
+        it("replaces the node when the markup changes", async () => {
+            const rows = [{ id: 1, status: "Done" }];
+            const grid = create({
+                rows,
+                columns: [{ key: "id" }, { key: "status", render: (c) => pill(String(c.value)) }],
+            });
+            await settle();
+            const before = cellAt(grid, 0, "status").firstElementChild;
+
+            rows[0].status = "Failed";
+            grid.refresh();
+            await settle();
+
+            const after = cellAt(grid, 0, "status").firstElementChild;
+            expect(after).not.toBe(before);
+            expect(after?.textContent).toBe("Failed");
+            expect(cellAt(grid, 0, "status").childElementCount).toBe(1);
+        });
+
+        it("replaces the node when the row object is replaced, even with equal markup", async () => {
+            const grid = create({
+                rows: [{ id: 1, status: "Done" }],
+                columns: [{ key: "id" }, { key: "status", render: (c) => pill(String(c.value)) }],
+            });
+            await settle();
+            const before = cellAt(grid, 0, "status").firstElementChild;
+
+            grid.setRows([{ id: 1, status: "Done" }]);
+            await settle();
+
+            expect(cellAt(grid, 0, "status").firstElementChild).not.toBe(before);
+        });
+
+        it("keeps the node on a repaint of the same row with equal markup", async () => {
+            const grid = create({
+                rows: [{ id: 1, status: "Done" }],
+                columns: [{ key: "id" }, { key: "status", render: (c) => pill(String(c.value)) }],
+            });
+            await settle();
+            const before = cellAt(grid, 0, "status").firstElementChild;
+
+            grid.refresh();
+            await settle();
+
+            expect(cellAt(grid, 0, "status").firstElementChild).toBe(before);
+        });
+    });
+
+    /**
      * Task 61 — a recycled cell keeps the header's `title`, `aria-sort` and `draggable`. The
      * three renderers share one unkeyed pool, and `release()` hands an element on as it was
      * left, so these go **through the pool**: a header rendered, released, then taken by a

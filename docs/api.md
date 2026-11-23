@@ -680,10 +680,19 @@ element at all, and in TypeScript's DOM types `SVGElement` is a *sibling* of `HT
 subtype. `Column.headerRender` takes the same three arms, for the same reason. `Column.editor` is
 deliberately narrower (`HTMLElement | CellEditor`): the grid focuses an editor and reads its value.
 
-Handing back the **same node** across paints is supported and is how an icon column should work: the
-element branch clears the cell and appends what it is given on every paint, so a renderer that
-caches per row keeps one node alive instead of rebuilding it. (The string branch skips an unchanged
-write; the element branch cannot, because it never sees the previous return value.)
+A repaint **keeps the node the cell already holds** when the hook returns that very node, or a
+node equal to it (`isEqualNode`: same tag, attributes and children) for the same row object in the
+same column. Hover and selection repaint the whole row, so without this the element under the
+pointer would be replaced between press and release, and the browser would drop the click. Handing
+back the **same node** across paints is still how an icon column should work: a renderer that
+caches per row keeps one node alive instead of building one per paint. New markup, a replaced row
+object (`setRows`), or a cell recycled from another position always re-renders.
+
+The consequence for listeners: a node built on a repaint that was *kept out* never reaches the DOM,
+so a listener attached to it never runs; the kept node's listener does, and it closes over the same
+row. A listener that reads state *outside* the row which changed without changing the markup sees
+the old closure. Handle clicks with `onCellClick` (it receives the current context), or make that
+state visible in the markup.
 
 `CellContext` is small and flat on purpose:
 
